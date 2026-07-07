@@ -1,0 +1,11 @@
+/vault
+/backend/.venv
+/backend/.pytest_cache
+/frontend/node_modules
+/frontend/dist
+.venv
+__pycache__
+*.pyc
+.DS_Store
+.env
+/.docker-test-data

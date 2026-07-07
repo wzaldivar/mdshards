@@ -1,0 +1,33 @@
+# Anything we don't want shipping into the build context.
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+FEATURES.md
+CLAUDE.md
+.mise.toml
+
+# Local vault and env files — never bake into the image.
+vault/
+**/.env
+**/.env.local
+
+# Python build artifacts.
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.venv/
+backend/tests/
+
+# Node build artifacts. We rebuild dist/ inside the frontend-builder stage,
+# so the host's copy (if any) is irrelevant. node_modules is huge and never
+# needed in the context.
+frontend/node_modules/
+frontend/dist/
+
+# Editor / OS noise.
+.DS_Store
+.vscode/
+.idea/

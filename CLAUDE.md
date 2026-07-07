@@ -1,0 +1,142 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+`mdshards` is a SilverBullet-inspired editor for a vault of markdown notes. A FastAPI server owns the vault as **plain `.md` files on disk** (no database) and exposes it to a React/TypeScript frontend. Live editing is synced via **CRDT** (Yjs on the frontend, `pycrdt` on the backend) between the server's in-memory document and the document each browser sees; the server persists the in-memory state back to the `.md` files.
+
+The editor on the frontend is **CodeMirror 6** (or a near-equivalent) — the key requirement is direct in-buffer editing of the raw markdown while rendering it like proper markdown when not actively editing a region.
+
+There is **no authentication or access control** — the server is meant to run in a trusted environment.
+
+See **`FEATURES.md`** for the user-facing surface inventory — markdown syntax (supported / missing / out of scope), editor capabilities, keyboard map.
+
+## Layout
+
+- `/backend` — FastAPI app (Python 3.13). Entry point `app.main:app`, which wires `app.security.OriginGuard` as the **outermost** middleware, then mounts the routers. CRDT state lives in `app.docs.DocumentManager`; WebSocket endpoint in `app.ws`.
+  - **Routers are thin HTTP adapters; the load-bearing logic lives in top-level `app/` service modules:**
+    - `vault.py` — URL → filesystem path resolution and `assert_inside` (the path-traversal boundary; raises `VaultPathError`). This is where the "path traversal is rejected" rule is enforced.
+    - `files.py` — vault file read/write/rename/delete primitives, shared by the CRDT layer and the `files` router.
+    - `tree.py` — `build_tree()`, the vault walker backing the `tree` router.
+    - `security.py` — `OriginGuard` (see the origin-guard bullet under load-bearing decisions).
+    - `watcher.py` — `VaultWatcher`, the `watchdog` observer over the vault root that drives stage-2 external-writer reconciliation by calling `DocumentManager.reconcile_external` (see the external-writers bullet under load-bearing decisions).
+  - **REST routers in `app.routers/`** (each delegates to the service modules above):
+    - `resolve.py` — the md-wins / asset-fallback disambiguator (the routing rule described below); backs `GET /api/resolve/{path}`.
+    - `pages.py` — catch-all that returns either the SPA shell or a 404 based on `Sec-Fetch-Dest` (document → shell, sub-resource → 404).
+    - `files.py` — REST for markdown notes (upload-as-md, metadata, rename, delete). Mutations route through the CRDT layer.
+    - `assets.py` — REST for non-`.md` bytes (upload, serve, delete). Bypasses CRDT entirely.
+    - `tree.py` — vault listing for the quick-switcher / delete picker.
+    - `config.py` — `/api/config`; surfaces `homePath` (the React Router basename, derived from `BASE_URL`).
+- `/frontend` — React 19 + TypeScript SPA (Vite). Routing via `react-router` v7; component styles via CSS Modules. Editor is CodeMirror 6 + `y-codemirror.next` bound to a `Y.Doc` synced via `y-websocket`.
+  - `src/App.tsx` — the route table: `/index` → `<Navigate to="/" replace>` (client mirror of the root-index canonicalization), everything else (`*`) → `<EditorView>`.
+  - `src/views/EditorView.tsx` — the catch-all route component that resolves the current path (via `use-resolve`) and hosts the editor, asset viewer, or NotFound view; `src/components/Editor.tsx` is its child.
+  - `src/router.ts` — `routeToDocId()`, the splat-param → doc-id helper.
+  - `src/lib/` — `crdt.ts` (Yjs/y-websocket wiring), `markdown-live.ts` (CodeMirror live-preview decorations), `shortcuts.ts` (global keymap), `use-resolve.ts` (client side of the md-vs-asset rule), `tree.ts` (vault listing client), `config.ts`, `paths.ts`, `wikilink.ts`, `upload-path.ts`, `pending-rename.ts`, `cm-highlight.ts`.
+  - `src/components/` — Switcher quartet implements the keyboard-first shortcuts in the architecture section: `QuickSwitcher` (Cmd-K), `RenameSwitcher` (Cmd-Shift-K), `DeleteSwitcher` (Cmd-Backspace), `UploadSwitcher` (Cmd-U). Plus `Editor`, `AssetViewer`, `NotFound`.
+- Vault directory — every `.md` file the server serves lives here. Path is set via the `VAULT_DIR` env var and is gitignored wherever it lives (typically a sibling dir, but the README quick-start uses a repo-internal `vault/`).
+- Backend configuration — all settings are pydantic-settings env vars (or `.env` file); see `backend/.env.example`. Required: `VAULT_DIR`. Optional: `CACHE_DIR` (CRDT cache root, default `~/.cache/mdshards/`), `GRACE_PERIOD_SECONDS`, `HOST`/`PORT` (bind only), `BASE_URL` (reverse-proxy sub-path mount, e.g. `/wiki`; wired into FastAPI's `root_path` and surfaced to the frontend via `/api/config`'s `homePath` field — consumed at **runtime only**, as React Router's basename and for deployment-qualified display such as the quick-switcher rows; never baked into the build). Static frontend serving is **not** an env var: when a prebuilt bundle is present in a `static/` dir next to the `app/` package (the single-container `Dockerfile` copies Vite's `dist/` there), uvicorn serves the SPA shell + `/assets/*` itself; in dev the dir is absent and Vite serves the bundle. See `Settings.static_dir`.
+- Sub-path deployment model — the frontend bundle is base-url-agnostic: every URL it emits (`/api/*`, `/ws/*`, `/<asset>`, `/assets/*`) is origin-rooted, with no prefix. The deployment's reverse proxy is responsible for routing all of these to the backend. The single piece of deployment state the frontend cares about is `homePath`, fetched from `/api/config` at startup: it is the React Router `<BrowserRouter basename>` (so internal `navigate(...)` writes the right pathname into the URL bar) and may also drive **display** of deployment-qualified paths (e.g. the quick-switcher renders rows as `/wiki/foo`). It is consumed at runtime only — it must never be used to prefix a URL the bundle actually fetches or a `window.location` navigation; those stay origin-rooted, and route pathnames get their prefix from the basename, not from manual concatenation. There is no `<base href>` magic, no build-time `VITE_BASE_URL`, no `withBase()` helpers — and there shouldn't be. The same `dist/` deploys at `/`, `/wiki`, or anywhere else without a rebuild.
+
+## Load-bearing architectural decisions
+
+These are the choices a reader can't recover from the code alone — preserve them unless the user explicitly says otherwise:
+
+- **Server is the source of truth.** The on-disk `.md` files are canonical. CRDT state in memory exists to serve concurrent edits; it is reconciled back to disk.
+- **No client-side database.** This is the deliberate departure from SilverBullet. Do not introduce IndexedDB/SQLite-in-browser/PouchDB/etc. on the frontend. The frontend holds the current CRDT doc in memory and nothing more.
+- **CRDT is the sync substrate**, not REST diffing or operational transforms. Yjs on the frontend, `pycrdt` on the backend — keep them in lockstep on the wire format.
+- **Transport split.** CRDT traffic runs over **WebSocket** (y-websocket-style protocol). Everything else — asset upload/delete, vault listing, file metadata — is plain **REST**. Don't tunnel REST through WS or push CRDT updates through REST.
+- **Plain `.md` on disk** — no front-matter index, no sidecar metadata files, no DB shadow copies *inside the vault*. If you need to derive structure, derive it from the markdown itself. There is one explicit exception, outside the vault: a binary Yjs cache at `$CACHE_DIR/<vault-hash>/<rel-path>.yjs` (default `~/.cache/mdshards/`). It preserves CRDT item IDs across grace eviction and server restart so reconnecting clients don't merge the same characters in twice — see `app/docs.py`.
+- **URL → vault path mapping (md-wins resolution):**
+  - The backend disambiguates by file existence, not URL pattern. For URL `/X`:
+    1. Try `<vault>/X.md` — if it exists, this is a markdown note with doc-id `X`. URL `/X` is canonical.
+    2. Else if `X` ends in `.md`, *recurse* on `X` with the trailing `.md` stripped. The literal file `<vault>/X` (if present) IS itself a markdown note — its doc-id is `X-without-.md`, and the canonical URL drops the `.md` too. The SPA picks up the canonical form from `/api/resolve` and `navigate(replace)`s into it.
+    3. Else try `<vault>/X` as an asset (extension required) — if it exists, serve the bytes.
+    4. Else → missing.
+  - **Consequence: `.md` always wins.** `<vault>/foo.jpg.md` shadows `<vault>/foo.jpg` at URL `/foo.jpg`. Name your files wisely — there's no "force-asset" escape hatch.
+  - **`.md` URLs are legal** (no more 400). They follow the same rule; if the doc-id form `<X>.md.md` doesn't exist, the URL canonicalizes to the extensionless form via a 302 (or a SPA-side `replace`-navigate driven by `/api/resolve`'s `canonical` field).
+  - The frontend learns the type via `GET /api/resolve/{path}` which returns `{type: 'md' | 'asset' | 'missing', canonical: '<stripped-form>'}`.
+  - The extensionless form is reserved for markdown; do not introduce other extensionless routes.
+  - **Paths are case-sensitive.** `Foo.md` and `foo.md` are different files.
+  - **No spaces in vault paths or filenames.** Reject requests whose resolved path contains spaces; the editor / quick-switcher must refuse to create them.
+  - **Missing paths serve the SPA shell** so the React app can render its own NotFound view (with a "Go home" button). Earlier behavior was a server-side redirect to `/`; that was too silent — typos got eaten. `/api/resolve` returns `{type: 'missing'}` for these.
+  - **URLs address files, never directories.** `/foo` resolves to `foo.md`; `/foo/bar` resolves to `foo/bar.md`. There is no `/foo/` route that lists the contents of a `foo/` directory — directory/tree listing is exposed via a dedicated REST endpoint, not via URL traversal. `foo.md` and a sibling `foo/` directory can coexist without conflict because they're addressed by different URL shapes.
+  - **Root index — the one exception.** `/` (the vault root, and *only* the vault root) maps to `<vault>/index.md`, SilverBullet-style. No nested directory has equivalent index behavior — `/foo/` is still not a route. If `<vault>/index.md` is missing on first access, **materialize it from a template** before loading it into the CRDT layer; from that point on it's a normal vault file — the user can edit it and it follows the regular sync/persist path. The seed template is resolved by `app/files.py:resolve_index_template`: a mountable override at **`~/.mdshards/index.md`** if present, else a built-in default (`app/templates/index_placeholder.md`). The override is a **fixed path on purpose, never an env var** — an env-var-configurable template path would be an arbitrary-file-read vector (point it at `/etc/passwd` and its contents get written into the vault as `index.md`).
+- **File auto-creation is limited to exactly two paths:**
+  1. `<vault>/index.md` on first access, as above.
+  2. The frontend **quick-switcher** (see below), which may create the target file *and any missing intermediate directories* when the user explicitly confirms a non-existent path.
+
+  Nothing else creates files on disk — visiting a non-existent URL doesn't, drag-and-drop doesn't, REST endpoints don't unless they are explicitly upload endpoints.
+- **Upload dispatch is by source file, not by target name.**
+  - **Source ends in `.md`** → the upload is always a markdown note. The disk file ends in `.md` regardless of what the user typed for the target. If the user retypes the target with a different extension, the typed extension becomes part of the doc-id basename and `.md` is appended on disk — so source `foo.md` typed as `foo.jpeg` lands at `<vault>/foo.jpeg.md` with URL `/foo.jpeg` (the md-wins routing rule serves it back as md).
+  - **Source does not end in `.md`** → the upload is an asset. The disk filename is exactly the target path the user submitted (the modal prefills it from the source filename, but the user can rename or change extension freely). No `.md` forcing.
+  - The dispatch keys off `file.name.toLowerCase().endsWith('.md')` in `UploadSwitcher` and chooses between `POST /api/files` (md, with the doc-id form) and `POST /api/assets` (literal target).
+- **Frontend keyboard shortcuts.** The frontend is keyboard-first; at minimum it exposes:
+  - **Go-to-file (quick switcher):** autocompletes against the existing vault tree. If the user confirms a path that doesn't match any file, it creates the `.md` plus any missing parent directories (subject to the no-spaces rule). This is the **only** UI surface that creates vault files implicitly.
+  - **Delete-file:** same autocomplete UX as go-to but the picker lists **files only** — directories are never selectable; the only way a directory disappears is via the empty-dir pruning rule below. A top entry **"delete this file"** targets the file currently open. `<vault>/index.md` is excluded from both the autocomplete list and the "delete this file" entry — it's never deletable through the UI (consistent with its auto-materialize behavior). The shortcut must always confirm before deleting — there's no undo. After a successful delete, navigate to `/` **only if the deleted file was the one being viewed**; deleting an unrelated file leaves the current view in place.
+- **Vault has no empty directories.** A directory exists only because some file lives in it. After any delete that empties a directory, prune empty parents upward until a non-empty directory or the vault root is reached. Example: deleting `<vault>/has_data/has_data/empty/empty/foo_only/foo.md` leaves `<vault>/has_data/has_data/` (still has siblings) and removes everything below it. The same invariant applies to any future operation that could leave empty dirs (e.g. moves/renames).
+- **Path traversal is rejected.** Any URL whose resolved filesystem path would escape the configured vault root — `..` segments, absolute paths, symlinks pointing outside, encoded variants — must be refused before any disk access. "No auth" does **not** mean "no boundary"; the vault dir is the boundary.
+- **Only `.md` files are editable.** CRDT sync, in-memory documents, and live collaboration apply **exclusively** to markdown.
+  - Non-`.md` assets are read-only over their URL and mutated only via upload / delete endpoints. They never enter the CRDT layer.
+  - If a non-`.md` request hits a missing file: a top-level browser nav (Sec-Fetch-Dest=document) gets the SPA shell so the React NotFound view can render; sub-resource fetches (iframe, image, fetch) get a 404. No auto-create, no sync bootstrap, no placeholder.
+  - Do not generalize the editor or sync code to handle other formats; resist requests to do so without an explicit design discussion.
+- **Vault is portable; references stay relative.** Asset references inside `.md` (images, links, embeds) must use **vault-relative paths** that resolve correctly when the vault is copied or synced elsewhere and edited with any other markdown tool.
+  - No host-absolute URLs (`https://<host>/foo/diagram.png`) for in-vault assets.
+  - No app-internal schemes or rewritten paths. What the editor writes into the file is what lands on disk.
+  - When rendering, resolve `![](foo/diagram.png)` against the containing note's vault path, not against the URL the user is viewing.
+- **In-memory document lifecycle.** A `.md` is loaded into the in-memory CRDT layer when the first webclient connects to it and stays loaded while at least one client is connected.
+  - When the last client disconnects, the doc lingers for a configurable **grace period (default 30s)** before being flushed and dropped, so reloads and short network blips reconnect to the same in-memory state instead of forcing a fresh load from disk.
+  - The grace period is a backend config value, not a hardcoded constant.
+  - Persist to disk on changes during the doc's lifetime; the eviction at end-of-grace is the final flush, not the only one.
+- **Disconnection is a hard stop, not an offline-editing mode.** This is a network-convenience editor for a vault someone also edits in Obsidian — it is **not** an offline-first or durable-authorship tool. See [[project-no-offline-editing]].
+  - **Within the grace period**, a dropped socket is treated as a blip: the client may keep editing optimistically and a quick reconnect resumes the *same* in-memory doc, losing nothing.
+  - **Once a disconnect outlasts the grace period**, the frontend goes **read-only** and shows a notification that editing is disabled because the server connection was lost — this is the tool's "offline dinosaur" dead-end, the expected wall, not a bug to engineer around. The read-only threshold reuses the grace period surfaced via `/api/config`; there is no separate client-side timeout value.
+  - **On reconnect after that window, the browser's local `Y.Doc` is dismissed, not merged.** The server/disk is the source of truth; the client must **drop its in-memory doc and re-sync server state from scratch** rather than union its stale items back in (a plain y-websocket resync would merge them — the dismiss has to be a deliberate client action). A disconnected client is never treated as a first-class author. Do **not** add offline-edit merge machinery to the reconnect path.
+- **Blob-cache validity is bounded by the grace period — this decides cold-open reconciliation.** When a doc is loaded with no live session and a `.yjs` cache exists, the cache's **age** (its last-write time vs. now) picks the path:
+  - **Cache older than the grace period → drop it and start fresh.** Discard the cache, seed a brand-new `Doc` from the current disk bytes (new item IDs, **disk wins wholesale, no conflict file**), and rewrite the cache. This is safe precisely *because* of the dismiss rule above: any client reconnecting past grace has already thrown away its local doc, so no old CRDT items exist to double-merge against — the cache's only reason to exist (preventing that double-merge) is gone, so stale cache is worthless and disk is simply the truth.
+  - **Cache within the grace period → ghost-diff merge.** Restore the `Doc` from the cache (preserving item IDs); if disk diverged from the cached text, fold the disk change in via the same `difflib` ghost-merge the watcher uses (conflict file only if the diff is untrustworthy). Never overwrite either side.
+  - The server-side cache-drop threshold **defaults to the grace period but may be configured longer** to give the cache more life (more CRDT item-ID continuity, so later ghost-merges have a richer baseline). Extending it stays safe: a client reconnecting past grace has been dismissed *regardless* of the cache threshold, so keeping the cache around longer only means cold-open restores prior CRDT state (+ ghost-merges disk changes) instead of starting fresh — it never reintroduces the double-merge the cache exists to prevent. The client-side read-only/dismiss threshold, by contrast, stays pinned to the grace period.
+- **The vault has external writers (implemented — stage 2).** A `watchdog` observer (`app/watcher.py`, wired into the lifespan in `main.py`) watches the disk and folds external changes into the CRDT — the use case is `mdshards vault <> Syncthing <> Obsidian vault`, so another tool may overwrite a `.md` while a browser is editing it.
+  - Do not assume the server is the only writer of an on-disk `.md`. The reconciliation path (disk → in-memory doc → connected clients) exists and must stay safe; the active watcher sits on top of it.
+  - Keep the on-disk format strictly portable markdown so a round-trip through Obsidian/Syncthing/etc. doesn't corrupt anything.
+  - **Stage-2 design (`watchdog`-based):** the watcher schedules a recursive observer over the vault root but reconciles **only actively-loaded docs** (paths currently in `DocumentManager._docs`) — deliberately *not* idle notes, to avoid endless blob-cache churn for files nobody is using; `reconcile_external` returns early for any path not loaded. External edits to an idle note are reconciled lazily on next open by the `_load` cold-open path, not by the watcher. Observer events fire on watchdog's own thread and are dispatched onto the asyncio loop via `run_coroutine_threadsafe` (pycrdt Docs are only ever mutated on the loop thread).
+  - On an external change to an active doc, the **"ghost editor"** (`DocumentManager.reconcile_external`) reconciles it: (1) read the new content from disk; (2) `difflib.SequenceMatcher(autojunk=False)` diff it against the current in-memory text; (3) replay the resulting opcodes as `Y.Text` splices in one transaction, applied in reverse so indices stay valid — the change fans out to connected clients through the normal `on_event` path, *as if a ghost typed it*, and is **never** applied by overwriting the file. Self-writes are filtered by comparing the disk content against `last_disk_content` (docs.py) — `_flush` sets it to exactly what it wrote — so the watcher never reacts to our own flush.
+- **Conflict policy: Syncthing-style, with a ghost-merge default.** When an external change to an active `.md` arrives, **try to merge first** via the ghost-editor `difflib` path above. `SequenceMatcher` is not a minimal diff and its autojunk heuristic misbehaves on large/repetitive text (hence `autojunk=False`), so when the diff looks untrustworthy — `_diff_is_trustworthy` treats a similarity `ratio()` below `_GHOST_MIN_RATIO` (0.4) as untrustworthy once **both** sides exceed `_GHOST_MIN_LEN` (200 chars); smaller buffers legitimately rewrite wholesale and are trusted — do **not** ghost-apply garbage: **write a conflict file** alongside the original (Syncthing-style naming, e.g. `foo.sync-conflict-<timestamp>.md`), adopt disk as the new `last_disk_content` baseline so the passive `_flush` path doesn't emit a *second* conflict file for the same divergence, and leave the live doc untouched (it wins back to disk on the next flush). The conflict file is the safety net for diff unreliability, not the common case. Never silently overwrite either side.
+- **No auth.** Do not add login flows, sessions, JWT/cookie middleware, or per-document ACLs unless explicitly asked.
+- **No auth, but there is an origin boundary (`app/security.py`, `OriginGuard`).** No-auth does not mean no-CSRF/WS-hijack defense. The outermost middleware gates requests by browser-set headers:
+  - `/api/*` requires `Sec-Fetch-Site` to be **present** and in `{same-origin, same-site, none}` — blocks casual non-browser callers (curl sends nothing by default) and cross-origin `fetch`.
+  - `/ws/*` requires `Origin` to be present instead, because browsers omit `Sec-Fetch-*` on the WebSocket opening handshake but always send `Origin`.
+  - Static / asset / direct-navigation paths (`/`, `/assets/*`, `<vault-asset>` URLs, etc.) keep a looser gate: safe methods (`GET`/`HEAD`/`OPTIONS`) pass unconditionally so typed URLs and bookmarks work; only state-changing methods check origin.
+  - The trusted origin is **not configured** — there's no canonical-hostname env var (this is a LAN-first tool). When an `Origin` is present the guard matches it against the request's own `Host` header, scheme-agnostically (a TLS-terminating proxy sees `http` while the browser sees `https`), so whatever host the browser used to reach the server is the origin accepted. This is casual-bypass defense, **not** crypto-strong (`curl -H "Sec-Fetch-Site: same-origin" -H "Origin: http://<host>" -H "Host: <host>"` still passes) — don't mistake it for authentication.
+- **Exactly two supported deployment modes — everything else is at your own risk.** The threat model is blunt: running this is like **exposing a VS Code instance to the world over your filesystem**. Full read/write access to the vault is granted to anyone who can reach the server; the origin guard is CSRF/casual-bypass defense, not access control. The two modes we support and test:
+  1. **Single container, static + uvicorn** — the `Dockerfile` bakes `dist/` into `static/` next to `app/` and uvicorn serves the SPA shell, `/assets/*`, `/api/*`, and `/ws/*` on one port. No reverse proxy.
+  2. **nginx (or any static host) serving `dist/`, backend hidden** — nginx serves the static bundle and reverse-proxies `/api/`, `/ws/`, `/assets/`, and the SPA-shell routes to a backend uvicorn that is not otherwise exposed.
+
+  `BASE_URL` sub-path mounting is a variant of these two, not a third mode. Any other topology (backend directly on a public interface, custom auth shims, multi-tenant fronting, etc.) is unsupported and on you.
+- **No read-only / safe-to-browse mode — and none is planned.** Do not add a viewer-only mode, per-note visibility, share links, or any "public but read-only" surface. There is no intention to support browsing the vault without full edit access; don't design features that presuppose one.
+
+## Commands
+
+Toolchain is pinned via `.mise.toml` (Python 3.13 + Node 22 LTS). `mise` auto-creates a `.venv/` at the repo root and activates it for `python` and `pip` — never install Python or npm packages globally (see [[feedback-local-envs]]).
+
+Backend (`backend/`, FastAPI + pytest + ruff):
+
+- Install: `pip install -r backend/requirements.txt`
+- Run dev server: `uvicorn app.main:app --reload` from `backend/` (requires `VAULT_DIR` env var)
+- Run all tests: `pytest` from `backend/`
+- Run a single test (from `backend/`): `pytest tests/test_vault.py::<test_name>`
+- Format / lint: `ruff format backend/ && ruff check backend/`
+
+Frontend (`frontend/`, React 19 + Vite + Vitest):
+
+- Install: `npm install` in `frontend/`
+- Dev server: `npm run dev` (proxies `/api` and `/ws` to `127.0.0.1:8000`)
+- Production build: `npm run build`
+- Tests: `npm run test`
+
+## Conventions to preserve
+
+- Keep the vault as plain `.md`. No DB, no index files committed alongside notes.
+- Keep the frontend stateless beyond the live CRDT doc. No persistent client storage.
+- Treat CRDT integration as the central design problem; new features that bypass it (e.g. raw REST writes that don't go through the CRDT) need explicit justification.
+- Don't add auth scaffolding speculatively.

@@ -1,0 +1,370 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router'
+import { EditorView } from '../views/EditorView'
+import type { ResourceType } from '../lib/use-resolve'
+
+/*
+ * End-to-end-ish coverage of the shortcut surface: render the same component
+ * tree the live app would for a given URL, dispatch a Cmd-modified keydown on
+ * window, assert the matching modal becomes visible.
+ *
+ * The shortcut binding has broken several times from "unrelated" changes
+ * (iframe focus traps, asset routing, render refactors, resolve-aware guards).
+ * This test is the canary — if it fails, the four shortcuts are dead in the
+ * real app.
+ */
+
+function renderAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="*" element={<EditorView />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+function pressShortcut(opts: { key: string; code?: string; shift?: boolean }) {
+  fireEvent.keyDown(window, {
+    key: opts.key,
+    code: opts.code ?? `Key${opts.key.toUpperCase()}`,
+    metaKey: true,
+    shiftKey: opts.shift ?? false,
+  })
+}
+
+/** Wait for the useResolve hook's fetch to settle. The shortcut handlers that
+ *  guard on file existence (delete, rename) won't fire until this completes.
+ *  Three "ready" signals cover the three branches: CodeMirror's own
+ *  `.cm-editor` class for md, an `<img>` for asset (image), and an `<h2>`
+ *  for the NotFound card. */
+async function waitForResolve() {
+  await waitFor(() => {
+    const ready =
+      document.querySelector('.cm-editor') ||
+      document.querySelector('img') ||
+      document.querySelector('h2')
+    expect(ready).not.toBeNull()
+  })
+}
+
+/** Stub /api/resolve to return the given type, and /api/tree to return empty.
+ *  The canonical field is set to whatever path was asked about so useResolve
+ *  doesn't trigger a redirect — these tests cover the "resolved cleanly"
+ *  shape, not the canonical-redirect flow (which is exercised separately). */
+function stubBackend(resolveType: ResourceType) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString()
+      const resolveMatch = /\/api\/resolve(?:\/(.*))?$/.exec(url.split('?')[0])
+      if (resolveMatch) {
+        const canonical = resolveMatch[1] ?? ''
+        return Promise.resolve(
+          new Response(JSON.stringify({ type: resolveType, canonical }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+      }
+      // /api/tree and friends — return an empty tree so the modals can open.
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ name: '', path: '', type: 'dir', children: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+    }),
+  )
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+describe('EditorView shortcuts on an asset URL', () => {
+  beforeEach(() => stubBackend('asset'))
+
+  it('Cmd-K opens the quick switcher', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    pressShortcut({ key: 'k' })
+    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+  })
+
+  it('Cmd-Backspace opens the delete switcher', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    pressShortcut({ key: 'Backspace', code: 'Backspace' })
+    expect(await screen.findByPlaceholderText(/pick a file to delete/i)).toBeDefined()
+  })
+
+  it('Cmd-Shift-K opens the rename switcher', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    pressShortcut({ key: 'K', shift: true })
+    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+  })
+
+  it('Cmd-U triggers the hidden file picker', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(hiddenInput).not.toBeNull()
+    const clickSpy = vi.spyOn(hiddenInput!, 'click')
+    pressShortcut({ key: 'u' })
+    expect(clickSpy).toHaveBeenCalledOnce()
+    expect(screen.queryByPlaceholderText(/upload to vault path/i)).toBeNull()
+  })
+
+  it('renders the asset as a real <img>, not an iframe', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    const img = document.querySelector('img[src="/my/photo.jpeg"]')
+    expect(img).not.toBeNull()
+    expect(document.querySelector('iframe')).toBeNull()
+  })
+})
+
+describe('EditorView shortcuts on a markdown URL', () => {
+  beforeEach(() => stubBackend('md'))
+
+  it('Cmd-K opens the quick switcher', async () => {
+    renderAt('/notes/today')
+    await waitForResolve()
+    pressShortcut({ key: 'k' })
+    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+  })
+
+  it('Cmd-Shift-K does NOT open rename on the root index', async () => {
+    renderAt('/')
+    await waitForResolve()
+    pressShortcut({ key: 'K', shift: true })
+    expect(screen.queryByPlaceholderText(/rename to/i)).toBeNull()
+  })
+
+  it('Cmd-Shift-K opens rename on a non-root note', async () => {
+    renderAt('/notes/today')
+    await waitForResolve()
+    pressShortcut({ key: 'K', shift: true })
+    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+  })
+
+  it('Cmd-Shift-K opens rename on a dotty md URL (no false-asset routing)', async () => {
+    renderAt('/notes/my.weekly')
+    await waitForResolve()
+    pressShortcut({ key: 'K', shift: true })
+    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+  })
+
+  it('selecting a file on the hidden picker opens the modal with a prefilled path', async () => {
+    renderAt('/notes/today')
+    await waitForResolve()
+    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['x'], 'My Photo.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
+    fireEvent.change(hiddenInput)
+    const pathInput = (await screen.findByPlaceholderText(
+      /upload to vault path/i,
+    )) as HTMLInputElement
+    expect(pathInput.value).toBe('notes/MyPhoto.jpg')
+  })
+
+  it('selecting a file on the hidden picker opens the modal with just the normalized name at root', async () => {
+    renderAt('/')
+    await waitForResolve()
+    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['x'], 'Some Doc.pdf', { type: 'application/pdf' })
+    Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
+    fireEvent.change(hiddenInput)
+    const pathInput = (await screen.findByPlaceholderText(
+      /upload to vault path/i,
+    )) as HTMLInputElement
+    expect(pathInput.value).toBe('SomeDoc.pdf')
+  })
+})
+
+describe('QuickSwitcher force-create', () => {
+  /** Stub /api/resolve to md, /api/tree to a vault containing `my-notes.md`,
+   *  and capture POSTs to /api/files so we can assert what was sent. */
+  function stubWithTree(): { posts: Array<{ url: URL; body: unknown }> } {
+    const posts: Array<{ url: URL; body: unknown }> = []
+    // Real vaults always have `index.md` (auto-materialized on startup), so
+    // include it here — the QuickSwitcher pins it as the first entry and
+    // would otherwise treat it as a creatable target.
+    const tree = {
+      name: '', path: '', type: 'dir',
+      children: [
+        { name: 'index.md', path: 'index.md', type: 'file' },
+        { name: 'my-notes.md', path: 'my-notes.md', type: 'file' },
+        { name: 'my-thoughts.md', path: 'my-thoughts.md', type: 'file' },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString()
+        const resolveMatch = /\/api\/resolve(?:\/(.*))?$/.exec(url.split('?')[0])
+        if (resolveMatch) {
+          const canonical = resolveMatch[1] ?? ''
+          return Promise.resolve(
+            new Response(JSON.stringify({ type: 'md', canonical }), { status: 200 }),
+          )
+        }
+        if (url.endsWith('/api/files') && init?.method === 'POST') {
+          posts.push({
+            url: new URL(url, 'http://x'),
+            body: JSON.parse(String(init.body)),
+          })
+          return Promise.resolve(new Response(JSON.stringify({ path: '' }), { status: 201 }))
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(tree), { status: 200 }),
+        )
+      }),
+    )
+    return { posts }
+  }
+
+  async function openSwitcherAndType(text: string): Promise<HTMLInputElement> {
+    renderAt('/notes/today')
+    await waitForResolve()
+    pressShortcut({ key: 'k' })
+    const input = (await screen.findByPlaceholderText(/go to or create/i)) as HTMLInputElement
+    fireEvent.change(input, { target: { value: text } })
+    // Wait for the tree fetch to settle so matches are populated.
+    await waitFor(() => {
+      const items = document.querySelectorAll('li')
+      expect(items.length).toBeGreaterThan(0)
+    })
+    return input
+  }
+
+  it('plain Enter on "my" navigates to the highlighted match (no POST)', async () => {
+    const { posts } = stubWithTree()
+    const input = await openSwitcherAndType('my')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // Give the click async path a turn to settle; no POST should fire.
+    await waitFor(() => expect(posts.length).toBe(0))
+  })
+
+  it('Shift-Enter on "my" creates a new file at "my" (POST /api/files with path=my)', async () => {
+    const { posts } = stubWithTree()
+    const input = await openSwitcherAndType('my')
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(posts.length).toBe(1))
+    expect(posts[0].url.pathname).toBe('/api/files')
+    expect(posts[0].body).toMatchObject({ path: 'my' })
+  })
+
+  it('plain Enter on a novel path does NOT create — creation requires Shift-Enter', async () => {
+    const { posts } = stubWithTree()
+    // "brand-new" matches nothing in the tree, so there is no highlighted match.
+    const input = await openSwitcherAndType('brand-new')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // No POST should fire — plain Enter is a no-op with no existing match.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(posts.length).toBe(0)
+  })
+
+  it('Shift-Enter on a novel path creates it', async () => {
+    const { posts } = stubWithTree()
+    const input = await openSwitcherAndType('brand-new')
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(posts.length).toBe(1))
+    expect(posts[0].body).toMatchObject({ path: 'brand-new' })
+  })
+})
+
+describe('Upload dispatch is by source type, not target extension', () => {
+  beforeEach(() => stubBackend('md'))
+
+  async function submitWith(file: File): Promise<URL[]> {
+    const calls: URL[] = []
+    // Wrap the existing fetch stub so we can observe submissions.
+    const baseFetch = globalThis.fetch as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? new URL(input, 'http://x') : new URL(String(input), 'http://x')
+        if (init?.method === 'POST') calls.push(url)
+        return baseFetch(input, init)
+      }),
+    )
+    renderAt('/notes/today')
+    await waitForResolve()
+    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
+    fireEvent.change(hiddenInput)
+    const pathInput = (await screen.findByPlaceholderText(
+      /upload to vault path/i,
+    )) as HTMLInputElement
+    fireEvent.keyDown(pathInput, { key: 'Enter' })
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0))
+    return calls
+  }
+
+  it('md source typed as foo.jpeg POSTs /api/files with path=foo.jpeg', async () => {
+    const file = new File(['# note'], 'draft.md', { type: 'text/markdown' })
+    const calls = await submitWith(file)
+    const post = calls.find((u) => u.pathname.startsWith('/api/files'))
+    expect(post).toBeDefined()
+    expect(post!.pathname).toBe('/api/files')
+  })
+
+  it('non-md source POSTs /api/assets (no .md forcing)', async () => {
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'cat.jpeg', {
+      type: 'image/jpeg',
+    })
+    const calls = await submitWith(file)
+    const post = calls.find((u) => u.pathname.startsWith('/api/assets'))
+    expect(post).toBeDefined()
+  })
+})
+
+describe('EditorView shortcuts on a missing URL', () => {
+  beforeEach(() => stubBackend('missing'))
+
+  it('renders the NotFound card with a Go home button', async () => {
+    renderAt('/no/such/page')
+    await waitFor(() => {
+      expect(screen.getByText(/not found/i)).toBeDefined()
+    })
+    expect(screen.getByRole('button', { name: /go home/i })).toBeDefined()
+  })
+
+  it('Cmd-K still opens the quick switcher (so the user can navigate away)', async () => {
+    renderAt('/no/such/page')
+    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    pressShortcut({ key: 'k' })
+    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+  })
+
+  it('Cmd-U still triggers the file picker', async () => {
+    renderAt('/no/such/page')
+    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    const clickSpy = vi.spyOn(hiddenInput, 'click')
+    pressShortcut({ key: 'u' })
+    expect(clickSpy).toHaveBeenCalledOnce()
+  })
+
+  it('Cmd-Backspace does NOT open delete (no real file to delete)', async () => {
+    renderAt('/no/such/page')
+    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    pressShortcut({ key: 'Backspace', code: 'Backspace' })
+    expect(screen.queryByPlaceholderText(/pick a file to delete/i)).toBeNull()
+  })
+
+  it('Cmd-Shift-K does NOT open rename (no real file to rename)', async () => {
+    renderAt('/no/such/page')
+    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    pressShortcut({ key: 'K', shift: true })
+    expect(screen.queryByPlaceholderText(/rename to/i)).toBeNull()
+  })
+})

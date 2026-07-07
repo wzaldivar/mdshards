@@ -1,0 +1,90 @@
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel
+
+from ..config import get_settings
+from ..files import delete_with_prune, move_with_prune, write_md_atomic
+from ..vault import VaultPathError, resolve_md
+
+router = APIRouter(prefix="/api")
+
+
+class CreateFileRequest(BaseModel):
+    path: str
+    # Optional body content. Used by the upload flow when the source is a .md
+    # file — the bytes ride in the same request rather than via a separate
+    # multipart upload. Defaults to empty so quick-switcher creates still get
+    # a blank note.
+    content: str = ""
+
+
+class MoveFileRequest(BaseModel):
+    src: str
+    dst: str
+
+
+@router.post("/files", status_code=status.HTTP_201_CREATED)
+def create_file(req: CreateFileRequest) -> dict:
+    settings = get_settings()
+    try:
+        target = resolve_md(req.path, settings.vault_dir)
+    except VaultPathError as e:
+        raise HTTPException(400, detail=str(e)) from e
+    if target.exists():
+        raise HTTPException(409, detail="file already exists")
+    write_md_atomic(target, req.content, settings.vault_dir)
+    return {"path": req.path}
+
+
+@router.post("/files/move")
+async def move_file(req: MoveFileRequest, request: Request) -> dict:
+    """Rename a note from one vault path to another. Kicks attached clients,
+    moves the .md and the CRDT cache, and prunes any source parents the move
+    leaves empty."""
+    settings = get_settings()
+    try:
+        src_path = resolve_md(req.src, settings.vault_dir)
+        dst_path = resolve_md(req.dst, settings.vault_dir)
+    except VaultPathError as e:
+        raise HTTPException(400, detail=str(e)) from e
+    if src_path == dst_path:
+        raise HTTPException(400, detail="source and destination are the same")
+    index_md = (settings.vault_dir / "index.md").resolve()
+    if src_path == index_md:
+        raise HTTPException(403, detail="index.md cannot be renamed")
+    if dst_path == index_md:
+        raise HTTPException(403, detail="cannot rename to index.md")
+    if not src_path.exists():
+        raise HTTPException(404, detail="source not found")
+    if dst_path.exists():
+        raise HTTPException(409, detail="destination already exists")
+    # Order matters (same reasoning as delete): kick + move cache before the
+    # disk move, so a racing flush can't recreate the source.
+    manager = getattr(request.app.state, "doc_manager", None)
+    if manager is not None:
+        await manager.rename(req.src, req.dst)
+    move_with_prune(src_path, dst_path, settings.vault_dir)
+    return {"from": req.src, "to": req.dst}
+
+
+@router.delete("/files/{file_path:path}")
+async def delete_file(file_path: str, request: Request) -> dict:
+    settings = get_settings()
+    try:
+        target = resolve_md(file_path, settings.vault_dir)
+    except VaultPathError as e:
+        raise HTTPException(400, detail=str(e)) from e
+    index_md = (settings.vault_dir / "index.md").resolve()
+    if target == index_md:
+        raise HTTPException(403, detail="index.md cannot be deleted")
+    if not target.exists():
+        raise HTTPException(404, detail="not found")
+    # Order matters: kick first so any connected editor stops pushing edits
+    # into the Doc (which would resurrect the file on the next flush) BEFORE
+    # we unlink the disk file and clear the cache.
+    manager = getattr(request.app.state, "doc_manager", None)
+    if manager is not None:
+        await manager.kick(file_path)
+    delete_with_prune(target, settings.vault_dir)
+    if manager is not None:
+        manager.purge(file_path)
+    return {"deleted": file_path}

@@ -1,0 +1,73 @@
+.host {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+  background: var(--bg-alt);
+}
+.card {
+  background: var(--bg-surface);
+  color: var(--fg);
+  border: 1px solid var(--bg-surface-elev);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(var(--ctp-crust), 60%);
+  padding: 32px 40px;
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.title {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--heading-color);
+  margin: 0;
+}
+.body {
+  color: var(--fg-muted);
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.body code {
+  font-family: ui-monospace, monospace;
+  background: var(--bg-surface-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.primaryBtn {
+  border: 0;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+.primaryBtn:hover {
+  filter: brightness(1.1);
+}
+.hint {
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+.hint kbd {
+  display: inline-block;
+  font-family: ui-monospace, monospace;
+  background: var(--bg-surface-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}

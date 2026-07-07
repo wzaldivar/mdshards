@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pycrdt
+pydantic-settings
+python-multipart
+watchdog
+
+pytest
+pytest-asyncio
+httpx
+ruff

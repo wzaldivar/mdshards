@@ -1,0 +1,16 @@
+# Welcome to mdshards
+
+This is your vault's home page. Edit me to make me yours — every change you make here is saved as plain markdown on disk.
+
+## Keyboard shortcuts
+
+- `Ctrl/Cmd-K` — quick switcher (open or create a note; pick `/` to return home)
+- `Ctrl/Cmd-Shift-K` — rename the current note
+- `Ctrl/Cmd-Backspace` — delete a note
+- `Ctrl/Cmd-U` — upload a file into the vault
+
+## A few rules to know
+
+- Paths are case-sensitive.
+- No spaces in note paths.
+- Only `.md` files are editable; other assets (images, etc.) are uploaded separately.

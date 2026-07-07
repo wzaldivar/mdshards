@@ -1,0 +1,49 @@
+.view {
+  height: 100%;
+  position: relative;
+}
+.banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-surface);
+  color: var(--fg);
+  border: 1px solid var(--bg-surface-elev);
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(var(--ctp-crust), 60%);
+  z-index: 1100;
+  font-size: 13px;
+}
+.banner.offline {
+  border-color: rgb(var(--ctp-peach), 60%);
+  box-shadow:
+    0 8px 24px rgb(var(--ctp-crust), 60%),
+    inset 3px 0 0 rgb(var(--ctp-peach));
+}
+.banner code {
+  font-family: ui-monospace, monospace;
+  background: var(--bg-surface-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.banner button {
+  border: 0;
+  background: var(--bg-surface-elev);
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+.banner button.primaryBtn {
+  background: var(--accent);
+  color: var(--bg);
+}
+.banner button:hover {
+  filter: brightness(1.1);
+}
