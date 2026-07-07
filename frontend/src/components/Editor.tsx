@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { drawSelection, EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { getCM, vim } from '@replit/codemirror-vim'
 import { syntaxHighlighting } from '@codemirror/language'
 import { languages as codeLanguages } from '@codemirror/language-data'
 import { markdown } from '@codemirror/lang-markdown'
@@ -13,6 +14,7 @@ import { catppuccinHighlight } from '../lib/cm-highlight'
 import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
 import { markdownLive } from '../lib/markdown-live'
 import { pendingRenames } from '../lib/pending-rename'
+import { isVimEnabled, setVimEnabled } from '../lib/vim-pref'
 import { Wikilink } from '../lib/wikilink'
 import styles from './Editor.module.css'
 
@@ -31,6 +33,9 @@ interface Props {
 export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
   const navigate = useNavigate()
   const hostRef = useRef<HTMLDivElement | null>(null)
+  // Current vim mode label (NORMAL/INSERT/VISUAL/REPLACE), or null when vim is
+  // off — drives the little corner indicator.
+  const [vimStatus, setVimStatus] = useState<string | null>(null)
   // Latest-callback refs so changing these props doesn't re-mount CodeMirror.
   const onMovedRef = useRef(onMoved)
   const onReadOnlyChangeRef = useRef(onReadOnlyChange)
@@ -85,6 +90,40 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     const editable = new Compartment()
     let readOnlyTimer: ReturnType<typeof setTimeout> | null = null
     let readOnly = false
+
+    // Vim mode swaps through its own compartment so it can be toggled live
+    // without rebuilding the view. The on/off choice is read from (and written
+    // back to) localStorage — the single persisted UI preference (see
+    // lib/vim-pref.ts). Initialized once per effect run, so it survives the
+    // stale-reconnect remount below and is re-read from storage on navigation.
+    const vimMode = new Compartment()
+    let vimOn = isVimEnabled()
+
+    const onVimModeChange = (e: { mode: string }): void => {
+      setVimStatus(e.mode.toUpperCase())
+    }
+    // Seed the indicator label and (re)attach the mode-change listener. Called
+    // after each view build and each toggle-on, because reconfiguring the
+    // compartment builds a fresh vim instance whose events we must re-subscribe.
+    const syncVimStatus = (): void => {
+      if (!vimOn) {
+        setVimStatus(null)
+        return
+      }
+      setVimStatus('NORMAL') // vim always (re)starts in normal mode
+      const cm = view ? getCM(view) : null
+      cm?.on('vim-mode-change', onVimModeChange)
+    }
+
+    const toggleVim = (): boolean => {
+      vimOn = !vimOn
+      setVimEnabled(vimOn)
+      // `vim()` must lead the extension list, so the compartment holding it is
+      // placed first in buildView; reconfiguring it in place keeps that slot.
+      view?.dispatch({ effects: vimMode.reconfigure(vimOn ? vim() : []) })
+      syncVimStatus()
+      return true
+    }
 
     const clearReadOnlyTimer = (): void => {
       if (readOnlyTimer !== null) {
@@ -183,14 +222,35 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
           readOnlyTimer = setTimeout(() => setReadOnly(true), staleAfterMs)
         }
       })
-      view = buildView(host, bundle, docId, onWikilinkNavigate, editable)
+      view = buildView(host, bundle, docId, onWikilinkNavigate, editable, {
+        compartment: vimMode,
+        initialOn: vimOn,
+        toggle: toggleVim,
+      })
+      syncVimStatus()
     }
 
     mount()
     return teardown
   }, [docId, navigate])
 
-  return <div ref={hostRef} className={styles.host} />
+  return (
+    <>
+      <div ref={hostRef} className={styles.host} />
+      {vimStatus && (
+        <div className={styles.vimBadge} data-mode={vimStatus} aria-live="polite">
+          {vimStatus}
+        </div>
+      )}
+    </>
+  )
+}
+
+interface VimConfig {
+  compartment: Compartment
+  initialOn: boolean
+  /** Flip vim on/off and persist; returns true so it can back a CM command. */
+  toggle: () => boolean
 }
 
 function buildView(
@@ -199,10 +259,20 @@ function buildView(
   docId: string,
   onNavigate: (target: string) => void,
   editable: Compartment,
+  vimCfg: VimConfig,
 ): EditorView {
   const state = EditorState.create({
     doc: bundle.text.toString(),
     extensions: [
+      // Vim mode MUST be the first extension (the @replit/codemirror-vim
+      // requirement) so its keymap outranks the defaults below. Held in a
+      // compartment so `Mod-Alt-v` can swap it in/out without a view rebuild.
+      vimCfg.compartment.of(vimCfg.initialOn ? vim() : []),
+      // The vim toggle itself sits at highest precedence so it fires even from
+      // vim normal mode (which otherwise swallows most keys).
+      Prec.highest(
+        keymap.of([{ key: 'Mod-Alt-v', preventDefault: true, run: vimCfg.toggle }]),
+      ),
       // Editability toggle — starts open, flipped read-only on a past-grace
       // disconnect (see the effect above).
       editable.of([]),

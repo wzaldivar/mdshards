@@ -20,6 +20,7 @@
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.6.4",
+    "@replit/codemirror-vim": "^6.3.0",
     "@retronav/ixora": "^0.3.3",
     "codemirror": "^6.0.2",
     "react": "^19.2.0",

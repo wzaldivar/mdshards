@@ -4,3 +4,35 @@
   margin: 0 auto;
   box-sizing: border-box;
 }
+
+/* Little vim-mode indicator, pinned bottom-right. Only rendered while vim mode
+ * is on; the accent colour tracks the current mode. */
+.vimBadge {
+  position: fixed;
+  right: 14px;
+  bottom: 12px;
+  z-index: 5;
+  padding: 2px 9px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: rgb(var(--ctp-base));
+  background: rgb(var(--ctp-lavender)); /* NORMAL */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  user-select: none;
+  pointer-events: none;
+}
+
+.vimBadge[data-mode='INSERT'] {
+  background: rgb(var(--ctp-green));
+}
+
+.vimBadge[data-mode='VISUAL'] {
+  background: rgb(var(--ctp-mauve));
+}
+
+.vimBadge[data-mode='REPLACE'] {
+  background: rgb(var(--ctp-red));
+}

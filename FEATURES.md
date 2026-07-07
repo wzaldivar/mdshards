@@ -90,6 +90,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
   - Everything else (PDF, plain text, etc.) — iframe fallback to the browser's built-in viewer.
 - Backend file-existence disambiguation — `.md` always wins. URL `/foo.jpg` resolves to `<vault>/foo.jpg.md` if it exists; otherwise to `<vault>/foo.jpg`.
 - Upload dispatch by source file — `Cmd+U` opens the OS file picker first; if the source filename ends in `.md` it's stored as a markdown note (with the user's typed extension becoming part of the doc-id basename), otherwise it's stored as an asset at the literal target path.
+- Vim mode — optional `@replit/codemirror-vim` keymap, toggled with `Cmd/Ctrl-Alt-V`. Off by default; the choice is remembered across reloads (the one persisted editor preference — `localStorage['mdshards:vim']`, see `frontend/src/lib/vim-pref.ts`).
 
 ### Keyboard shortcuts (global)
 
@@ -99,6 +100,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 | `Cmd/Ctrl-Shift-K` | Rename the current file (md or asset). |
 | `Cmd/Ctrl-Backspace` | Delete-file picker — confirms before unlinking. |
 | `Cmd/Ctrl-U` | Upload a file into the vault. |
+| `Cmd/Ctrl-Alt-V` | Toggle vim mode on/off (remembered across reloads). |
 | `Enter` (inside quick switcher) | Open the highlighted existing note. Never creates — a no-op when nothing matches. |
 | `Shift+Enter` (inside quick switcher) | Create a note at the typed text (the only way to create). Works whether or not matches are highlighted. |
 
@@ -106,7 +108,6 @@ Shortcuts work in the editor, in the asset viewer (re-bound inside the iframe's 
 
 ### Out of scope (will not be added)
 
-- **Vim mode** — `@replit/codemirror-vim` would drop in cleanly, but this editor is not meant to be a primary IDE-class surface.
 - **Per-cell table editing** — clicking inside a rendered cell drops the entire row's widget, not just the cell. True cell-level live preview would require cursor + widget coexistence per cell.
 
 ## Architecture & vault
