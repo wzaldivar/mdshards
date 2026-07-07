@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # that's still alive — even when backgrounded — keeps the Doc resident.
     # A truly closed tab stops heartbeating and the state evicts after this
     # window. Overridable via GRACE_PERIOD_SECONDS.
-    grace_period_seconds: float = 300.0
+    grace_period_seconds: float = 30.0
     # Where the binary Yjs cache lives. The cache preserves CRDT item IDs
     # across grace evictions and server restarts so reconnecting clients
     # don't end up with the same characters merged in twice. Lives outside
