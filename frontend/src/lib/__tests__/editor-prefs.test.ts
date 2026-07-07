@@ -47,4 +47,23 @@ describe('editor-prefs', () => {
     setEditorPref('vim', true)
     expect(fn).not.toHaveBeenCalled()
   })
+
+  it('propagates cross-tab changes via the storage event', () => {
+    const seen: boolean[] = []
+    const unsub = subscribeEditorPrefs((p) => seen.push(p.lineNumbers))
+    // Simulate another tab writing the key, then the browser firing `storage`
+    // in this tab (jsdom does not auto-fire it for same-context writes).
+    localStorage.setItem('mdshards:lineNumbers', '1')
+    window.dispatchEvent(new StorageEvent('storage', { key: 'mdshards:lineNumbers' }))
+    expect(seen).toEqual([true])
+    unsub()
+  })
+
+  it('ignores storage events for unrelated keys', () => {
+    const fn = vi.fn()
+    const unsub = subscribeEditorPrefs(fn)
+    window.dispatchEvent(new StorageEvent('storage', { key: 'some-other-app-key' }))
+    expect(fn).not.toHaveBeenCalled()
+    unsub()
+  })
 })

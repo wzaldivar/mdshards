@@ -9,7 +9,10 @@
  *
  * Values live under individual `mdshards:*` keys. A tiny pub/sub lets the live
  * editor re-apply compartments the moment the panel flips a toggle, without
- * either side reaching into the other.
+ * either side reaching into the other. Changes also propagate across tabs: the
+ * browser fires a `storage` event in every *other* tab when localStorage
+ * changes, which we fan out to the same subscribers so all open tabs re-apply
+ * in lockstep.
  */
 
 export interface EditorPrefs {
@@ -42,18 +45,33 @@ export function getEditorPrefs(): EditorPrefs {
 
 const listeners = new Set<(prefs: EditorPrefs) => void>()
 
+function notify(): void {
+  const snapshot = getEditorPrefs()
+  for (const fn of listeners) fn(snapshot)
+}
+
 export function setEditorPref(key: keyof EditorPrefs, on: boolean): void {
   try {
     localStorage.setItem(KEYS[key], on ? '1' : '0')
   } catch {
     /* storage unavailable — preference just won't persist this session */
   }
-  const snapshot = getEditorPrefs()
-  for (const fn of listeners) fn(snapshot)
+  notify()
 }
 
 /** Subscribe to preference changes; returns an unsubscribe function. */
 export function subscribeEditorPrefs(fn: (prefs: EditorPrefs) => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
+}
+
+// Cross-tab propagation: a `storage` event fires in every OTHER tab when one of
+// our keys changes (the originating tab is covered by `setEditorPref` above).
+// `e.key` is null when storage is cleared wholesale — re-read and fan out then
+// too. Guarded for non-browser (test/SSR) contexts.
+if (typeof window !== 'undefined') {
+  const ownKeys = new Set<string>(Object.values(KEYS))
+  window.addEventListener('storage', (e: StorageEvent) => {
+    if (e.key === null || ownKeys.has(e.key)) notify()
+  })
 }

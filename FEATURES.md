@@ -90,7 +90,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
   - Everything else (PDF, plain text, etc.) — iframe fallback to the browser's built-in viewer.
 - Backend file-existence disambiguation — `.md` always wins. URL `/foo.jpg` resolves to `<vault>/foo.jpg.md` if it exists; otherwise to `<vault>/foo.jpg`.
 - Upload dispatch by source file — `Cmd+U` opens the OS file picker first; if the source filename ends in `.md` it's stored as a markdown note (with the user's typed extension becoming part of the doc-id basename), otherwise it's stored as an asset at the literal target path.
-- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for three local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, and **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere). All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`).
+- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for three local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, and **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere). While the panel is open, `⌥V` / `⌥N` / `⌥R` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event.
 
 ### Keyboard shortcuts (global)
 
