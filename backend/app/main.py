@@ -52,11 +52,11 @@ def create_app() -> FastAPI:
     app.include_router(resolve.router)
     app.include_router(config_router.router)
     app.include_router(ws.router)
-    # Frontend bundle. `/assets/*` and the two top-level public/ files
-    # (favicon.svg, icons.svg) come straight off disk. These prefixes are
-    # reserved for the frontend and registered BEFORE the catch-all so the
-    # md-vs-asset router never sees them. The catch-all itself reads
-    # `index.html` from the same dir as its SPA shell (see pages.py).
+    # Frontend bundle. `/assets/*` and the top-level public/ file favicon.svg
+    # come straight off disk. These prefixes are reserved for the frontend and
+    # registered BEFORE the catch-all so the md-vs-asset router never sees them.
+    # The catch-all itself reads `index.html` from the same dir as its SPA
+    # shell (see pages.py).
     if settings.static_dir is not None:
         assets_dir = settings.static_dir / "assets"
         if assets_dir.is_dir():
@@ -72,7 +72,7 @@ def create_app() -> FastAPI:
             handler.__name__ = f"_serve_{name.replace('.', '_')}"
             return handler
 
-        for filename in ("favicon.svg", "icons.svg"):
+        for filename in ("favicon.svg",):
             app.add_api_route(f"/{filename}", _public_file(filename), methods=["GET"])
     app.include_router(pages.router)
     return app

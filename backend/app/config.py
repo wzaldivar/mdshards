@@ -48,9 +48,9 @@ class Settings(BaseSettings):
     @property
     def static_dir(self) -> Path | None:
         """Directory the prebuilt frontend is served from, or `None` when it
-        isn't bundled (local dev). When set, `/assets/*`, `/favicon.svg` and
-        `/icons.svg` are served from here and the catch-all's SPA shell is the
-        real script-tagged `index.html` instead of the dev placeholder. Not
+        isn't bundled (local dev). When set, `/assets/*` and `/favicon.svg`
+        are served from here and the catch-all's SPA shell is the real
+        script-tagged `index.html` instead of the dev placeholder. Not
         configurable — it's the fixed `static/` convention next to `app/`, so
         the single-container image needs no env var to enable serving."""
         return _BUNDLED_STATIC if _BUNDLED_STATIC.is_dir() else None

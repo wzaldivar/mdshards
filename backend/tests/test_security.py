@@ -4,7 +4,7 @@ On /api/* and /ws/*: requests MUST carry `Sec-Fetch-Site` in the
 same-origin / same-site / none set — browsers send this on every request,
 curl by default doesn't. That's the curl-bypass block.
 
-On static paths (/, /assets, /favicon, /icons, vault assets): looser gate
+On static paths (/, /assets, /favicon, vault assets): looser gate
 preserved — safe methods pass unconditionally, only state-changing requests
 check origin. Typed URLs and bookmarks must keep working.
 

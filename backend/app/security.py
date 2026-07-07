@@ -25,7 +25,7 @@ There is no auth (see CLAUDE.md). The threats this middleware addresses are:
    `Origin` on a WS handshake — so `/ws/*` uses Origin-presence as the
    equivalent casual-bypass gate.
 
-Static paths (`/`, `/assets/*`, `/favicon.svg`, `/icons.svg`,
+Static paths (`/`, `/assets/*`, `/favicon.svg`,
 `<vault-asset>` URLs) still allow direct navigation — typed URLs and
 bookmarks must keep working — so they keep the looser gate: safe methods
 pass unconditionally, only state-changing requests check origin.
