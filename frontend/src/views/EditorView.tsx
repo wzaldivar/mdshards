@@ -136,8 +136,11 @@ export function EditorView() {
       )}
       {connectionLost && (
         <div className={`${styles.banner} ${styles.offline}`} role="status">
+          <span className={styles.dino} aria-hidden="true">
+            🦖
+          </span>
           <span>
-            🦖 Lost connection to the server — this tab is read-only until it's
+            Lost connection to the server — this tab is read-only until it's
             back.
           </span>
         </div>

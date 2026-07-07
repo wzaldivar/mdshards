@@ -19,6 +19,11 @@
   z-index: 1100;
   font-size: 13px;
 }
+.dino {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
 .banner.offline {
   border-color: rgb(var(--ctp-peach), 60%);
   box-shadow:
