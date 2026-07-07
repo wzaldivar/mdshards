@@ -7,6 +7,7 @@ function makeHandlers() {
     openDeleteSwitcher: vi.fn(),
     openRenameSwitcher: vi.fn(),
     openUploadSwitcher: vi.fn(),
+    openOptions: vi.fn(),
   }
 }
 
@@ -91,6 +92,29 @@ describe('bindGlobalShortcuts', () => {
     )
     expect(h.openQuickSwitcher).not.toHaveBeenCalled()
     expect(h.openRenameSwitcher).not.toHaveBeenCalled()
+    expect(h.openOptions).not.toHaveBeenCalled()
+    unbind()
+  })
+
+  it('triggers openOptions on Cmd/Ctrl-Alt-O', () => {
+    const h = makeHandlers()
+    const unbind = bindGlobalShortcuts(h)
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'o', metaKey: true, altKey: true }),
+    )
+    expect(h.openOptions).toHaveBeenCalledOnce()
+    expect(h.openQuickSwitcher).not.toHaveBeenCalled()
+    unbind()
+  })
+
+  it('matches Alt-O via e.code (Alt often mangles the produced char)', () => {
+    const h = makeHandlers()
+    const unbind = bindGlobalShortcuts(h)
+    // On macOS, Alt+O yields 'ø' as the key; e.code stays 'KeyO'.
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyO', key: 'ø', ctrlKey: true, altKey: true }),
+    )
+    expect(h.openOptions).toHaveBeenCalledOnce()
     unbind()
   })
 

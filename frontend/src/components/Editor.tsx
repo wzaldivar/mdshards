@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Compartment, EditorState, Prec } from '@codemirror/state'
-import { drawSelection, EditorView, keymap } from '@codemirror/view'
+import { Compartment, EditorState } from '@codemirror/state'
+import {
+  drawSelection,
+  EditorView,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+} from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { getCM, vim } from '@replit/codemirror-vim'
 import { syntaxHighlighting } from '@codemirror/language'
@@ -14,7 +20,11 @@ import { catppuccinHighlight } from '../lib/cm-highlight'
 import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
 import { markdownLive } from '../lib/markdown-live'
 import { pendingRenames } from '../lib/pending-rename'
-import { isVimEnabled, setVimEnabled } from '../lib/vim-pref'
+import {
+  getEditorPrefs,
+  subscribeEditorPrefs,
+  type EditorPrefs,
+} from '../lib/editor-prefs'
 import { Wikilink } from '../lib/wikilink'
 import styles from './Editor.module.css'
 
@@ -91,22 +101,22 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     let readOnlyTimer: ReturnType<typeof setTimeout> | null = null
     let readOnly = false
 
-    // Vim mode swaps through its own compartment so it can be toggled live
-    // without rebuilding the view. The on/off choice is read from (and written
-    // back to) localStorage — the single persisted UI preference (see
-    // lib/vim-pref.ts). Initialized once per effect run, so it survives the
-    // stale-reconnect remount below and is re-read from storage on navigation.
+    // Local editor preferences (vim, line numbers) each ride their own
+    // compartment so the Options panel (Cmd-Alt-O) can flip them live without
+    // rebuilding the view. `prefs` is re-read from storage per effect run, so
+    // it survives the stale-reconnect remount below and re-reads on navigation.
     const vimMode = new Compartment()
-    let vimOn = isVimEnabled()
+    const lineGutter = new Compartment()
+    let prefs = getEditorPrefs()
 
     const onVimModeChange = (e: { mode: string }): void => {
       setVimStatus(e.mode.toUpperCase())
     }
     // Seed the indicator label and (re)attach the mode-change listener. Called
-    // after each view build and each toggle-on, because reconfiguring the
-    // compartment builds a fresh vim instance whose events we must re-subscribe.
+    // after each view build and whenever vim turns on, because reconfiguring
+    // the compartment builds a fresh vim instance whose events we re-subscribe.
     const syncVimStatus = (): void => {
-      if (!vimOn) {
+      if (!prefs.vim) {
         setVimStatus(null)
         return
       }
@@ -115,15 +125,22 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       cm?.on('vim-mode-change', onVimModeChange)
     }
 
-    const toggleVim = (): boolean => {
-      vimOn = !vimOn
-      setVimEnabled(vimOn)
-      // `vim()` must lead the extension list, so the compartment holding it is
-      // placed first in buildView; reconfiguring it in place keeps that slot.
-      view?.dispatch({ effects: vimMode.reconfigure(vimOn ? vim() : []) })
+    // Apply a preference snapshot to the live view. Driven by the prefs pub/sub
+    // (Options panel) and called once after each view build.
+    const applyPrefs = (next: EditorPrefs): void => {
+      prefs = next
+      view?.dispatch({
+        effects: [
+          // `vim()` must lead the extension list, so its compartment is placed
+          // first in buildView; reconfiguring in place keeps that slot.
+          vimMode.reconfigure(prefs.vim ? vim() : []),
+          lineGutter.reconfigure(lineNumberExtensions(prefs)),
+        ],
+      })
       syncVimStatus()
-      return true
     }
+
+    const unsubscribePrefs = subscribeEditorPrefs(applyPrefs)
 
     const clearReadOnlyTimer = (): void => {
       if (readOnlyTimer !== null) {
@@ -223,15 +240,20 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
         }
       })
       view = buildView(host, bundle, docId, onWikilinkNavigate, editable, {
-        compartment: vimMode,
-        initialOn: vimOn,
-        toggle: toggleVim,
+        vimMode,
+        lineGutter,
+        prefs,
       })
       syncVimStatus()
     }
 
     mount()
-    return teardown
+    // Effect-level cleanup: drop the prefs subscription (which must outlive the
+    // stale-reconnect remount that reuses `teardown` on its own) then teardown.
+    return () => {
+      unsubscribePrefs()
+      teardown()
+    }
   }, [docId, navigate])
 
   return (
@@ -246,11 +268,29 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
   )
 }
 
-interface VimConfig {
-  compartment: Compartment
-  initialOn: boolean
-  /** Flip vim on/off and persist; returns true so it can back a CM command. */
-  toggle: () => boolean
+/** Line-number gutter extensions for a preference snapshot. Relative numbering
+ * is hybrid (absolute on the cursor line, distance elsewhere); it's paired with
+ * `highlightActiveLineGutter()` because the line-number gutter only recomputes
+ * `formatNumber` when its gutter markers change — the active-line class shifting
+ * with the cursor is what forces that recompute on vertical movement. */
+function lineNumberExtensions(prefs: EditorPrefs) {
+  if (!prefs.lineNumbers) return []
+  if (!prefs.relativeLineNumbers) return [lineNumbers()]
+  return [
+    lineNumbers({
+      formatNumber: (n, state) => {
+        const cur = state.doc.lineAt(state.selection.main.head).number
+        return n === cur ? String(n) : String(Math.abs(n - cur))
+      },
+    }),
+    highlightActiveLineGutter(),
+  ]
+}
+
+interface EditorCompartments {
+  vimMode: Compartment
+  lineGutter: Compartment
+  prefs: EditorPrefs
 }
 
 function buildView(
@@ -259,20 +299,17 @@ function buildView(
   docId: string,
   onNavigate: (target: string) => void,
   editable: Compartment,
-  vimCfg: VimConfig,
+  cfg: EditorCompartments,
 ): EditorView {
   const state = EditorState.create({
     doc: bundle.text.toString(),
     extensions: [
       // Vim mode MUST be the first extension (the @replit/codemirror-vim
       // requirement) so its keymap outranks the defaults below. Held in a
-      // compartment so `Mod-Alt-v` can swap it in/out without a view rebuild.
-      vimCfg.compartment.of(vimCfg.initialOn ? vim() : []),
-      // The vim toggle itself sits at highest precedence so it fires even from
-      // vim normal mode (which otherwise swallows most keys).
-      Prec.highest(
-        keymap.of([{ key: 'Mod-Alt-v', preventDefault: true, run: vimCfg.toggle }]),
-      ),
+      // compartment so the Options panel can swap it in/out without a rebuild.
+      cfg.vimMode.of(cfg.prefs.vim ? vim() : []),
+      // Line-number gutter — also compartmentalized for live toggling.
+      cfg.lineGutter.of(lineNumberExtensions(cfg.prefs)),
       // Editability toggle — starts open, flipped read-only on a past-grace
       // disconnect (see the effect above).
       editable.of([]),

@@ -294,6 +294,48 @@ body {
 }
 
 /*
+ * Line-number gutter. CodeMirror hardcodes the gutter (#f5f5f5 / #333338) and,
+ * worse, the active-line highlight (#e2f2ff / #222227) — the dark value is a
+ * hair off our base, so the current line's number all but vanishes. Re-theme
+ * with palette tokens and give the active line the SAME surface as selected
+ * text (`--editor-selection-bg`) so "current line" reads consistently with
+ * "selected text". `!important` because CM injects its base theme at runtime,
+ * after this sheet, and would otherwise win the specificity tie.
+ */
+.cm-editor .cm-gutters {
+  background: var(--bg) !important;
+  color: var(--fg-muted) !important;
+  border-right: 1px solid var(--bg-surface) !important;
+}
+.cm-editor .cm-activeLineGutter {
+  background: var(--editor-selection-bg) !important;
+  color: var(--fg) !important;
+}
+
+/*
+ * Panels — the vim `:` command line and `/` search bar. CM's defaults
+ * (#f5f5f5 / #333338 with black/white text) clash with the themed chrome and
+ * read as low-contrast; theme them like the switcher surfaces.
+ */
+.cm-editor .cm-panels {
+  background: var(--bg-alt) !important;
+  color: var(--fg) !important;
+}
+.cm-editor .cm-panels.cm-panels-top {
+  border-bottom: 1px solid var(--bg-surface-elev) !important;
+}
+.cm-editor .cm-panels.cm-panels-bottom {
+  border-top: 1px solid var(--bg-surface-elev) !important;
+}
+.cm-editor .cm-vim-panel,
+.cm-editor .cm-vim-panel input {
+  color: var(--fg) !important;
+  background: transparent !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  caret-color: var(--accent);
+}
+
+/*
  * GFM tables — each non-cursor row is replaced by a `TableRowWidget` (a
  * single child of `.cm-line`) whose own grid lays out the cells. Keeping
  * the grid INSIDE the widget — instead of on the line div — leaves

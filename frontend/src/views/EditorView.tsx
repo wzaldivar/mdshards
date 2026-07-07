@@ -7,6 +7,7 @@ import { QuickSwitcher } from '../components/QuickSwitcher'
 import { DeleteSwitcher } from '../components/DeleteSwitcher'
 import { RenameSwitcher } from '../components/RenameSwitcher'
 import { UploadSwitcher } from '../components/UploadSwitcher'
+import { OptionsPanel } from '../components/OptionsPanel'
 import { routeToDocId } from '../router'
 import { bindGlobalShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { useResolve } from '../lib/use-resolve'
@@ -29,6 +30,7 @@ export function EditorView() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
   const [movedTo, setMovedTo] = useState<string | null>(null)
   // True while a lost server connection has outlasted the grace window and the
@@ -65,6 +67,7 @@ export function EditorView() {
       setDeleteOpen(false)
       setRenameOpen(false)
       setUploadOpen(false)
+      setOptionsOpen(false)
     }
     return {
       openQuickSwitcher: () => {
@@ -88,6 +91,10 @@ export function EditorView() {
         // cancels the OS dialog no `change` event fires, so nothing happens
         // — which is the right outcome (no empty modal to dismiss).
         fileInputRef.current?.click()
+      },
+      openOptions: () => {
+        closeAll()
+        setOptionsOpen(true)
       },
     }
   }, [docId, exists])
@@ -172,6 +179,7 @@ export function EditorView() {
           setPendingUploadFile(null)
         }}
       />
+      <OptionsPanel open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <input
         ref={fileInputRef}
         type="file"
