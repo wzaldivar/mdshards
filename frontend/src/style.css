@@ -1,7 +1,7 @@
 /*
  * Theme: Catppuccin — Latte (light) + Mocha (dark).
  * Mapping rules cribbed from catppuccin/obsidian: accent = lavender, links =
- * blue, external links + bold-italic = teal, bold = sapphire, italic = green,
+ * blue, external links = teal, bold = sapphire, italic = green,
  * strikethrough = maroon, blockquote text = rosewater, list marker = sapphire,
  * hr = blue, code keyword/string/function/etc. split across pink/green/yellow/...
  *
@@ -83,7 +83,6 @@
  */
 :root {
   --accent: rgb(var(--ctp-lavender));
-  --accent-rgb: var(--ctp-lavender);
   --bg: rgb(var(--ctp-base));
   --bg-alt: rgb(var(--ctp-mantle));
   --bg-surface: rgb(var(--ctp-surface0));
@@ -94,20 +93,17 @@
 
   --link-color: rgb(var(--ctp-blue));
   --link-external-color: rgb(var(--ctp-teal));
-  --link-unresolved-color: rgb(var(--ctp-maroon));
 
   --heading-color: rgb(var(--ctp-lavender));
   --bold-color: rgb(var(--ctp-sapphire));
   --italic-color: rgb(var(--ctp-green));
   --strike-color: rgb(var(--ctp-maroon));
-  --strong-em-color: rgb(var(--ctp-teal));
   --blockquote-stripe: rgb(var(--ctp-lavender));
   --blockquote-color: rgb(var(--ctp-rosewater));
   --list-marker-color: rgb(var(--ctp-sapphire));
   --hr-color: rgb(var(--ctp-blue));
 
   --selection-bg: rgb(var(--ctp-lavender), 22%);
-  --selection-bg-soft: rgb(var(--ctp-lavender), 18%);
   /* Catppuccin's standard text-selection surface is `surface2` — a solid
      neutral one shade lighter than `base`. Works for both Latte and Mocha
      because `--ctp-surface2` swaps with the rest of the palette via the
@@ -125,7 +121,7 @@
   --code-value: rgb(var(--ctp-mauve));
   --code-tag: rgb(var(--ctp-red));
   --code-important: rgb(var(--ctp-peach));
-  --code-comment: rgb(var(--ctp-overlay1));
+  --code-comment: rgb(var(--ctp-overlay2));
   --code-punctuation: rgb(var(--ctp-subtext1));
   --code-normal: rgb(var(--ctp-text));
 }
