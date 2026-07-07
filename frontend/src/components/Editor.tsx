@@ -150,14 +150,25 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     }
 
     const setReadOnly = (ro: boolean): void => {
-      if (ro === readOnly) return
-      readOnly = ro
-      view?.dispatch({
-        effects: editable.reconfigure(
-          ro ? [EditorView.editable.of(false), EditorState.readOnly.of(true)] : [],
-        ),
-      })
-      onReadOnlyChangeRef.current(ro)
+      // Always (re)assert the banner state, even when `ro` matches the current
+      // `readOnly` — that's what lets a stranded banner self-heal on the next
+      // reconnect (a within-grace reconnect calls setReadOnly(false); if the
+      // banner had drifted to `true` while `readOnly` was already `false`, an
+      // early `return` here would leave it stuck). The editable dispatch is the
+      // only expensive part, so guard just that. `finally` guarantees the
+      // banner notification fires even if the dispatch throws mid-teardown.
+      try {
+        if (ro !== readOnly) {
+          readOnly = ro
+          view?.dispatch({
+            effects: editable.reconfigure(
+              ro ? [EditorView.editable.of(false), EditorState.readOnly.of(true)] : [],
+            ),
+          })
+        }
+      } finally {
+        onReadOnlyChangeRef.current(ro)
+      }
     }
 
     const teardown = (): void => {
@@ -183,6 +194,14 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     }
 
     const mount = (): void => {
+      // A freshly-built view is editable and (re)connecting, so clear any
+      // lingering read-only lock and its banner. This is the belt that stops a
+      // stale "connection lost" banner from surviving the stale-reconnect
+      // remount below: the recovered view is editable and syncing again, so the
+      // banner must not stick. Set directly (not via setReadOnly) so it fires
+      // even when `readOnly` was already reset but the banner wasn't cleared.
+      readOnly = false
+      onReadOnlyChangeRef.current(false)
       bundle = openDoc(docId)
       startHeartbeat(bundle)
       bundle.provider.on('connection-close', (event: CloseEvent | null) => {
