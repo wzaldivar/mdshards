@@ -90,6 +90,15 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       setError("index can't be deleted")
       return
     }
+    // Capture whether we're deleting the open file BEFORE the await. Deleting
+    // an md file kicks its WebSocket, and the Editor's close handler navigates
+    // to '/' (flipping currentDocId to '') while this request is in flight — so
+    // reading currentDocId afterwards can miss. More importantly, that WS-close
+    // navigation doesn't happen on Safari at all: WebKit doesn't surface our
+    // application close code (4001), reporting 1006 instead, so the Editor's
+    // `code === DOC_DELETED_CODE` branch never fires. Making this fetch-success
+    // path the source of truth navigates reliably regardless of the socket.
+    const wasCurrent = entry.target === currentDocId
     const endpoint = entry.isMd ? '/api/files/' : '/api/assets/'
     const r = await fetch(endpoint + encodePathToUrl(entry.target), { method: 'DELETE' })
     if (!r.ok) {
@@ -97,7 +106,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       return
     }
     onClose()
-    if (entry.target === currentDocId) void navigate('/')
+    if (wasCurrent) void navigate('/')
   }
 
   function selectAndConfirm(i: number): void {
