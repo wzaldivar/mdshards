@@ -88,11 +88,21 @@ def page_or_asset(full_path: str, request: Request):
         # `nosniff` stops content-type sniffing from upgrading a misdeclared
         # asset back to text/html. The frontend's iframe also sets
         # `sandbox="allow-same-origin"` — these are belt-and-suspenders.
+        #
+        # `Cache-Control: no-cache` forces the browser to revalidate before
+        # reusing a cached copy. Vault assets are mutable — deleted, replaced
+        # at the same path (upload overwrites), or rewritten by an external
+        # tool (Syncthing/Obsidian) — and Starlette's FileResponse sets an
+        # etag/last-modified but does no conditional-GET handling, so without
+        # this the browser would heuristically cache and keep serving a stale
+        # (or deleted) asset. "no-cache" still allows storage, just not reuse
+        # without a round-trip, so the fetch after a delete correctly 404s.
         return FileResponse(
             asset_path,
             headers={
                 "Content-Security-Policy": "sandbox",
                 "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-cache",
             },
         )
     raise HTTPException(404, detail="not found")

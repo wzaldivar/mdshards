@@ -143,6 +143,27 @@ def test_asset_response_carries_sandbox_and_nosniff_headers(client) -> None:
     assert r.headers["x-content-type-options"] == "nosniff"
 
 
+def test_asset_response_is_not_cached(client) -> None:
+    """Vault assets are mutable (delete / overwrite / external rewrite), so the
+    response must force revalidation — otherwise the browser keeps serving a
+    removed or stale asset from its heuristic cache."""
+    c, vault = client
+    (vault / "pic.png").write_bytes(b"\x89PNG")
+    r = c.get("/pic.png", headers={"sec-fetch-dest": "image"})
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_deleted_asset_no_longer_serves(client) -> None:
+    """After an asset is deleted, re-fetching its URL 404s (nothing on disk to
+    revalidate against) instead of resurrecting stale bytes."""
+    c, vault = client
+    (vault / "gone.png").write_bytes(b"\x89PNG")
+    assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 200
+    assert c.delete("/api/assets/gone.png").status_code == 200
+    assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 404
+
+
 def test_existing_asset_serves(client) -> None:
     c, vault = client
     (vault / "a").mkdir()
