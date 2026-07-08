@@ -13,6 +13,15 @@ describe('resolveAssetUrl', () => {
     expect(resolveAssetUrl('notes/today', 'diagram.png')).toBe('/notes/diagram.png')
   })
 
+  it('percent-encodes the note directory (from the raw doc-id) but not the ref', () => {
+    // The note's own dir has a literal space → encoded. The ref is authored
+    // as a URL already (`%20`) and must NOT be re-encoded (no `%2520`).
+    expect(resolveAssetUrl('a note/today', 'pic.png')).toBe('/a%20note/pic.png')
+    expect(resolveAssetUrl('blog/post', '../my%20profile/my%20pict.jpeg')).toBe(
+      '/my%20profile/my%20pict.jpeg',
+    )
+  })
+
   it('handles ../ traversal in the asset ref', () => {
     expect(resolveAssetUrl('notes/sub/today', '../diagram.png')).toBe(
       '/notes/diagram.png',

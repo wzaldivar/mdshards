@@ -65,7 +65,17 @@ export function resolveAssetUrl(noteDocId: string, ref: string): string {
   // Walk segments. dirParts is the note's parent directory; `..` pops one
   // level, `.` and empty segments are skipped, anything else is appended.
   // Popping from an empty dir means the ref escapes the vault → ''.
-  const dirParts = noteDocId.split('/').slice(0, -1).filter((p) => p !== '')
+  //
+  // The note's own directory comes from the raw (decoded) doc-id, so its
+  // segments must be percent-encoded to be fetchable. The ref's segments are
+  // authored as a URL already — spaces are written `%20` (or angle-bracketed,
+  // which the parser rejects otherwise) — so they pass through untouched.
+  // Re-encoding them would turn `%20` into `%2520`.
+  const dirParts = noteDocId
+    .split('/')
+    .slice(0, -1)
+    .filter((p) => p !== '')
+    .map(encodeURIComponent)
   for (const seg of ref.split('/')) {
     if (seg === '' || seg === '.') continue
     if (seg === '..') {

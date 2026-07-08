@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { loadConfig } from './config'
+import { encodePathToUrl } from './paths'
 
 export interface DocBundle {
   doc: Y.Doc
@@ -24,8 +25,11 @@ function wsServerUrl(): string {
 export function openDoc(docId: string): DocBundle {
   const doc = new Y.Doc()
   const text = doc.getText('content')
-  // The provider appends `/${docId}` to the server URL as the room name.
-  const provider = new WebsocketProvider(wsServerUrl(), docId, doc)
+  // The provider appends `/${room}` to the server URL as the room name and
+  // does NOT encode it, so we percent-encode here — otherwise a doc-id with a
+  // space (or `#`/`?`) would produce a malformed WS URL. The backend decodes
+  // the `{doc_id:path}` param, keying the doc by the raw path again.
+  const provider = new WebsocketProvider(wsServerUrl(), encodePathToUrl(docId), doc)
   return { doc, text, provider }
 }
 

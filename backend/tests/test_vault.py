@@ -35,9 +35,9 @@ def test_dot_segment_normalized(tmp_path: Path) -> None:
     assert resolve_md("./foo", tmp_path) == resolve_md("foo", tmp_path)
 
 
-def test_rejects_spaces(tmp_path: Path) -> None:
-    with pytest.raises(VaultPathError):
-        resolve_md("foo bar", tmp_path)
+def test_allows_spaces(tmp_path: Path) -> None:
+    assert resolve_md("foo bar", tmp_path) == (tmp_path / "foo bar.md").resolve()
+    assert resolve_md("a dir/my note", tmp_path) == (tmp_path / "a dir" / "my note.md").resolve()
 
 
 def test_rejects_null_byte(tmp_path: Path) -> None:
@@ -60,9 +60,11 @@ def test_asset_requires_extension(tmp_path: Path) -> None:
         resolve_asset("foo/bar", tmp_path)
 
 
-def test_asset_rejects_spaces(tmp_path: Path) -> None:
-    with pytest.raises(VaultPathError):
+def test_asset_allows_spaces(tmp_path: Path) -> None:
+    assert (
         resolve_asset("foo/has space.png", tmp_path)
+        == (tmp_path / "foo" / "has space.png").resolve()
+    )
 
 
 def test_symlink_escape_rejected(tmp_path: Path) -> None:

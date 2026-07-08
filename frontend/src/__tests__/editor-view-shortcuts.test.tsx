@@ -159,7 +159,7 @@ describe('EditorView shortcuts on a markdown URL', () => {
     expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
   })
 
-  it('selecting a file on the hidden picker opens the modal with a prefilled path', async () => {
+  it('selecting a file on the hidden picker opens the modal with a prefilled path (spaces kept)', async () => {
     renderAt('/notes/today')
     await waitForResolve()
     const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -169,10 +169,10 @@ describe('EditorView shortcuts on a markdown URL', () => {
     const pathInput = (await screen.findByPlaceholderText(
       /upload to vault path/i,
     )) as HTMLInputElement
-    expect(pathInput.value).toBe('notes/MyPhoto.jpg')
+    expect(pathInput.value).toBe('notes/My Photo.jpg')
   })
 
-  it('selecting a file on the hidden picker opens the modal with just the normalized name at root', async () => {
+  it('selecting a file on the hidden picker opens the modal with the filename at root (spaces kept)', async () => {
     renderAt('/')
     await waitForResolve()
     const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -182,7 +182,7 @@ describe('EditorView shortcuts on a markdown URL', () => {
     const pathInput = (await screen.findByPlaceholderText(
       /upload to vault path/i,
     )) as HTMLInputElement
-    expect(pathInput.value).toBe('SomeDoc.pdf')
+    expect(pathInput.value).toBe('Some Doc.pdf')
   })
 })
 

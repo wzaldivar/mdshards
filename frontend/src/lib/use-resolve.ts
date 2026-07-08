@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { encodePathToUrl } from './paths'
 
 export type ResourceType = 'md' | 'asset' | 'missing'
 
@@ -21,17 +22,23 @@ interface ResolveBody {
  *  navigation so the user lands on the canonical form before any state
  *  (Editor doc-id, AssetViewer src, switcher prefill) is computed.
  *
- *  Invalid paths (spaces, traversal, ...) come back as 400; surfaced as
- *  `missing` — the user can't have navigated there normally. */
-export function useResolve(path: string): ResolveState {
+ *  Invalid paths (traversal, backslash, ...) come back as 400; surfaced as
+ *  `missing` — the user can't have navigated there normally.
+ *
+ *  `docId` is the RAW (decoded) vault path — react-router decodes the splat
+ *  param, so spaces arrive as literal spaces here. We percent-encode when
+ *  building the fetch URL and when navigating to the canonical form, but the
+ *  `canonical` comparison is done raw-vs-raw (the backend returns the decoded
+ *  form) so a spaced note doesn't ping-pong between encoded/decoded URLs. */
+export function useResolve(docId: string): ResolveState {
   const navigate = useNavigate()
   const [state, setState] = useState<ResolveState>({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
     setState({ status: 'loading' })
-    const stripped = path.replace(/^\/+/, '')
-    const url = stripped === '' ? '/api/resolve' : `/api/resolve/${stripped}`
+    const stripped = docId.replace(/^\/+/, '')
+    const url = stripped === '' ? '/api/resolve' : `/api/resolve/${encodePathToUrl(stripped)}`
     void (async () => {
       try {
         const r = await fetch(url)
@@ -48,7 +55,7 @@ export function useResolve(path: string): ResolveState {
         // this hook resolve the canonical URL — at which point canonical
         // will equal stripped and we settle.
         if (body.canonical !== stripped) {
-          const target = body.canonical === '' ? '/' : '/' + body.canonical
+          const target = body.canonical === '' ? '/' : '/' + encodePathToUrl(body.canonical)
           void navigate(target, { replace: true })
           return
         }
@@ -61,7 +68,7 @@ export function useResolve(path: string): ResolveState {
     return () => {
       cancelled = true
     }
-  }, [path, navigate])
+  }, [docId, navigate])
 
   return state
 }

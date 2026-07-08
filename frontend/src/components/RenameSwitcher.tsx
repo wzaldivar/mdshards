@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { validateVaultPath } from '../lib/paths'
+import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { pendingRenames } from '../lib/pending-rename'
 import styles from './RenameSwitcher.module.css'
 
@@ -65,7 +65,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     // Navigate directly to the new location — for `.md`, the close handler
     // will see the dst in pendingRenames and stay silent, so this is the only
     // navigation. For assets there's no close-event to race with.
-    void navigate('/' + dst)
+    void navigate('/' + encodePathToUrl(dst))
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {

@@ -10,8 +10,9 @@ def _validate(url_path: str) -> str:
         raise VaultPathError("missing path")
     if "\x00" in url_path:
         raise VaultPathError("null byte in path")
-    if " " in url_path:
-        raise VaultPathError("spaces not allowed in vault paths")
+    # Spaces are allowed in vault paths and filenames — they're stored
+    # literally on disk. URLs that carry them are percent-encoded by the
+    # client (see frontend `encodePathToUrl`) and arrive here already decoded.
     stripped = url_path.lstrip("/")
     if not stripped:
         return ""

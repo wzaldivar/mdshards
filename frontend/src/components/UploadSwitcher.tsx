@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { validateVaultPath } from '../lib/paths'
-import { finalizeUploadPath, normalizeFilename } from '../lib/upload-path'
+import { encodePathToUrl, validateVaultPath } from '../lib/paths'
+import { finalizeUploadPath } from '../lib/upload-path'
 import styles from './UploadSwitcher.module.css'
 
 interface Props {
@@ -36,13 +36,13 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
     setError(null)
     setBusy(false)
     setFile(initialFile)
-    // Prefill the target as `<current dir>/<normalized filename>` so the
-    // user can press Enter to confirm the obvious case. Spaces are stripped
-    // because vault paths reject them (validateVaultPath).
+    // Prefill the target as `<current dir>/<filename>` so the user can press
+    // Enter to confirm the obvious case. Spaces are kept verbatim — vault
+    // paths allow them (they're percent-encoded only at the URL boundary).
     const dir = currentDocId.includes('/')
       ? currentDocId.slice(0, currentDocId.lastIndexOf('/') + 1)
       : ''
-    const base = initialFile ? normalizeFilename(initialFile.name) : ''
+    const base = initialFile ? initialFile.name : ''
     setTarget(dir + base)
     queueMicrotask(() => {
       inputRef.current?.focus()
@@ -99,7 +99,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         })
         if (r.ok) {
           onClose()
-          void navigate('/' + docPath)
+          void navigate('/' + encodePathToUrl(docPath))
           return
         }
       } else {
@@ -109,7 +109,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         r = await fetch('/api/assets', { method: 'POST', body: fd })
         if (r.ok) {
           onClose()
-          void navigate('/' + resolved)
+          void navigate('/' + encodePathToUrl(resolved))
           return
         }
       }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import { AssetViewer } from '../components/AssetViewer'
 import { Editor } from '../components/Editor'
 import { NotFound } from '../components/NotFound'
@@ -9,17 +9,17 @@ import { RenameSwitcher } from '../components/RenameSwitcher'
 import { UploadSwitcher } from '../components/UploadSwitcher'
 import { OptionsPanel } from '../components/OptionsPanel'
 import { routeToDocId } from '../router'
+import { encodePathToUrl } from '../lib/paths'
 import { bindGlobalShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { useResolve } from '../lib/use-resolve'
 import styles from './EditorView.module.css'
 
 export function EditorView() {
   const params = useParams()
-  const location = useLocation()
   const navigate = useNavigate()
 
   const docId = useMemo(() => routeToDocId(params['*']), [params])
-  const resolved = useResolve(location.pathname)
+  const resolved = useResolve(docId)
   // Whether the current URL points at a real file (md or asset). Used to
   // decide which view to mount AND to gate rename/delete — operating on a
   // missing doc would just bubble a 404 from the backend.
@@ -46,7 +46,7 @@ export function EditorView() {
   function followMove(): void {
     const target = movedTo
     setMovedTo(null)
-    if (target !== null) void navigate('/' + target)
+    if (target !== null) void navigate('/' + encodePathToUrl(target))
   }
 
   function dismissMove(): void {

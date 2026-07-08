@@ -12,5 +12,5 @@ This is your vault's home page. Edit me to make me yours — every change you ma
 ## A few rules to know
 
 - Paths are case-sensitive.
-- No spaces in note paths.
+- Spaces are allowed in note and folder names.
 - Only `.md` files are editable; other assets (images, etc.) are uploaded separately.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { encodePathToUrl } from '../lib/paths'
 import { fetchTree, flattenTree } from '../lib/tree'
 import styles from './DeleteSwitcher.module.css'
 
@@ -90,7 +91,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       return
     }
     const endpoint = entry.isMd ? '/api/files/' : '/api/assets/'
-    const r = await fetch(endpoint + entry.target, { method: 'DELETE' })
+    const r = await fetch(endpoint + encodePathToUrl(entry.target), { method: 'DELETE' })
     if (!r.ok) {
       setError(`delete failed: ${r.status}`)
       return

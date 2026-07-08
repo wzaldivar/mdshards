@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { finalizeUploadPath, isMarkdownPath, normalizeFilename } from '../upload-path'
+import { finalizeUploadPath, isMarkdownPath } from '../upload-path'
 
 describe('finalizeUploadPath', () => {
   it('keeps the source extension when the typed path has none', () => {
@@ -25,6 +25,11 @@ describe('finalizeUploadPath', () => {
   it('returns null for empty input', () => {
     expect(finalizeUploadPath('', 'x.png')).toBeNull()
     expect(finalizeUploadPath('   ', 'x.png')).toBeNull()
+  })
+
+  it('preserves internal spaces (only leading/trailing are trimmed)', () => {
+    expect(finalizeUploadPath('  My Photo  ', 'cat.jpg')).toBe('My Photo.jpg')
+    expect(finalizeUploadPath('notes/my note.md', 'x.md')).toBe('notes/my note.md')
   })
 
   describe('md sources: typed extension wins (disk gets .md appended downstream)', () => {
@@ -58,25 +63,5 @@ describe('isMarkdownPath', () => {
   it('rejects other extensions', () => {
     expect(isMarkdownPath('foo/bar.png')).toBe(false)
     expect(isMarkdownPath('foo/bar')).toBe(false)
-  })
-})
-
-describe('normalizeFilename', () => {
-  it('strips spaces', () => {
-    expect(normalizeFilename('My Photo.jpg')).toBe('MyPhoto.jpg')
-  })
-  it('strips runs of whitespace including tabs and NBSP', () => {
-    expect(normalizeFilename('a \t b.png')).toBe('ab.png')
-  })
-  it('leaves valid filenames untouched', () => {
-    expect(normalizeFilename('my_photo.jpg')).toBe('my_photo.jpg')
-  })
-  it('preserves case', () => {
-    expect(normalizeFilename('MyPhoto.JPG')).toBe('MyPhoto.JPG')
-  })
-  it('preserves dots in basenames — backend disambiguates by file existence', () => {
-    expect(normalizeFilename('my.weekly.md')).toBe('my.weekly.md')
-    expect(normalizeFilename('my.dog.jpg')).toBe('my.dog.jpg')
-    expect(normalizeFilename('archive.tar.gz')).toBe('archive.tar.gz')
   })
 })

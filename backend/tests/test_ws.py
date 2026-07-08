@@ -65,9 +65,19 @@ def test_invalid_path_closes_with_policy_violation(client) -> None:
     from starlette.websockets import WebSocketDisconnect
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
-        with c.websocket_connect("/ws/has space", headers={"origin": "http://testserver"}):
+        # Spaces are valid now; use a null byte to hit VaultPathError.
+        with c.websocket_connect("/ws/foo%00bar", headers={"origin": "http://testserver"}):
             pass
     assert exc_info.value.code == 1008
+
+
+def test_spaced_doc_id_connects(client) -> None:
+    """A note whose name contains spaces syncs over the WS like any other —
+    the client percent-encodes the room, Starlette decodes the path param."""
+    c, vault = client
+    (vault / "my note.md").write_text("hi")
+    with c.websocket_connect("/ws/my%20note", headers={"origin": "http://testserver"}) as ws:
+        assert ws.receive_bytes()  # initial SYNC_STEP1 from the server
 
 
 def test_two_clients_converge(client) -> None:

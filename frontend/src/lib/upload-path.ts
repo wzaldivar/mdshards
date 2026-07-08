@@ -39,13 +39,3 @@ function extractExtension(p: string): string {
 export function isMarkdownPath(path: string): boolean {
   return extractExtension(path) === 'md'
 }
-
-/** Strip whitespace from a filename. Vault paths reject spaces (validated
- *  both client- and server-side), so the upload modal prefills the target
- *  path via this helper to keep the prefill immediately submittable. Dots
- *  inside the basename are preserved — the backend disambiguates between
- *  md and asset paths by file existence (see `/api/resolve`), so URLs like
- *  `/notes/my.weekly` resolve to the md note `vault/notes/my.weekly.md`. */
-export function normalizeFilename(name: string): string {
-  return name.replace(/\s+/g, '')
-}

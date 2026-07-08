@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
+import { encodePathToUrl } from '../lib/paths'
 import styles from './AssetViewer.module.css'
 
 interface Props {
@@ -38,7 +39,8 @@ function kindFor(path: string): Kind {
  *  iframe so the browser's native viewer (PDFs, text, etc.) handles it; the
  *  iframe path re-binds shortcuts inside its contentDocument when possible. */
 export function AssetViewer({ path, shortcuts }: Props) {
-  const src = '/' + path
+  // `path` is the raw vault path (spaces intact); encode for the fetchable src.
+  const src = '/' + encodePathToUrl(path)
   const kind = kindFor(path)
 
   if (kind === 'image') {

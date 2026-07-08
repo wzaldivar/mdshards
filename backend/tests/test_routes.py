@@ -186,10 +186,12 @@ def test_traversal_in_url_path_rejected(client) -> None:
     assert r.status_code in (400, 404)
 
 
-def test_spaces_in_url_rejected(client) -> None:
-    c, _ = client
+def test_spaces_in_url_ok(client) -> None:
+    c, vault = client
+    (vault / "has space.md").write_text("hi")
+    # A spaced md URL is served the SPA shell like any other note (no 400).
     r = c.get("/has%20space")
-    assert r.status_code == 400
+    assert r.status_code == 200
 
 
 def test_create_file(client) -> None:
@@ -213,10 +215,11 @@ def test_create_file_conflict(client) -> None:
     assert r.status_code == 409
 
 
-def test_create_file_rejects_spaces(client) -> None:
-    c, _ = client
+def test_create_file_allows_spaces(client) -> None:
+    c, vault = client
     r = c.post("/api/files", json={"path": "has space"})
-    assert r.status_code == 400
+    assert r.status_code == 201
+    assert (vault / "has space.md").exists()
 
 
 def test_create_file_rejects_traversal(client) -> None:
@@ -263,11 +266,12 @@ def test_move_rejects_index(client) -> None:
     assert r.status_code == 403
 
 
-def test_move_rejects_spaces(client) -> None:
+def test_move_allows_spaces(client) -> None:
     c, vault = client
     (vault / "a.md").write_text("")
     r = c.post("/api/files/move", json={"src": "a", "dst": "with space"})
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert (vault / "with space.md").exists()
 
 
 def test_delete_index_refused(client) -> None:
@@ -384,11 +388,12 @@ def test_asset_move_rejects_extensionless_source(client) -> None:
     assert r.status_code == 400
 
 
-def test_asset_move_rejects_spaces(client) -> None:
+def test_asset_move_allows_spaces(client) -> None:
     c, vault = client
     (vault / "a.png").write_bytes(b"a")
     r = c.post("/api/assets/move", json={"src": "a.png", "dst": "with space.png"})
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert (vault / "with space.png").exists()
 
 
 def test_asset_move_same_src_dst_rejected(client) -> None:
@@ -486,7 +491,9 @@ def test_resolve_missing_md_url_canonicalizes(client) -> None:
     assert r.json() == {"type": "missing", "canonical": "no"}
 
 
-def test_resolve_rejects_spaces(client) -> None:
-    c, _ = client
+def test_resolve_allows_spaces(client) -> None:
+    c, vault = client
+    (vault / "with space.md").write_text("")
     r = c.get("/api/resolve/with space")
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert r.json() == {"type": "md", "canonical": "with space"}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getHomePath } from '../lib/config'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
-import { validateVaultPath } from '../lib/paths'
+import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import styles from './QuickSwitcher.module.css'
 
 interface Props {
@@ -91,7 +91,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     if (!forceCreate && allPaths.map(diskPathToUrl).includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
-      void navigate(target === 'index' ? '/' : '/' + target)
+      void navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
       onClose()
       return
     }
@@ -111,7 +111,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       setError(`create failed: ${r.status}`)
       return
     }
-    void navigate('/' + target)
+    void navigate('/' + encodePathToUrl(target))
     onClose()
   }
 

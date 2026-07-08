@@ -26,6 +26,7 @@ import {
   type EditorPrefs,
 } from '../lib/editor-prefs'
 import { Wikilink } from '../lib/wikilink'
+import { encodePathToUrl } from '../lib/paths'
 import styles from './Editor.module.css'
 
 // Must match the constants in backend/app/docs.py.
@@ -190,7 +191,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     // so the doc-id form matches the URL form.
     const onWikilinkNavigate = (target: string): void => {
       const clean = target.replace(/^\/+/, '')
-      void navigate('/' + clean)
+      void navigate('/' + encodePathToUrl(clean))
     }
 
     const mount = (): void => {

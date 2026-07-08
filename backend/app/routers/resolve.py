@@ -69,8 +69,9 @@ def resolve(url_path: str = "") -> ResolveResponse:
       5. Otherwise → missing (canonical = `<path>` itself).
 
     Returns 200 in every case — "missing" is a valid resolution. Invalid
-    path syntax (spaces, traversal, ...) returns 400 since the SPA can't
-    navigate to those URLs anyway.
+    path syntax (traversal, backslash, null byte) returns 400 since the SPA
+    can't navigate to those URLs anyway. Spaces are legal and resolve
+    normally.
     """
     settings = get_settings()
     return _resolve(url_path.strip("/"), settings.vault_dir)
