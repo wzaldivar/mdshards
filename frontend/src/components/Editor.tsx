@@ -179,6 +179,37 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       }
     }
 
+    // The "offline dino" is a function of (tab visible AND actually offline
+    // past grace), NOT a fire-and-forget timer. A hidden tab gets its timers
+    // throttled and isn't being edited — running the read-only countdown there
+    // is what made the banner strand/flap after trivial background blips. So we
+    // pause the countdown while hidden and only ever lock a tab the user is
+    // actually looking at.
+    const lockReadOnlyIfStillDown = (): void => {
+      // Countdown elapsed — only lock if we're genuinely still offline. Guards
+      // against a reconnect that recovered the socket without us catching a
+      // 'connected' status event (and against a throttled timer firing late).
+      if (!bundle || !bundle.provider.wsconnected) setReadOnly(true)
+    }
+
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === 'hidden') {
+        // Don't count down toward read-only for a tab nobody's editing; the
+        // throttled timer would fire late and strand the banner. Re-decide on
+        // refocus based on the actual socket state.
+        clearReadOnlyTimer()
+        return
+      }
+      // Refocused: if still offline, give the socket a fresh full window to
+      // reconnect before locking (throttling just lifted, so a reconnect is
+      // imminent). If it already reconnected, the 'connected' handler cleared
+      // the timer / unlocked, and wsconnected is true so we no-op.
+      if (bundle && !bundle.provider.wsconnected) {
+        clearReadOnlyTimer()
+        readOnlyTimer = setTimeout(lockReadOnlyIfStillDown, staleAfterMs)
+      }
+    }
+
     const teardown = (): void => {
       clearReadOnlyTimer()
       // Clear the banner before dropping the view — covers both a stale-reconnect
@@ -262,8 +293,12 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
           // Keep editing during a blip, but once the outage outlasts the grace
           // window the Doc we hold is stale — lock the buffer read-only. A later
           // reconnect either unlocks (within grace) or remounts a fresh Doc.
+          // Only count down while the tab is visible; onVisibilityChange
+          // (re)starts the countdown on refocus if we're still offline.
           clearReadOnlyTimer()
-          readOnlyTimer = setTimeout(() => setReadOnly(true), staleAfterMs)
+          if (document.visibilityState === 'visible') {
+            readOnlyTimer = setTimeout(lockReadOnlyIfStillDown, staleAfterMs)
+          }
         }
       })
       view = buildView(host, bundle, docId, onWikilinkNavigate, editable, {
@@ -275,10 +310,13 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       syncVimStatus()
     }
 
+    document.addEventListener('visibilitychange', onVisibilityChange)
     mount()
-    // Effect-level cleanup: drop the prefs subscription (which must outlive the
-    // stale-reconnect remount that reuses `teardown` on its own) then teardown.
+    // Effect-level cleanup: drop the visibility + prefs subscriptions (which
+    // must outlive the stale-reconnect remount that reuses `teardown` on its
+    // own) then teardown.
     return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       unsubscribePrefs()
       teardown()
     }

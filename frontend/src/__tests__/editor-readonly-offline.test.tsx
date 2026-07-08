@@ -41,6 +41,11 @@ vi.mock('../lib/crdt', async () => {
           ;(handlers[evt] ??= []).push(cb)
         },
         emit(evt, arg) {
+          // Mirror the real provider: `wsconnected` tracks the last status so
+          // the editor's read-only guard sees an accurate socket state.
+          if (evt === 'status' && arg && typeof arg === 'object' && 'status' in arg) {
+            provider.wsconnected = (arg as { status: string }).status === 'connected'
+          }
           ;(handlers[evt] ?? []).forEach((cb) => cb(arg))
         },
         disconnect() {},
@@ -102,11 +107,23 @@ async function renderEditorConnected() {
 
 const bannerRe = /read-only until it's back/i
 
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => state,
+  })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.useRealTimers()
   h.providers.length = 0
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => 'visible',
+  })
 })
 
 describe('Editor read-only past grace', () => {
@@ -144,5 +161,37 @@ describe('Editor read-only past grace', () => {
     expect(
       document.querySelector('.cm-editor .cm-content')?.getAttribute('contenteditable'),
     ).toBe('true')
+  })
+
+  it('does not lock a hidden tab past grace, and starts a fresh countdown on refocus', async () => {
+    // Background-tab throttling is the recurring false-dino cause: the tab
+    // isn't being edited and its timers are starved, so the countdown must not
+    // run while hidden.
+    await renderEditorConnected()
+    act(() => latestProvider().emit('status', { status: 'disconnected' }))
+
+    // Hide the tab, then let far more than the grace window elapse.
+    act(() => setVisibility('hidden'))
+    act(() => vi.advanceTimersByTime(STALE_AFTER_MS * 3))
+    expect(screen.queryByText(bannerRe)).toBeNull() // no dino for a hidden tab
+
+    // Refocus while still offline → a fresh full window, not an instant lock.
+    act(() => setVisibility('visible'))
+    act(() => vi.advanceTimersByTime(STALE_AFTER_MS - 1))
+    expect(screen.queryByText(bannerRe)).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText(bannerRe)).toBeDefined()
+  })
+
+  it('clears a pending countdown when the tab is hidden and the socket recovers', async () => {
+    // Disconnect while visible (countdown armed), hide before it elapses, then
+    // reconnect while hidden — refocusing must not show a stale dino.
+    await renderEditorConnected()
+    act(() => latestProvider().emit('status', { status: 'disconnected' }))
+    act(() => setVisibility('hidden'))
+    act(() => latestProvider().emit('status', { status: 'connected' }))
+    act(() => setVisibility('visible'))
+    act(() => vi.advanceTimersByTime(STALE_AFTER_MS * 2))
+    expect(screen.queryByText(bannerRe)).toBeNull()
   })
 })
