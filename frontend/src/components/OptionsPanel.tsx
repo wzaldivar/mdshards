@@ -47,6 +47,13 @@ const ROWS: Row[] = [
     hint: 'Distance from the cursor line',
     requires: 'lineNumbers',
   },
+  {
+    key: 'centerLine',
+    code: 'KeyC',
+    accel: '⌥C',
+    label: 'Center current line',
+    hint: 'Keep the cursor line vertically centered (except near file edges)',
+  },
 ]
 
 /** Editor options (Cmd/Ctrl-Alt-O). Each toggle is a local preference persisted

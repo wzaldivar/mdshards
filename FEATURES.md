@@ -90,7 +90,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
   - Everything else (PDF, plain text, etc.) — iframe fallback to the browser's built-in viewer.
 - Backend file-existence disambiguation — `.md` always wins. URL `/foo.jpg` resolves to `<vault>/foo.jpg.md` if it exists; otherwise to `<vault>/foo.jpg`.
 - Upload dispatch by source file — `Cmd+U` opens the OS file picker first; if the source filename ends in `.md` it's stored as a markdown note (with the user's typed extension becoming part of the doc-id basename), otherwise it's stored as an asset at the literal target path.
-- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for three local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, and **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere). While the panel is open, `⌥V` / `⌥N` / `⌥R` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event.
+- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for four local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere), and **Center current line** (typewriter scrolling — keeps the cursor line vertically centered, except near the top/bottom of the file where it clamps naturally). While the panel is open, `⌥V` / `⌥N` / `⌥R` / `⌥C` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event.
 
 ### Keyboard shortcuts (global)
 
@@ -100,7 +100,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 | `Cmd/Ctrl-Shift-K` | Rename the current file (md or asset). |
 | `Cmd/Ctrl-Backspace` | Delete-file picker — confirms before unlinking. |
 | `Cmd/Ctrl-U` | Upload a file into the vault. |
-| `Cmd/Ctrl-Alt-O` | Editor options panel — vim mode, line numbers, relative line numbers (all remembered locally). |
+| `Cmd/Ctrl-Alt-O` | Editor options panel — vim mode, line numbers, relative line numbers, center current line (all remembered locally). |
 | `Enter` (inside quick switcher) | Open the highlighted existing note. Never creates — a no-op when nothing matches. |
 | `Shift+Enter` (inside quick switcher) | Create a note at the typed text (the only way to create). Works whether or not matches are highlighted. |
 

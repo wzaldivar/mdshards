@@ -11,18 +11,22 @@ describe('editor-prefs', () => {
       vim: false,
       lineNumbers: false,
       relativeLineNumbers: false,
+      centerLine: false,
     })
   })
 
   it('round-trips each preference through localStorage', () => {
     setEditorPref('vim', true)
     setEditorPref('relativeLineNumbers', true)
+    setEditorPref('centerLine', true)
     expect(localStorage.getItem('mdshards:vim')).toBe('1')
     expect(localStorage.getItem('mdshards:relativeLineNumbers')).toBe('1')
+    expect(localStorage.getItem('mdshards:centerLine')).toBe('1')
     expect(getEditorPrefs()).toEqual({
       vim: true,
       lineNumbers: false,
       relativeLineNumbers: true,
+      centerLine: true,
     })
   })
 

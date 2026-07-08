@@ -19,12 +19,14 @@ export interface EditorPrefs {
   vim: boolean
   lineNumbers: boolean
   relativeLineNumbers: boolean
+  centerLine: boolean
 }
 
 const KEYS: Record<keyof EditorPrefs, string> = {
   vim: 'mdshards:vim',
   lineNumbers: 'mdshards:lineNumbers',
   relativeLineNumbers: 'mdshards:relativeLineNumbers',
+  centerLine: 'mdshards:centerLine',
 }
 
 function read(key: string): boolean {
@@ -40,6 +42,7 @@ export function getEditorPrefs(): EditorPrefs {
     vim: read(KEYS.vim),
     lineNumbers: read(KEYS.lineNumbers),
     relativeLineNumbers: read(KEYS.relativeLineNumbers),
+    centerLine: read(KEYS.centerLine),
   }
 }
 

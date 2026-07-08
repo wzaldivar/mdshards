@@ -27,6 +27,7 @@ import {
 } from '../lib/editor-prefs'
 import { Wikilink } from '../lib/wikilink'
 import { encodePathToUrl } from '../lib/paths'
+import { centerCurrentLine } from '../lib/typewriter'
 import styles from './Editor.module.css'
 
 // Must match the constants in backend/app/docs.py.
@@ -108,6 +109,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     // it survives the stale-reconnect remount below and re-reads on navigation.
     const vimMode = new Compartment()
     const lineGutter = new Compartment()
+    const centerLine = new Compartment()
     let prefs = getEditorPrefs()
 
     const onVimModeChange = (e: { mode: string }): void => {
@@ -130,14 +132,19 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     // (Options panel) and called once after each view build.
     const applyPrefs = (next: EditorPrefs): void => {
       prefs = next
-      view?.dispatch({
-        effects: [
-          // `vim()` must lead the extension list, so its compartment is placed
-          // first in buildView; reconfiguring in place keeps that slot.
-          vimMode.reconfigure(prefs.vim ? vim() : []),
-          lineGutter.reconfigure(lineNumberExtensions(prefs)),
-        ],
-      })
+      const effects = [
+        // `vim()` must lead the extension list, so its compartment is placed
+        // first in buildView; reconfiguring in place keeps that slot.
+        vimMode.reconfigure(prefs.vim ? vim() : []),
+        lineGutter.reconfigure(lineNumberExtensions(prefs)),
+        centerLine.reconfigure(centerLineExtension(prefs)),
+      ]
+      // Centering only reacts to future cursor moves, so re-center once now for
+      // immediate feedback when the toggle is flipped on.
+      if (prefs.centerLine && view) {
+        effects.push(EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' }))
+      }
+      view?.dispatch({ effects })
       syncVimStatus()
     }
 
@@ -262,6 +269,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       view = buildView(host, bundle, docId, onWikilinkNavigate, editable, {
         vimMode,
         lineGutter,
+        centerLine,
         prefs,
       })
       syncVimStatus()
@@ -307,9 +315,14 @@ function lineNumberExtensions(prefs: EditorPrefs) {
   ]
 }
 
+function centerLineExtension(prefs: EditorPrefs) {
+  return prefs.centerLine ? centerCurrentLine : []
+}
+
 interface EditorCompartments {
   vimMode: Compartment
   lineGutter: Compartment
+  centerLine: Compartment
   prefs: EditorPrefs
 }
 
@@ -330,6 +343,8 @@ function buildView(
       cfg.vimMode.of(cfg.prefs.vim ? vim() : []),
       // Line-number gutter — also compartmentalized for live toggling.
       cfg.lineGutter.of(lineNumberExtensions(cfg.prefs)),
+      // Typewriter scrolling — compartmentalized so the Options panel toggles it live.
+      cfg.centerLine.of(centerLineExtension(cfg.prefs)),
       // Editability toggle — starts open, flipped read-only on a past-grace
       // disconnect (see the effect above).
       editable.of([]),
