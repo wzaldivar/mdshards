@@ -15,6 +15,10 @@ class CreateFileRequest(BaseModel):
     # multipart upload. Defaults to empty so quick-switcher creates still get
     # a blank note.
     content: str = ""
+    # Explicit acceptance of replacing an existing note. Only the upload
+    # flow sets this (after its accept-or-rename prompt); the quick-switcher
+    # never does — Shift-Enter can never overwrite an existing file.
+    overwrite: bool = False
 
 
 class MoveFileRequest(BaseModel):
@@ -29,8 +33,11 @@ def create_file(req: CreateFileRequest) -> dict:
         target = resolve_md(req.path, settings.vault_dir)
     except VaultPathError as e:
         raise HTTPException(400, detail=str(e)) from e
-    if target.exists():
+    if target.exists() and not req.overwrite:
         raise HTTPException(409, detail="file already exists")
+    # An overwrite of a note that's actively open rides the same path as any
+    # external writer: the atomic write lands on disk and the vault watcher
+    # ghost-merges it into the live Doc.
     write_md_atomic(target, req.content, settings.vault_dir)
     return {"path": req.path}
 

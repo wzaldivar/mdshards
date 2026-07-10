@@ -341,6 +341,21 @@ def test_tree_endpoint(client) -> None:
     assert "a" in names and "c.md" in names
 
 
+def test_md_create_collision_requires_explicit_overwrite(client) -> None:
+    """An existing note 409s unless `overwrite` is set — the md-upload flow's
+    accept-or-rename prompt sets it; the quick-switcher never does, so
+    Shift-Enter can never replace an existing file."""
+    c, vault = client
+    (vault / "note.md").write_text("original")
+    r = c.post("/api/files", json={"path": "note", "content": "replacement"})
+    assert r.status_code == 409
+    assert (vault / "note.md").read_text() == "original"
+
+    r = c.post("/api/files", json={"path": "note", "content": "replacement", "overwrite": True})
+    assert r.status_code == 201
+    assert (vault / "note.md").read_text() == "replacement"
+
+
 def test_asset_upload(client) -> None:
     c, vault = client
     r = c.post(

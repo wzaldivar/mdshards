@@ -106,11 +106,26 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         r = await fetch('/api/files', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: docPath, content: text }),
+          body: JSON.stringify({
+            path: docPath,
+            content: text,
+            // Second Enter on the same colliding path = explicit acceptance.
+            overwrite: collidingPath === resolved,
+          }),
         })
         if (r.ok) {
           onClose()
           void navigate('/' + encodePathToUrl(docPath))
+          return
+        }
+        if (r.status === 409) {
+          // Existing note: same accept-or-rename prompt as assets. The
+          // note on disk stays lowercase `.md` regardless of the source
+          // file's extension casing.
+          setCollidingPath(resolved)
+          setError(
+            `note "${docPath}" already exists — press Enter again to overwrite it, or edit the path`,
+          )
           return
         }
       } else {
