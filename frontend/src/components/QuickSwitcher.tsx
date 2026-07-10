@@ -167,6 +167,10 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
           {matches.map((p, i) => (
             <li
               key={p}
+              // Keep the keyboard selection visible when the list scrolls:
+              // the ref fires as the item becomes selected; 'nearest' makes
+              // it a no-op while it's already in view.
+              ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
               className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
               onClick={() => selectAndCommit(i)}
             >

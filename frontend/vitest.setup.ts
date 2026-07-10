@@ -34,3 +34,8 @@ class StubWebSocket {
 }
 
 vi.stubGlobal('WebSocket', StubWebSocket)
+
+// jsdom has no layout, so it doesn't implement scrollIntoView — the
+// switchers call it to keep the keyboard selection visible in a scrolling
+// list. No-op is the correct simulation of "nothing scrolls in jsdom".
+Element.prototype.scrollIntoView ??= () => {}

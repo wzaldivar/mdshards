@@ -173,6 +173,10 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
             return (
               <li
                 key={entry.label}
+                // Keep the keyboard selection visible when the list scrolls:
+                // the ref fires as the item becomes selected; 'nearest' makes
+                // it a no-op while it's already in view.
+                ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
                 className={classes.join(' ')}
                 onClick={() => selectAndConfirm(i)}
               >
