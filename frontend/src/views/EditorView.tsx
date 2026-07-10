@@ -136,6 +136,7 @@ export function EditorView() {
           // remount no request happens at all and the stale render sticks.
           key={'asset:' + docId + ':' + location.key}
           path={docId}
+          cacheBust={location.key}
           shortcuts={shortcutHandlers}
         />
       ) : (

@@ -53,7 +53,9 @@ export default defineConfig({
       // ever sees iframe/image/video/etc. fetches that genuinely want the
       // raw file. `/index.html` is excluded so the post-rewrite request
       // stays on the Vite dev server (which serves the local SPA shell).
-      '^/(?!@|src/|node_modules/|favicon\\.svg|vite\\.svg|index\\.html$)[^?#]+\\.(png|jpe?g|gif|svg|webp|ico|avif|bmp|pdf|mp[34]|webm|wav|ogg|flac|m4a|mov|zip|tar|gz|7z|csv|tsv|xml|yaml|yml|toml|txt|html?)$':
+      // The trailing `(\?[^#]*)?` tolerates a query string — AssetViewer
+      // appends a `?v=` cache-bust param to asset srcs.
+      '^/(?!@|src/|node_modules/|favicon\\.svg|vite\\.svg|index\\.html$)[^?#]+\\.(png|jpe?g|gif|svg|webp|ico|avif|bmp|pdf|mp[34]|webm|wav|ogg|flac|m4a|mov|zip|tar|gz|7z|csv|tsv|xml|yaml|yml|toml|txt|html?)(\\?[^#]*)?$':
         { target: 'http://127.0.0.1:8000', changeOrigin: false },
     },
   },

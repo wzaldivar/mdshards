@@ -122,7 +122,9 @@ describe('EditorView shortcuts on an asset URL', () => {
   it('renders the asset as a real <img>, not an iframe', async () => {
     renderAt('/my/photo.jpeg')
     await waitForResolve()
-    const img = document.querySelector('img[src="/my/photo.jpeg"]')
+    // The src carries a per-navigation `?v=` cache-bust param (see
+    // AssetViewer) — match on the path prefix, not the exact URL.
+    const img = document.querySelector('img[src^="/my/photo.jpeg?v="]')
     expect(img).not.toBeNull()
     expect(document.querySelector('iframe')).toBeNull()
   })
