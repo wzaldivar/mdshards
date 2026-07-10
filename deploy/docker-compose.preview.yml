@@ -1,0 +1,35 @@
+# mdshards — deployment mode 2 in container form: two containers, Vite's
+# preview server in front (VITE_BACKEND_HOST as a runtime proxy target),
+# backend hidden. Run from this directory:
+#
+#   docker compose -f docker-compose.preview.yml up --build
+#
+# The front is the only externally reachable surface (http://localhost:8080).
+# Redeploying the backend elsewhere = change VITE_BACKEND_HOST and restart
+# the web container — the bundle is unbaked, so no image rebuild.
+
+services:
+  backend:
+    build: ..
+    environment:
+      VAULT_DIR: /data/vault
+      CACHE_DIR: /data/cache
+    volumes:
+      - mdshards-data:/data
+    # No ports: — the backend must not be reachable from outside.
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/preview.Dockerfile
+    environment:
+      # Runtime proxy target — override at `up` time to retarget the backend
+      # with NO image rebuild: VITE_BACKEND_HOST=<url> docker compose ... up -d
+      VITE_BACKEND_HOST: ${VITE_BACKEND_HOST:-http://backend:8000}
+    ports:
+      - "8080:4173"
+    depends_on:
+      - backend
+
+volumes:
+  mdshards-data:

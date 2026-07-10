@@ -108,6 +108,12 @@ It's the same variable modes 2 and 3 use — seen by `preview` it's a runtime
 proxy target, seen by `build` it gets baked into the bundle. Just don't set
 it during the `build` step of mode 2.
 
+A containerized version of this mode lives in [`deploy/`](./deploy):
+`docker compose -f docker-compose.preview.yml up --build` runs the preview
+front + hidden backend pair, and
+`VITE_BACKEND_HOST=<url> docker compose -f docker-compose.preview.yml up -d`
+retargets the backend with no image rebuild.
+
 ### Mode 3: static host — baked backend URL (your own risk, worst)
 
 For a dumb static server that can't proxy, bake the backend origin into the
