@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { kindFor } from '../lib/asset-kind'
+import { isViewableAsset, kindFor } from '../lib/asset-kind'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { encodePathToUrl } from '../lib/paths'
 import styles from './AssetViewer.module.css'
@@ -54,7 +54,48 @@ export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
     )
   }
 
+  if (!isViewableAsset(path)) {
+    return <DownloadAsset src={src} path={path} />
+  }
   return <IframeAsset src={src} title={path} shortcuts={shortcuts} />
+}
+
+/** Guard against back-to-back duplicate auto-downloads of the same URL —
+ *  React StrictMode double-mounts effects in dev, which would otherwise
+ *  save the file twice on every visit. */
+let lastAutoDownload = { src: '', at: 0 }
+
+/** Non-viewable asset (zip, tarball, arbitrary binary): rendering it is
+ *  impossible and the sandboxed iframe would silently BLOCK the browser's
+ *  download fallback, leaving a blank page. Hand control back to the
+ *  browser instead — kick off its native download on arrival and show a
+ *  panel with a manual link in case the auto-start was blocked. */
+function DownloadAsset({ src, path }: { src: string; path: string }) {
+  const basename = path.slice(path.lastIndexOf('/') + 1)
+
+  useEffect(() => {
+    const now = Date.now()
+    if (lastAutoDownload.src === src && now - lastAutoDownload.at < 1000) return
+    lastAutoDownload = { src, at: now }
+    const a = document.createElement('a')
+    a.href = src
+    a.download = basename
+    a.click()
+  }, [src, basename])
+
+  return (
+    <div className={styles.host}>
+      <div className={styles.downloadPanel}>
+        <span className={styles.downloadName}>{basename}</span>
+        <span className={styles.downloadHint}>
+          This file type can't be previewed — downloading it instead.
+        </span>
+        <a className={styles.downloadLink} href={src} download={basename}>
+          Download again
+        </a>
+      </div>
+    </div>
+  )
 }
 
 function IframeAsset({
