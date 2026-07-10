@@ -434,10 +434,42 @@ def test_asset_upload_rejects_md_path(client) -> None:
     assert not (vault / "notes" / "shadow.md").exists()
 
 
-def test_asset_move_rejects_md_path(client) -> None:
+def test_asset_move_to_md_converts_into_note(client) -> None:
+    """An asset renamed to a `.md` target (any casing) becomes a note at the
+    canonical lowercase path. Whether the bytes are valid markdown is the
+    user's problem; the frontend confirms before sending. This is also the
+    escape hatch for stray `foo.MD` files created directly on disk."""
     c, vault = client
-    (vault / "real.png").write_bytes(b"x")
-    r = c.post("/api/assets/move", json={"src": "real.png", "dst": "shadow.md"})
+    (vault / "notes.MD").write_text("# stuck as asset")
+    r = c.post("/api/assets/move", json={"src": "notes.MD", "dst": "notes.md"})
+    assert r.status_code == 200
+    assert r.json() == {"from": "notes.MD", "to": "notes", "converted": True}
+    assert (vault / "notes.md").read_text() == "# stuck as asset"
+    assert c.get("/api/resolve/notes").json() == {"type": "md", "canonical": "notes"}
+
+    # Any casing of the target works and lands lowercase.
+    (vault / "img.png").write_bytes(b"x")
+    r = c.post("/api/assets/move", json={"src": "img.png", "dst": "img-note.MD"})
+    assert r.status_code == 200
+    assert r.json()["to"] == "img-note"
+    assert (vault / "img-note.md").exists()
+
+
+def test_asset_move_to_md_collides_with_existing_note(client) -> None:
+    c, vault = client
+    (vault / "taken.md").write_text("existing note")
+    (vault / "data.bin").write_bytes(b"x")
+    r = c.post("/api/assets/move", json={"src": "data.bin", "dst": "taken.md"})
+    assert r.status_code == 409
+    assert (vault / "taken.md").read_text() == "existing note"
+
+
+def test_asset_move_rejects_lowercase_md_source(client) -> None:
+    """A true lowercase `.md` source is a live note — it belongs to
+    /api/files/move, never the asset endpoint."""
+    c, vault = client
+    (vault / "note.md").write_text("note")
+    r = c.post("/api/assets/move", json={"src": "note.md", "dst": "note.txt"})
     assert r.status_code == 400
     assert not (vault / "shadow.md").exists()
     (vault / "shadow.md").write_text("a real note")

@@ -18,11 +18,16 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
   const navigate = useNavigate()
   const [target, setTarget] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // Set once the user has been told that renaming this asset to a `.md`
+  // target converts it into a note; the next Enter on the unchanged target
+  // is the confirmation. Editing the target withdraws it.
+  const [confirmingConvert, setConfirmingConvert] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!open) return
     setError(null)
+    setConfirmingConvert(false)
     setTarget(currentDocId)
     queueMicrotask(() => {
       inputRef.current?.focus()
@@ -39,6 +44,17 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     const reason = validateVaultPath(dst)
     if (reason) {
       setError(reason)
+      return
+    }
+    // Renaming an asset to a `.md` target (any casing) converts it into a
+    // note — meaningful enough to require a second Enter. Whether the bytes
+    // make sense as markdown is the user's call.
+    const convertsToNote = !currentIsMd && dst.slice(-3).toLowerCase() === '.md'
+    if (convertsToNote && !confirmingConvert) {
+      setConfirmingConvert(true)
+      setError(
+        `this will transform the asset into the note "${dst.slice(0, -3)}" — press Enter again to confirm`,
+      )
       return
     }
     // Assets don't enter the CRDT layer — no in-memory doc, no WS to kick —
@@ -64,8 +80,11 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     onClose()
     // Navigate directly to the new location — for `.md`, the close handler
     // will see the dst in pendingRenames and stay silent, so this is the only
-    // navigation. For assets there's no close-event to race with.
-    void navigate('/' + encodePathToUrl(dst))
+    // navigation. For assets there's no close-event to race with. A
+    // conversion's canonical URL is the doc-id the backend returns.
+    const body = (await r.json().catch(() => null)) as { to?: string; converted?: boolean } | null
+    const destination = body?.converted && body.to ? body.to : dst
+    void navigate('/' + encodePathToUrl(destination))
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
@@ -84,7 +103,14 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
         <input
           ref={inputRef}
           value={target}
-          onChange={(e) => setTarget(e.target.value)}
+          onChange={(e) => {
+            setTarget(e.target.value)
+            // Editing the target withdraws a pending convert confirmation.
+            if (confirmingConvert) {
+              setConfirmingConvert(false)
+              setError(null)
+            }
+          }}
           onKeyDown={onKeyDown}
           type="text"
           className={styles.input}
