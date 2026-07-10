@@ -32,6 +32,13 @@ const spaDocFallback: Plugin = {
 export default defineConfig({
   plugins: [react(), spaDocFallback],
   server: {
+    // Bind dual-stack, not the default `localhost`, which on Node 17+
+    // resolves to ::1 only and leaves 127.0.0.1 unbound. Safari is the
+    // browser that cares: its fetch falls back from the refused IPv4
+    // loopback slowly (REST feels seconds-slow) and its WebSocket stack
+    // often doesn't fall back at all (CRDT sync never connects). Chrome
+    // happy-eyeballs its way to ::1 and hides the problem.
+    host: true,
     // `changeOrigin` stays FALSE so the proxy forwards the browser's original
     // `Host` (localhost:5173) rather than rewriting it to the target. The
     // backend OriginGuard authorizes a request by matching `Origin` against

@@ -32,11 +32,21 @@ interface ResolveBody {
  *  form) so a spaced note doesn't ping-pong between encoded/decoded URLs. */
 export function useResolve(docId: string): ResolveState {
   const navigate = useNavigate()
-  const [state, setState] = useState<ResolveState>({ status: 'loading' })
+  // The ready state is tagged with the docId it describes. On the first
+  // render after a navigation — before this hook's effect has run — `state`
+  // still describes the PREVIOUS docId; returning it as-is would let
+  // EditorView mount an Editor (and open a WebSocket) for the new path a
+  // beat before the reset to `loading` unmounts it again. That churn opens
+  // sockets that are immediately closed mid-handshake, which Safari
+  // mishandles badly enough to wedge the doc's next connection.
+  const [state, setState] = useState<{ for: string; res: ResolveState }>({
+    for: docId,
+    res: { status: 'loading' },
+  })
 
   useEffect(() => {
     let cancelled = false
-    setState({ status: 'loading' })
+    setState({ for: docId, res: { status: 'loading' } })
     const stripped = docId.replace(/^\/+/, '')
     const url = stripped === '' ? '/api/resolve' : `/api/resolve/${encodePathToUrl(stripped)}`
     void (async () => {
@@ -44,7 +54,7 @@ export function useResolve(docId: string): ResolveState {
         const r = await fetch(url)
         if (cancelled) return
         if (!r.ok) {
-          setState({ status: 'ready', type: 'missing' })
+          setState({ for: docId, res: { status: 'ready', type: 'missing' } })
           return
         }
         const body = (await r.json()) as ResolveBody
@@ -59,10 +69,10 @@ export function useResolve(docId: string): ResolveState {
           void navigate(target, { replace: true })
           return
         }
-        setState({ status: 'ready', type: body.type })
+        setState({ for: docId, res: { status: 'ready', type: body.type } })
       } catch {
         if (cancelled) return
-        setState({ status: 'ready', type: 'missing' })
+        setState({ for: docId, res: { status: 'ready', type: 'missing' } })
       }
     })()
     return () => {
@@ -70,5 +80,7 @@ export function useResolve(docId: string): ResolveState {
     }
   }, [docId, navigate])
 
-  return state
+  // A state describing a different docId means we're mid-navigation and the
+  // effect hasn't caught up yet — that's a loading gap, not the old answer.
+  return state.for === docId ? state.res : { status: 'loading' }
 }

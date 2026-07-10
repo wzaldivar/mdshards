@@ -20,6 +20,7 @@ interface FakeProvider {
   wsconnected: boolean
   on(evt: string, cb: (a: unknown) => void): void
   emit(evt: string, arg: unknown): void
+  connect(): void
   disconnect(): void
   destroy(): void
 }
@@ -48,6 +49,7 @@ vi.mock('../lib/crdt', async () => {
           }
           ;(handlers[evt] ?? []).forEach((cb) => cb(arg))
         },
+        connect() {},
         disconnect() {},
         destroy() {},
       }

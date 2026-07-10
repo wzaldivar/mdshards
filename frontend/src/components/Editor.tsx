@@ -64,6 +64,13 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     let view: EditorView | null = null
     let remounting = false
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+    // The provider is created with `connect: false` (see openDoc) and the
+    // socket is opened one task later. A mount that is torn down within the
+    // same tick — StrictMode's double-invoke, rapid navigation — therefore
+    // never opens a WebSocket, so no socket is ever closed mid-handshake.
+    // Safari wedges on exactly that: an aborted CONNECTING socket can stall
+    // the next connection to the same URL indefinitely.
+    let connectTimer: ReturnType<typeof setTimeout> | null = null
     // Short blips reconnect against the same in-memory server-side Doc and
     // resync cleanly. Once the disconnect exceeds the server's grace window the
     // server will have rebuilt the Doc from disk with fresh item IDs, and a
@@ -189,7 +196,10 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       // Countdown elapsed — only lock if we're genuinely still offline. Guards
       // against a reconnect that recovered the socket without us catching a
       // 'connected' status event (and against a throttled timer firing late).
-      if (!bundle || !bundle.provider.wsconnected) setReadOnly(true)
+      // No bundle means no live editor (torn down mid-countdown) — there is
+      // nothing to lock, and locking would strand the banner on a page whose
+      // Editor can never clear it.
+      if (bundle && !bundle.provider.wsconnected) setReadOnly(true)
     }
 
     const onVisibilityChange = (): void => {
@@ -211,6 +221,10 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     }
 
     const teardown = (): void => {
+      if (connectTimer !== null) {
+        clearTimeout(connectTimer)
+        connectTimer = null
+      }
       clearReadOnlyTimer()
       // Clear the banner before dropping the view — covers both a stale-reconnect
       // remount (mount() rebuilds an editable view right after) and unmount.
@@ -242,8 +256,22 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       readOnly = false
       onReadOnlyChangeRef.current(false)
       bundle = openDoc(docId)
+      const b = bundle
+      connectTimer = setTimeout(() => {
+        connectTimer = null
+        b.provider.connect()
+      }, 0)
       startHeartbeat(bundle)
+      // Every provider event handler below must first drop events from a
+      // torn-down bundle (`bundle !== b`). closeDoc() closes the socket but
+      // the WebSocket 'close' event arrives on a LATER task — after teardown
+      // already ran clearReadOnlyTimer(). Without the guard, that late
+      // 'disconnected' event re-arms the 25s read-only countdown as a zombie
+      // no cleanup will ever cancel, and it locks the banner on whatever page
+      // the user has navigated to since — including asset pages, where no
+      // Editor exists to ever clear it again.
       bundle.provider.on('connection-close', (event: CloseEvent | null) => {
+        if (bundle !== b) return
         if (!event) return
         if (event.code === DOC_DELETED_CODE) {
           // Server kicked us because the file was deleted — bail to root so we
@@ -267,6 +295,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
       let everConnected = false
       let disconnectedAt: number | null = null
       bundle.provider.on('status', (event: { status: string }) => {
+        if (bundle !== b) return
         if (event.status === 'connected') {
           clearReadOnlyTimer()
           if (!everConnected) {

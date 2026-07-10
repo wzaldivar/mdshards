@@ -24,6 +24,17 @@ from .vault import VaultPathError, resolve_md
 
 router = APIRouter()
 
+# Server→client keepalive. y-websocket hard-closes a connection that received
+# no server message for 30s (`messageReconnectTimeout`), and an idle doc
+# produces exactly that silence — every idle tab would micro-cut its socket
+# every ~30s. Client-side timers can't reliably prevent it (Safari throttles
+# unfocused windows hard enough to starve them), but *incoming* messages are
+# delivered even to throttled tabs, so the server pushes the traffic instead:
+# an AWARENESS frame whose payload is an empty update (varUint8Array of the
+# single byte 0x00 = "0 clients") — a protocol-valid no-op on every client.
+_KEEPALIVE_SECONDS = 10
+_KEEPALIVE_MSG = bytes([YMessageType.AWARENESS, 1, 0])
+
 # Re-export the protocol codes so existing test imports keep working.
 __all__ = [
     "router",
@@ -66,7 +77,11 @@ async def ws_endpoint(ws: WebSocket, doc_id: str) -> None:
         used by the delete and rename paths to notify attached clients."""
         try:
             while True:
-                msg = await queue.get()
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
+                except TimeoutError:
+                    await ws.send_bytes(_KEEPALIVE_MSG)
+                    continue
                 if isinstance(msg, KickSignal):
                     with suppress(Exception):
                         await ws.close(code=msg.code, reason=msg.reason)
