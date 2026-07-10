@@ -20,8 +20,18 @@ class MoveAssetRequest(BaseModel):
 async def upload_asset(
     file: Annotated[UploadFile, File()],
     path: Annotated[str, Form()],
+    overwrite: Annotated[bool, Form()] = False,
 ) -> dict:
-    """Upload a non-md asset at the given vault-relative path. Overwrites if it exists."""
+    """Upload a non-md asset at the given vault-relative path.
+
+    Collisions are full-filename, filesystem-semantics matches: on a
+    case-sensitive filesystem `foo.jpg`, `Foo.jpg`, and `foo.JPG` are three
+    distinct files that never collide; on a case-insensitive one (macOS APFS)
+    the `exists()` check naturally catches case-variant clashes too. An
+    existing target is refused with 409 unless the caller explicitly sets
+    `overwrite` — the frontend turns the 409 into an accept-or-rename prompt;
+    nothing is silently replaced.
+    """
     settings = get_settings()
     try:
         target = resolve_asset(path, settings.vault_dir)
@@ -33,6 +43,8 @@ async def upload_asset(
     # edited.
     if target.suffix.lower() == ".md":
         raise HTTPException(400, detail=".md paths are not assets; use /api/files")
+    if target.exists() and not overwrite:
+        raise HTTPException(409, detail="already exists")
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("wb") as out:
         shutil.copyfileobj(file.file, out)

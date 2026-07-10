@@ -332,6 +332,48 @@ def test_asset_upload(client) -> None:
     assert (vault / "notes" / "diagram.png").read_bytes().startswith(b"\x89PNG")
 
 
+def test_asset_upload_collision_requires_explicit_overwrite(client) -> None:
+    """An existing target 409s unless `overwrite` is set — the accept half of
+    the frontend's accept-or-rename prompt. Nothing is silently replaced."""
+    c, vault = client
+    (vault / "pic.png").write_bytes(b"original")
+    r = c.post(
+        "/api/assets",
+        data={"path": "pic.png"},
+        files={"file": ("pic.png", b"replacement", "image/png")},
+    )
+    assert r.status_code == 409
+    assert (vault / "pic.png").read_bytes() == b"original"
+
+    r = c.post(
+        "/api/assets",
+        data={"path": "pic.png", "overwrite": "true"},
+        files={"file": ("pic.png", b"replacement", "image/png")},
+    )
+    assert r.status_code == 201
+    assert (vault / "pic.png").read_bytes() == b"replacement"
+
+
+def test_asset_upload_case_variant_is_not_a_collision(client) -> None:
+    """Collisions are full-filename matches with the filesystem's own
+    semantics. On a case-sensitive FS `pic.PNG` lands beside `pic.png`; on a
+    case-insensitive one (macOS APFS) the exists() check reports the clash
+    and the upload 409s instead of clobbering. Either outcome is correct —
+    the test asserts no silent overwrite ever happens."""
+    c, vault = client
+    (vault / "pic.png").write_bytes(b"lower")
+    r = c.post(
+        "/api/assets",
+        data={"path": "pic.PNG"},
+        files={"file": ("pic.PNG", b"upper", "image/png")},
+    )
+    if r.status_code == 201:  # case-sensitive filesystem: distinct files
+        assert (vault / "pic.PNG").read_bytes() == b"upper"
+    else:  # case-insensitive filesystem: surfaced as a collision
+        assert r.status_code == 409
+    assert (vault / "pic.png").read_bytes() == b"lower"
+
+
 def test_asset_upload_rejects_no_extension(client) -> None:
     c, _ = client
     r = c.post(

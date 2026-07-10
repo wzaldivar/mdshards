@@ -21,6 +21,11 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
   const [target, setTarget] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Asset path that came back 409 from the backend. While set (and the
+  // resolved target still matches it), the next Enter re-submits with
+  // `overwrite` — the accept half of accept-or-rename. Editing the path is
+  // the rename half and clears it.
+  const [collidingPath, setCollidingPath] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -35,6 +40,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
     if (!open) return
     setError(null)
     setBusy(false)
+    setCollidingPath(null)
     setFile(initialFile)
     // Prefill the target as `<current dir>/<filename>` so the user can press
     // Enter to confirm the obvious case. Spaces are kept verbatim — vault
@@ -58,6 +64,10 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
     setFile(e.target.files?.[0] ?? null)
+    // A different source file can change the resolved target (extension
+    // fill-in), so any standing overwrite offer no longer describes what
+    // Enter would do — withdraw it.
+    setCollidingPath(null)
   }
 
   async function commit(): Promise<void> {
@@ -106,10 +116,18 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         const fd = new FormData()
         fd.append('path', resolved)
         fd.append('file', file, file.name)
+        // Second Enter on the same colliding path = explicit acceptance.
+        if (collidingPath === resolved) fd.append('overwrite', 'true')
         r = await fetch('/api/assets', { method: 'POST', body: fd })
         if (r.ok) {
           onClose()
           void navigate('/' + encodePathToUrl(resolved))
+          return
+        }
+        if (r.status === 409) {
+          // Collision: require acceptance or renaming, never silent replace.
+          setCollidingPath(resolved)
+          setError(`"${resolved}" already exists — press Enter again to overwrite it, or edit the path`)
           return
         }
       }
@@ -147,7 +165,15 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         <input
           ref={inputRef}
           value={target}
-          onChange={(e) => setTarget(e.target.value)}
+          onChange={(e) => {
+            setTarget(e.target.value)
+            // Editing the path is the "rename" answer to a collision prompt;
+            // the overwrite offer applies only to the exact path it named.
+            if (collidingPath !== null) {
+              setCollidingPath(null)
+              setError(null)
+            }
+          }}
           onKeyDown={onKeyDown}
           type="text"
           className={styles.input}
