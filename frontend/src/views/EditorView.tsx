@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import { AssetViewer } from '../components/AssetViewer'
 import { Editor } from '../components/Editor'
 import { NotFound } from '../components/NotFound'
@@ -17,6 +17,7 @@ import styles from './EditorView.module.css'
 export function EditorView() {
   const params = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const docId = useMemo(() => routeToDocId(params['*']), [params])
   const resolved = useResolve(docId)
@@ -127,7 +128,13 @@ export function EditorView() {
         />
       ) : resolved.type === 'asset' ? (
         <AssetViewer
-          key={'asset:' + docId}
+          // Keyed by the navigation (location.key), not just the path: a push
+          // to the SAME path — e.g. the upload flow overwriting the asset the
+          // user is currently viewing — must remount so the <img>/iframe
+          // refetches. The backend serves assets with Cache-Control: no-cache,
+          // so the refetch revalidates and picks up the new bytes; without the
+          // remount no request happens at all and the stale render sticks.
+          key={'asset:' + docId + ':' + location.key}
           path={docId}
           shortcuts={shortcutHandlers}
         />
