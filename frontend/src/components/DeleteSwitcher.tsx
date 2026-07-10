@@ -59,11 +59,6 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     }
   }, [open])
 
-  useEffect(() => {
-    setSelectedIndex(0)
-    setConfirming(null)
-  }, [query])
-
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = []
     if (currentDocId !== '' && currentDocId !== 'index') {
@@ -84,6 +79,32 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     }
     return list.slice(0, 50)
   }, [query, allFiles, currentDocId, currentIsMd])
+
+  // Withdraw an in-progress confirmation when the query moves — but ONLY
+  // then. Keying this off `entries` too would cancel a confirmation the
+  // moment the async tree fetch resolves and changes the memo's identity.
+  useEffect(() => {
+    setConfirming(null)
+  }, [query])
+
+  // Move the highlight to the first BEST match as the user types (exact
+  // beats prefix beats substring — same ranking as the quick switcher),
+  // instead of leaving it parked on the "Delete this file" top entry while
+  // the user is clearly naming a different file. Falls back to the top row
+  // on an empty or unmatched query.
+  useEffect(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      setSelectedIndex(0)
+      return
+    }
+    const forms = (e: Entry) => [e.target.toLowerCase(), e.label.toLowerCase()]
+    const byExact = entries.findIndex((e) => forms(e).some((f) => f === q))
+    const byPrefix = entries.findIndex((e) => forms(e).some((f) => f.startsWith(q)))
+    const bySubstring = entries.findIndex((e) => forms(e).some((f) => f.includes(q)))
+    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
+    setSelectedIndex(best ?? 0)
+  }, [query, entries])
 
   async function doDelete(entry: Entry): Promise<void> {
     if (entry.target === '' || entry.target === 'index') {
