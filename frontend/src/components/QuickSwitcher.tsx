@@ -75,8 +75,14 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       )
 
     const list: string[] = []
-    // `/` is always the first option unless the user is already on home.
-    if (currentTarget !== 'index') list.push('index')
+    // `/` is pinned first unless the user is already on home — but only
+    // while the query doesn't rule it out. Keeping it pinned under an
+    // unrelated query made it the pre-selected row, so typing a name that
+    // matched nothing visible (e.g. the current file's own name) and
+    // pressing Enter surprise-navigated home.
+    const indexMatchesQuery =
+      !q || 'index'.includes(q) || displayPath('index').toLowerCase().includes(q)
+    if (currentTarget !== 'index' && indexMatchesQuery) list.push('index')
     list.push(...others)
     return list.slice(0, 50)
   }, [query, allPaths, currentDocId])
@@ -94,6 +100,13 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
 
   async function commit(target: string, forceCreate = false): Promise<void> {
     if (!target) return
+    // Confirming the file that's already open is a no-op by definition —
+    // just dismiss the switcher and stay in place, don't bounce through a
+    // same-URL navigation.
+    if (target === (currentDocId === '' ? 'index' : currentDocId)) {
+      onClose()
+      return
+    }
     // An existing path always navigates — even under Shift-Enter, which
     // would otherwise POST a create that's guaranteed to 409.
     if (allUrls.includes(target)) {
@@ -147,9 +160,13 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
         void commit(query.trim(), true)
       } else {
         // Plain Enter navigates to an existing match only — it never creates.
-        // When the query matches nothing there's no target, so it's a no-op
-        // and the user must press Shift-Enter to create.
-        const target = matches[selectedIndex]
+        // When nothing is displayed but the typed text IS an existing file
+        // (the currently-open note is hidden from the list), commit that —
+        // commit() dismisses in place for the current file. Otherwise it's a
+        // no-op and the user must press Shift-Enter to create.
+        const trimmedQuery = query.trim()
+        const target =
+          matches[selectedIndex] ?? (allUrls.includes(trimmedQuery) ? trimmedQuery : undefined)
         if (target) void commit(target)
       }
     }
