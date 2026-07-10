@@ -75,14 +75,14 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       )
 
     const list: string[] = []
-    // `/` is pinned first unless the user is already on home — but only
-    // while the query doesn't rule it out. Keeping it pinned under an
-    // unrelated query made it the pre-selected row, so typing a name that
-    // matched nothing visible (e.g. the current file's own name) and
-    // pressing Enter surprise-navigated home.
-    const indexMatchesQuery =
-      !q || 'index'.includes(q) || displayPath('index').toLowerCase().includes(q)
-    if (currentTarget !== 'index' && indexMatchesQuery) list.push('index')
+    // `/` is always pinned first unless the user is already on home — with
+    // ONE exception: when the query is exactly the currently-open file's
+    // name. That query matches nothing visible (the current file is hidden
+    // from the list), so a pinned-and-preselected `/` would make Enter
+    // surprise-navigate home; instead the list goes empty and Enter
+    // dismisses in place (see the fallback in onKeyDown).
+    const queryIsCurrentFile = query.trim() === currentTarget
+    if (currentTarget !== 'index' && !queryIsCurrentFile) list.push('index')
     list.push(...others)
     return list.slice(0, 50)
   }, [query, allPaths, currentDocId])
