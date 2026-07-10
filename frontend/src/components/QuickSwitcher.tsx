@@ -81,20 +81,29 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     return list.slice(0, 50)
   }, [query, allPaths, currentDocId])
 
+  // Existence must be checked against EVERY vault file, not the displayed
+  // list — `matches` hides the currently-open file (and truncates at 50), so
+  // a display-based check would offer Shift-Enter "create" for paths that
+  // already exist and 409 on confirm (e.g. typing `hello` while on /hello).
+  const allUrls = useMemo(() => allPaths.map(diskPathToUrl), [allPaths])
+
   const hasExactMatch = useMemo(() => {
     const q = query.trim()
-    return matches.some((p) => p === q || displayPath(p) === q)
-  }, [matches, query])
+    return allUrls.includes(q) || matches.some((p) => p === q || displayPath(p) === q)
+  }, [allUrls, matches, query])
 
   async function commit(target: string, forceCreate = false): Promise<void> {
     if (!target) return
-    if (!forceCreate && allPaths.map(diskPathToUrl).includes(target)) {
+    // An existing path always navigates — even under Shift-Enter, which
+    // would otherwise POST a create that's guaranteed to 409.
+    if (allUrls.includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
       void navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
       onClose()
       return
     }
+    if (!forceCreate) return
     const reason = validateVaultPath(target)
     if (reason) {
       setError(reason)
