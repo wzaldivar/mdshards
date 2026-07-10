@@ -53,9 +53,13 @@ export default defineConfig({
       // ever sees iframe/image/video/etc. fetches that genuinely want the
       // raw file. `/index.html` is excluded so the post-rewrite request
       // stays on the Vite dev server (which serves the local SPA shell).
-      // The trailing `(\?[^#]*)?` tolerates a query string — AssetViewer
-      // appends a `?v=` cache-bust param to asset srcs.
-      '^/(?!@|src/|node_modules/|favicon\\.svg|vite\\.svg|index\\.html$)[^?#]+\\.(png|jpe?g|gif|svg|webp|ico|avif|bmp|pdf|mp[34]|webm|wav|ogg|flac|m4a|mov|zip|tar|gz|7z|csv|tsv|xml|yaml|yml|toml|txt|html?)(\\?[^#]*)?$':
+      // Any extensioned path that isn't Vite-owned is a vault asset — the
+      // viewer handles arbitrary extensions (browser-default rendering), so
+      // the proxy must not enumerate them. The negative lookahead keeps
+      // Vite's own URLs (dev client, modules, public/ files, the shell) on
+      // the dev server; the trailing `(\?[^#]*)?` tolerates a query string
+      // (AssetViewer appends a `?v=` cache-bust param).
+      '^/(?!@|src/|node_modules/|favicon\\.svg|vite\\.svg|index\\.html$)[^?#]+\\.[A-Za-z0-9]+(\\?[^#]*)?$':
         { target: 'http://127.0.0.1:8000', changeOrigin: false },
     },
   },

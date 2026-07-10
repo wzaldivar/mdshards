@@ -9,6 +9,21 @@ from ..vault import VaultPathError, resolve_asset, resolve_md
 
 router = APIRouter()
 
+# Suffixes that can execute script when served same-origin — the only ones
+# that need `CSP: sandbox`. Keep in lockstep with SCRIPTABLE_EXTS in the
+# frontend's lib/asset-kind.ts.
+_SCRIPTABLE_SUFFIXES = {
+    ".html",
+    ".htm",
+    ".xhtml",
+    ".xht",
+    ".shtml",
+    ".xml",
+    ".svg",
+    ".mht",
+    ".mhtml",
+}
+
 _PLACEHOLDER_SHELL = (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">'
     "<title>mdshards</title></head>"
@@ -98,17 +113,19 @@ def page_or_asset(full_path: str, request: Request):
         # (or deleted) asset. "no-cache" still allows storage, just not reuse
         # without a round-trip, so the fetch after a delete correctly 404s.
         headers = {
-            "Content-Security-Policy": "sandbox",
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-cache",
         }
-        # A sandboxed context blocks the browser's built-in PDF viewer
-        # entirely (the plugin refuses to instantiate), so `CSP: sandbox`
-        # turned every PDF into a blank page. PDFs render inside the
-        # viewer's own sandbox and cannot run same-origin script against
-        # the SPA, so the sandbox buys nothing here — the CSP exists to
-        # neutralize scriptable types (vault .html / .svg), which keep it.
-        if asset_path.suffix.lower() == ".pdf":
-            del headers["Content-Security-Policy"]
+        # `CSP: sandbox` only where it buys protection: types that can
+        # execute script in the SPA's origin (the vault takes external
+        # writes, so a synced .html/.svg is the XSS vector). Everything else
+        # gets browser-default handling — a blanket sandbox would block the
+        # PDF viewer plugin outright and silently swallow the download
+        # fallback for non-renderable types (blank page instead of a save).
+        # `nosniff` (always sent) pins the declared content-type, so a
+        # misnamed file can't be sniffed back up to text/html. Mirrors
+        # SCRIPTABLE_EXTS in the frontend's lib/asset-kind.ts.
+        if asset_path.suffix.lower() in _SCRIPTABLE_SUFFIXES:
+            headers["Content-Security-Policy"] = "sandbox"
         return FileResponse(asset_path, headers=headers)
     raise HTTPException(404, detail="not found")

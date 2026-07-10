@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { extOf, isViewableAsset, kindFor } from '../lib/asset-kind'
+import { frameModeFor, kindFor } from '../lib/asset-kind'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { encodePathToUrl } from '../lib/paths'
 import styles from './AssetViewer.module.css'
@@ -54,22 +54,19 @@ export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
     )
   }
 
-  if (!isViewableAsset(path)) {
+  // Non-media assets: browser-default handling by default. Only
+  // script-capable types get the sandbox (it also blocks the PDF viewer and
+  // download fallbacks, so it must not be blanket); known archives skip the
+  // iframe for the download panel. Everything else — pdf, text, code,
+  // unknown extensions — goes into a plain iframe where the browser renders
+  // what it can and natively downloads what it can't. The backend mirrors
+  // the same split for its `CSP: sandbox` response header (pages.py).
+  const mode = frameModeFor(path)
+  if (mode === 'download') {
     return <DownloadAsset src={src} path={path} />
   }
   return (
-    <IframeAsset
-      src={src}
-      title={path}
-      shortcuts={shortcuts}
-      // A sandboxed iframe blocks the browser's built-in PDF viewer (the
-      // plugin refuses to instantiate in a sandboxed context), so PDFs get
-      // an unsandboxed frame. Safe: PDFs render inside the viewer's own
-      // sandbox and can't script the SPA's origin — the iframe sandbox
-      // exists for scriptable vault content (.html), which keeps it. The
-      // backend mirrors this by omitting `CSP: sandbox` on .pdf responses.
-      sandboxed={extOf(path) !== 'pdf'}
-    />
+    <IframeAsset src={src} title={path} shortcuts={shortcuts} sandboxed={mode === 'sandboxed'} />
   )
 }
 

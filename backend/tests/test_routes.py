@@ -143,17 +143,24 @@ def test_asset_response_carries_sandbox_and_nosniff_headers(client) -> None:
     assert r.headers["x-content-type-options"] == "nosniff"
 
 
-def test_pdf_response_is_not_sandboxed(client) -> None:
-    """`CSP: sandbox` blocks the browser's built-in PDF viewer outright, so
-    PDFs are exempt — they render inside the viewer's own sandbox and can't
-    run same-origin script. nosniff/no-cache still apply."""
+def test_only_scriptable_assets_are_sandboxed(client) -> None:
+    """`CSP: sandbox` is applied ONLY to script-capable types — a blanket
+    sandbox blocks the PDF viewer plugin and swallows download fallbacks
+    (blank page instead of a save). Non-scriptable types get browser-default
+    handling; nosniff/no-cache apply to everything."""
     c, vault = client
     (vault / "doc.pdf").write_bytes(b"%PDF-1.4 fake")
-    r = c.get("/doc.pdf", headers={"sec-fetch-dest": "iframe"})
-    assert r.status_code == 200
-    assert "content-security-policy" not in r.headers
-    assert r.headers["x-content-type-options"] == "nosniff"
-    assert r.headers["cache-control"] == "no-cache"
+    (vault / "notes.txt").write_text("plain text")
+    (vault / "data.tar.gz").write_bytes(b"\x1f\x8b")
+    (vault / "img.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    for name in ("doc.pdf", "notes.txt", "data.tar.gz"):
+        r = c.get(f"/{name}", headers={"sec-fetch-dest": "iframe"})
+        assert r.status_code == 200
+        assert "content-security-policy" not in r.headers, name
+        assert r.headers["x-content-type-options"] == "nosniff", name
+        assert r.headers["cache-control"] == "no-cache", name
+    r = c.get("/img.svg", headers={"sec-fetch-dest": "iframe"})
+    assert r.headers["content-security-policy"] == "sandbox"
 
 
 def test_asset_response_is_not_cached(client) -> None:
