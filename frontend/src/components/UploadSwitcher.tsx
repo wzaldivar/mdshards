@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { isViewableAsset } from '../lib/asset-kind'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { finalizeUploadPath } from '../lib/upload-path'
 import styles from './UploadSwitcher.module.css'
@@ -121,7 +122,13 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         r = await fetch('/api/assets', { method: 'POST', body: fd })
         if (r.ok) {
           onClose()
-          void navigate('/' + encodePathToUrl(resolved))
+          // Auto-navigate only when the asset's URL shows something — media
+          // or an iframe-renderable document. For anything else (.zip, .tar…)
+          // the URL would just bounce the upload back as a download (blocked
+          // inside the sandboxed iframe = blank page), so stay put.
+          if (isViewableAsset(resolved)) {
+            void navigate('/' + encodePathToUrl(resolved))
+          }
           return
         }
         if (r.status === 409) {

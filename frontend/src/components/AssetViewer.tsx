@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { kindFor } from '../lib/asset-kind'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { encodePathToUrl } from '../lib/paths'
 import styles from './AssetViewer.module.css'
@@ -18,27 +19,6 @@ interface Props {
    *  iframe's contentDocument so Cmd-K et al. keep firing when focus moves
    *  into the embedded asset viewer (e.g. clicking on an iframe). */
   shortcuts: ShortcutHandlers
-}
-
-const IMAGE_EXTS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif', 'bmp', 'ico',
-])
-const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv'])
-const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'])
-
-function extOf(path: string): string {
-  const i = path.lastIndexOf('.')
-  return i === -1 ? '' : path.slice(i + 1).toLowerCase()
-}
-
-type Kind = 'image' | 'video' | 'audio' | 'other'
-
-function kindFor(path: string): Kind {
-  const ext = extOf(path)
-  if (IMAGE_EXTS.has(ext)) return 'image'
-  if (VIDEO_EXTS.has(ext)) return 'video'
-  if (AUDIO_EXTS.has(ext)) return 'audio'
-  return 'other'
 }
 
 /** Renders a vault asset inside the editor chrome. Images / video / audio are
