@@ -88,21 +88,25 @@ docker run -p 8000:8000 -e UID=$(id -u) -e GID=$(id -g) \
 The entrypoint uses these ids only to remap the user and fix `/data` ownership,
 then drops privileges — uvicorn itself never runs as root.
 
-### Mode 2: Node front — `vite preview` + `BACKEND_HOST` (your own risk)
+### Mode 2: Node front — `vite preview` + `VITE_BACKEND_HOST` (your own risk)
 
 Serve the built bundle with the repo's own Vite server and point it at a
 hidden backend via a **runtime env var** — no rebuild, ever:
 
 ```sh
 npm --prefix frontend run build
-BACKEND_HOST=http://backend:8000 npm --prefix frontend run preview
+VITE_BACKEND_HOST=http://backend:8000 npm --prefix frontend run preview
 ```
 
 The preview server applies the same routing as dev: top-level document
 navigations get the SPA shell, `/api/*` + `/ws/*` + vault-asset fetches are
-proxied to `BACKEND_HOST` with the browser's `Host` preserved (the origin
-guard depends on it). Change where the backend lives → restart with a new
-`BACKEND_HOST`. The backend itself should not be otherwise reachable.
+proxied to `VITE_BACKEND_HOST` with the browser's `Host` preserved (the
+origin guard depends on it). Change where the backend lives → restart with a
+new value. The backend itself should not be otherwise reachable.
+
+It's the same variable modes 2 and 3 use — seen by `preview` it's a runtime
+proxy target, seen by `build` it gets baked into the bundle. Just don't set
+it during the `build` step of mode 2.
 
 ### Mode 3: static host — baked backend URL (your own risk, worst)
 

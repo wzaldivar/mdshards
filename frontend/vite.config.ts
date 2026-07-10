@@ -2,12 +2,15 @@
 import { defineConfig, type Plugin } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
-// Where the backend lives, for the DEV server and the PREVIEW server
-// (deployment mode 2: `BACKEND_HOST=http://backend:8000 npm run preview`
-// serves dist/ with the same proxy rules — runtime env var, no rebuild).
-// This is unrelated to VITE_BACKEND_HOST, which BAKES a backend origin into
-// the bundle for static hosting (mode 3) — see src/lib/backend.ts.
-const BACKEND = process.env.BACKEND_HOST ?? 'http://127.0.0.1:8000'
+// Where the backend lives. ONE env var for every deployment shape — what it
+// does depends on which command sees it:
+//   - `VITE_BACKEND_HOST=<url> npm run preview` (mode 2): proxy target at
+//     RUNTIME — dist/ stays unbaked, no rebuild on redeploy.
+//   - `VITE_BACKEND_HOST=<url> npm run build` (mode 3): Vite BAKES it into
+//     the bundle via import.meta.env (see src/lib/backend.ts) for
+//     proxy-less static hosting.
+// Unset (dev, mode 1): origin-rooted URLs + the default local proxy target.
+const BACKEND = process.env.VITE_BACKEND_HOST ?? 'http://127.0.0.1:8000'
 const BACKEND_WS = BACKEND.replace(/^http/, 'ws')
 
 // Top-level browser nav to any non-Vite-internal URL should drop the user
@@ -82,8 +85,8 @@ export default defineConfig({
     proxy,
   },
   // Deployment mode 2: `npm run preview` serves the built dist/ with the
-  // same routing as dev — BACKEND_HOST decides where /api, /ws, and vault
-  // asset fetches go, at runtime, no rebuild.
+  // same routing as dev — VITE_BACKEND_HOST decides where /api, /ws, and
+  // vault asset fetches go, at runtime, no rebuild.
   preview: {
     host: true,
     proxy,

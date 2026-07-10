@@ -1,16 +1,18 @@
 /** Where the backend lives, from the bundle's point of view.
  *
- * Default (deployment modes 1 and 2): EMPTY — every URL the bundle emits is
- * origin-rooted (`/api/...`, `/ws/...`, `/<asset>`), and whatever serves the
- * bundle (uvicorn itself, or the Vite preview server's BACKEND_HOST proxy)
- * routes them to the backend. No rebuild is ever needed to redeploy.
+ * ONE env var, `VITE_BACKEND_HOST`, covers every deployment shape — what it
+ * does depends on which command saw it. Unset at build time (modes 1 and 2):
+ * this constant is EMPTY and every URL the bundle emits is origin-rooted
+ * (`/api/...`, `/ws/...`, `/<asset>`); whatever serves the bundle (uvicorn
+ * itself, or `VITE_BACKEND_HOST=<url> npm run preview`, where the same var
+ * is only a runtime proxy target) routes them to the backend — no rebuild is
+ * ever needed to redeploy.
  *
- * Deployment mode 3 (static host, at your own risk): bake a backend origin
- * into the bundle at BUILD time with `VITE_BACKEND_HOST=https://api.host` —
- * the bundle then addresses the backend directly. Every backend hostname
- * change requires a rebuild, and satisfying the backend's origin guard
- * (Sec-Fetch-Site for /api, Origin↔Host equality for /ws) across origins is
- * the deployer's problem. See README "Deployment".
+ * Set at BUILD time (mode 3, static host, at your own risk): Vite bakes the
+ * origin in here and the bundle addresses the backend directly. Every
+ * backend hostname change requires a rebuild, and satisfying the backend's
+ * origin guard (Sec-Fetch-Site for /api, Origin↔Host equality for /ws)
+ * across origins is the deployer's problem. See README "Deployment".
  */
 export const BACKEND_HOST = ((import.meta.env.VITE_BACKEND_HOST as string | undefined) ?? '')
   // Normalize away a trailing slash so `BACKEND_HOST + '/api/...'` is clean.
