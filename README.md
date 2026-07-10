@@ -4,6 +4,12 @@ A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory
 
 See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory (supported, missing, out of scope) and **[CLAUDE.md](./CLAUDE.md)** for the full architectural spec and load-bearing decisions.
 
+> **Disclaimer — vibe-coded, maintained accordingly.** The overall design is a
+> human decision (see [CLAUDE.md](./CLAUDE.md)), but the implementation has been
+> vibe coded. There is no maintenance expectation beyond dependency updates, and
+> no intention of adding new features unless something looks really important.
+> If you want to take this somewhere, you're probably better off forking it.
+
 ## Dev quick-start
 
 ```sh
