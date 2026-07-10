@@ -143,6 +143,19 @@ def test_asset_response_carries_sandbox_and_nosniff_headers(client) -> None:
     assert r.headers["x-content-type-options"] == "nosniff"
 
 
+def test_pdf_response_is_not_sandboxed(client) -> None:
+    """`CSP: sandbox` blocks the browser's built-in PDF viewer outright, so
+    PDFs are exempt — they render inside the viewer's own sandbox and can't
+    run same-origin script. nosniff/no-cache still apply."""
+    c, vault = client
+    (vault / "doc.pdf").write_bytes(b"%PDF-1.4 fake")
+    r = c.get("/doc.pdf", headers={"sec-fetch-dest": "iframe"})
+    assert r.status_code == 200
+    assert "content-security-policy" not in r.headers
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "no-cache"
+
+
 def test_asset_response_is_not_cached(client) -> None:
     """Vault assets are mutable (delete / overwrite / external rewrite), so the
     response must force revalidation — otherwise the browser keeps serving a

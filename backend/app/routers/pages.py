@@ -97,12 +97,18 @@ def page_or_asset(full_path: str, request: Request):
         # this the browser would heuristically cache and keep serving a stale
         # (or deleted) asset. "no-cache" still allows storage, just not reuse
         # without a round-trip, so the fetch after a delete correctly 404s.
-        return FileResponse(
-            asset_path,
-            headers={
-                "Content-Security-Policy": "sandbox",
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "no-cache",
-            },
-        )
+        headers = {
+            "Content-Security-Policy": "sandbox",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-cache",
+        }
+        # A sandboxed context blocks the browser's built-in PDF viewer
+        # entirely (the plugin refuses to instantiate), so `CSP: sandbox`
+        # turned every PDF into a blank page. PDFs render inside the
+        # viewer's own sandbox and cannot run same-origin script against
+        # the SPA, so the sandbox buys nothing here — the CSP exists to
+        # neutralize scriptable types (vault .html / .svg), which keep it.
+        if asset_path.suffix.lower() == ".pdf":
+            del headers["Content-Security-Policy"]
+        return FileResponse(asset_path, headers=headers)
     raise HTTPException(404, detail="not found")

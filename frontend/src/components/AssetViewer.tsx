@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { isViewableAsset, kindFor } from '../lib/asset-kind'
+import { extOf, isViewableAsset, kindFor } from '../lib/asset-kind'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
 import { encodePathToUrl } from '../lib/paths'
 import styles from './AssetViewer.module.css'
@@ -57,7 +57,20 @@ export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
   if (!isViewableAsset(path)) {
     return <DownloadAsset src={src} path={path} />
   }
-  return <IframeAsset src={src} title={path} shortcuts={shortcuts} />
+  return (
+    <IframeAsset
+      src={src}
+      title={path}
+      shortcuts={shortcuts}
+      // A sandboxed iframe blocks the browser's built-in PDF viewer (the
+      // plugin refuses to instantiate in a sandboxed context), so PDFs get
+      // an unsandboxed frame. Safe: PDFs render inside the viewer's own
+      // sandbox and can't script the SPA's origin — the iframe sandbox
+      // exists for scriptable vault content (.html), which keeps it. The
+      // backend mirrors this by omitting `CSP: sandbox` on .pdf responses.
+      sandboxed={extOf(path) !== 'pdf'}
+    />
+  )
 }
 
 /** Guard against back-to-back duplicate auto-downloads of the same URL —
@@ -102,10 +115,12 @@ function IframeAsset({
   src,
   title,
   shortcuts,
+  sandboxed,
 }: {
   src: string
   title: string
   shortcuts: ShortcutHandlers
+  sandboxed: boolean
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -160,7 +175,7 @@ function IframeAsset({
         className={styles.frame}
         src={src}
         title={title}
-        sandbox="allow-same-origin"
+        {...(sandboxed ? { sandbox: 'allow-same-origin' } : {})}
       />
     </div>
   )
