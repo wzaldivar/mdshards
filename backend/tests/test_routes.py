@@ -297,6 +297,25 @@ def test_move_rejects_existing_destination(client) -> None:
     assert r.status_code == 409
 
 
+def test_move_endpoints_have_no_overwrite_escape(client) -> None:
+    """INVARIANT: upload is the only operation that may overwrite — it asks
+    the user and carries a declared payload. The move endpoints must 409 on
+    an existing destination even if a caller smuggles an `overwrite` field
+    into the body; the flag exists only on POST /api/files and /api/assets."""
+    c, vault = client
+    (vault / "a.md").write_text("keep a")
+    (vault / "b.md").write_text("keep b")
+    r = c.post("/api/files/move", json={"src": "a", "dst": "b", "overwrite": True})
+    assert r.status_code == 409
+    assert (vault / "b.md").read_text() == "keep b"
+
+    (vault / "x.png").write_bytes(b"keep x")
+    (vault / "y.png").write_bytes(b"keep y")
+    r = c.post("/api/assets/move", json={"src": "x.png", "dst": "y.png", "overwrite": True})
+    assert r.status_code == 409
+    assert (vault / "y.png").read_bytes() == b"keep y"
+
+
 def test_move_rejects_index(client) -> None:
     c, vault = client
     (vault / "x.md").write_text("")
