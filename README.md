@@ -10,6 +10,26 @@ See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory
 > no intention of adding new features unless something looks really important.
 > If you want to take this somewhere, you're probably better off forking it.
 
+## Why mdshards
+
+- **I want a simple tool to edit the notes that live on my LAN server** —
+  without sharing them over SMB. I already serve HTTP there; the notes should
+  just be one more thing the browser can reach.
+- **I want my data to survive any environment.** Plain text (markdown) does
+  it flawlessly: no database, no proprietary format, nothing to export. The
+  vault is just `.md` files any tool can read.
+- **SilverBullet exists — acknowledged.** In fact I used it, ever since
+  browser-based shared editing of files became one of my obsessions. But
+  recent changes force TLS to deploy on a LAN, and I don't really need a full
+  scripting platform. mdshards keeps the part I wanted — the filesystem is
+  king, the client is thin — and drops the rest.
+- **Why not just Syncthing + local editing with Obsidian?** mdshards is
+  actually designed around that: a local Obsidian vault synced with the
+  server vault, both sharing changes. But there's a thing offline editors
+  don't address — the context switch out of the browser. Deciding which
+  browser/profile combination should open a link breaks the flow; following
+  it inside the vault's own tab doesn't.
+
 ## Dev quick-start
 
 ```sh
