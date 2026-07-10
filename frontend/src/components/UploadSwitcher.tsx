@@ -1,3 +1,4 @@
+import { backendUrl } from '../lib/backend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { isViewableAsset } from '../lib/asset-kind'
@@ -103,7 +104,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
           ? resolved.slice(0, -3)
           : resolved
         const text = await file.text()
-        r = await fetch('/api/files', {
+        r = await fetch(backendUrl('/api/files'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -134,7 +135,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         fd.append('file', file, file.name)
         // Second Enter on the same colliding path = explicit acceptance.
         if (collidingPath === resolved) fd.append('overwrite', 'true')
-        r = await fetch('/api/assets', { method: 'POST', body: fd })
+        r = await fetch(backendUrl('/api/assets'), { method: 'POST', body: fd })
         if (r.ok) {
           onClose()
           // Auto-navigate only when the asset's URL shows something — media

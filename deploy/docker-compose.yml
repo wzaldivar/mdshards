@@ -1,0 +1,35 @@
+# mdshards — deployment mode 3, "routing trick" variant: two containers,
+# nginx in front serving the unbaked bundle, backend hidden. Run from this
+# directory:
+#
+#   docker compose up --build
+#
+# nginx is the only externally reachable surface (http://localhost:8080).
+# The backend container is addressable only on the compose network; its
+# baked-in static/ copy of the bundle is unused except as a fallback shell.
+
+services:
+  backend:
+    build: ..
+    environment:
+      # Uncomment to line the container user up with the host owner of a
+      # bind-mounted vault (see docker-entrypoint.sh):
+      # UID: 1000
+      # GID: 1000
+      VAULT_DIR: /data/vault
+      CACHE_DIR: /data/cache
+    volumes:
+      - mdshards-data:/data
+    # No ports: — the backend must not be reachable from outside.
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/nginx.Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mdshards-data:

@@ -39,18 +39,20 @@ See [FEATURES.md](./FEATURES.md) for the full surface — markdown syntax, edito
 > VS Code instance to the world over your filesystem. There is no read-only or
 > "safe to browse" mode, and none is planned. Run it on a trusted network.
 
-There are **two supported deployment modes** (below). `BASE_URL` sub-path mounting
-is a variant of them, not a third mode. Anything else — the backend on a public
-interface, custom auth shims, and so on — is at your own risk and untested.
+There are **three deployment modes**. Mode 1 is the supported one; modes 2 and
+3 are provided but at your own risk. `BASE_URL` sub-path mounting is a variant,
+not a fourth mode. Anything else — custom auth shims, multi-tenant fronting,
+and so on — is untested and on you.
 
-The frontend is **build-config-agnostic**: `npm run build` emits a single static
-`dist/` that works at any origin and any sub-path with no rebuild. Every URL the
-bundle requests (`/api/*`, `/ws/*`, `/assets/*`, asset srcs) is origin-rooted;
-all deployment config lives on the **backend** as env vars (see
-[`backend/.env.example`](./backend/.env.example)) and is handed to the bundle at
-runtime via `/api/config`. So the same `dist/` can be served two ways:
+By default the frontend is **build-config-agnostic**: `npm run build` emits a
+single static `dist/` that works at any origin and any sub-path with no
+rebuild. Every URL the bundle requests (`/api/*`, `/ws/*`, `/assets/*`, asset
+srcs) is origin-rooted; deployment config lives on the **backend** as env vars
+(see [`backend/.env.example`](./backend/.env.example)) and is handed to the
+bundle at runtime via `/api/config`. Mode 3 is the sole, deliberate exception
+to that rule.
 
-### Single container — uvicorn serves everything (recommended)
+### Mode 1: single container — uvicorn serves everything (recommended)
 
 The [`Dockerfile`](./Dockerfile) builds `dist/` in a Node stage, then runs
 uvicorn as the only process: it serves `/assets/*` and the SPA shell straight
@@ -86,12 +88,46 @@ docker run -p 8000:8000 -e UID=$(id -u) -e GID=$(id -g) \
 The entrypoint uses these ids only to remap the user and fix `/data` ownership,
 then drops privileges — uvicorn itself never runs as root.
 
-### Behind nginx — static bundle + proxied API/WS
+### Mode 2: Node front — `vite preview` + `BACKEND_HOST` (your own risk)
 
-Serve `dist/` as static files from nginx (or any static host) and reverse-proxy
-`/api/`, `/ws/`, `/assets/`, and the SPA-shell routes to a backend uvicorn.
-Because the bundle emits origin-rooted URLs, nginx just forwards them — there is
-no per-deployment rebuild.
+Serve the built bundle with the repo's own Vite server and point it at a
+hidden backend via a **runtime env var** — no rebuild, ever:
+
+```sh
+npm --prefix frontend run build
+BACKEND_HOST=http://backend:8000 npm --prefix frontend run preview
+```
+
+The preview server applies the same routing as dev: top-level document
+navigations get the SPA shell, `/api/*` + `/ws/*` + vault-asset fetches are
+proxied to `BACKEND_HOST` with the browser's `Host` preserved (the origin
+guard depends on it). Change where the backend lives → restart with a new
+`BACKEND_HOST`. The backend itself should not be otherwise reachable.
+
+### Mode 3: static host — baked backend URL (your own risk, worst)
+
+For a dumb static server that can't proxy, bake the backend origin into the
+bundle at **build time**:
+
+```sh
+VITE_BACKEND_HOST=https://api.example.com npm --prefix frontend run build
+```
+
+Every URL the bundle emits then addresses that host directly. The costs are
+yours: **every backend hostname change requires a rebuild**, the backend is
+directly exposed to browsers, and the origin guard must still be satisfied —
+cross-site fetches are refused, and the WebSocket requires `Origin` to match
+the backend's `Host`, so a genuinely different backend origin will refuse
+sync unless you arrange otherwise.
+
+Alternatively, skip the baking with a **routing trick**: build unbaked
+(origin-rooted URLs) and make your static server proxy the backend surfaces
+itself. A verified nginx example lives in [`deploy/`](./deploy) —
+`nginx.conf` (the routing rules: `Sec-Fetch-Dest`-based shell-vs-backend
+split, vault-asset fallback, verbatim `Host` forwarding via `$http_host`),
+`nginx.Dockerfile`, and `docker-compose.yml` (the full two-container stack,
+`docker compose up --build` from that directory). Also your problem, but a
+better one to have.
 
 ### Serving from a sub-path (`https://host/wiki/`)
 

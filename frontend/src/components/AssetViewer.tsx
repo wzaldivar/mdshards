@@ -1,3 +1,4 @@
+import { backendUrl } from '../lib/backend'
 import { useEffect, useRef } from 'react'
 import { frameModeFor, kindFor } from '../lib/asset-kind'
 import { bindShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
@@ -29,7 +30,7 @@ interface Props {
  *  iframe path re-binds shortcuts inside its contentDocument when possible. */
 export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
   // `path` is the raw vault path (spaces intact); encode for the fetchable src.
-  const src = '/' + encodePathToUrl(path) + '?v=' + encodeURIComponent(cacheBust)
+  const src = backendUrl('/' + encodePathToUrl(path) + '?v=' + encodeURIComponent(cacheBust))
   const kind = kindFor(path)
 
   if (kind === 'image') {

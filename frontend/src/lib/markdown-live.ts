@@ -24,6 +24,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view'
+import { backendUrl } from './backend'
 import { parseWikilinkBody } from './wikilink'
 
 // Inline emphasis / code marks are hidden by ixora's `hideMarks()`. We still
@@ -675,7 +676,12 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
           }
           if (urlRaw && closeBracket > node.from + 2) {
             const alt = doc.sliceString(node.from + 2, closeBracket)
-            const src = resolveAssetUrl(opts.noteDocId, urlRaw)
+            // In-vault refs resolve to origin-rooted paths; prefix the baked
+            // backend origin when one is configured (deployment mode 3). The
+            // FILE keeps its vault-relative ref — this is render-time only.
+            const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
+            const src =
+              resolved && !/^(https?:|data:)/i.test(resolved) ? backendUrl(resolved) : resolved
             pushAtomic(
               Decoration.replace({ widget: new ImageWidget(alt, src, title) }).range(
                 node.from,

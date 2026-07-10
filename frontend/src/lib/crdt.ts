@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
+import { backendWsUrl } from './backend'
 import { loadConfig } from './config'
 import { encodePathToUrl } from './paths'
 
@@ -13,14 +14,6 @@ export interface DocBundle {
  *  as their concern (Editor's awareness heartbeat). */
 export const fetchServerConfig = loadConfig
 
-/** WebSocket server URL — root-anchored to the current origin. WebSockets
- *  don't go through any deployment-prefix layer here; the reverse proxy
- *  is responsible for forwarding `/ws/...` to the backend regardless of
- *  where the SPA shell is mounted. */
-function wsServerUrl(): string {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/ws`
-}
 
 export function openDoc(docId: string): DocBundle {
   const doc = new Y.Doc()
@@ -43,7 +36,7 @@ export function openDoc(docId: string): DocBundle {
   // read-only countdown, flashing the offline dino at random. The periodic
   // SyncStep1 request draws a server reply that keeps the connection
   // recognized as alive.
-  const provider = new WebsocketProvider(wsServerUrl(), encodePathToUrl(docId), doc, {
+  const provider = new WebsocketProvider(backendWsUrl(), encodePathToUrl(docId), doc, {
     connect: false,
     resyncInterval: 10_000,
   })
