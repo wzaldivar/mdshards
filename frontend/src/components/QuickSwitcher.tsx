@@ -56,11 +56,6 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     }
   }, [open])
 
-  // Reset highlight when the query changes.
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query])
-
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     const urls = allPaths.map(diskPathToUrl)
@@ -86,6 +81,24 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     list.push(...others)
     return list.slice(0, 50)
   }, [query, allPaths, currentDocId])
+
+  // Move the highlight to the first BEST match as the user types (exact
+  // beats prefix beats substring), so Enter confirms what they meant without
+  // arrowing past the pinned `/` row. With no match — or an empty query —
+  // fall back to the top row.
+  useEffect(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      setSelectedIndex(0)
+      return
+    }
+    const forms = (p: string) => [p.toLowerCase(), displayPath(p).toLowerCase()]
+    const byExact = matches.findIndex((p) => forms(p).some((f) => f === q))
+    const byPrefix = matches.findIndex((p) => forms(p).some((f) => f.startsWith(q)))
+    const bySubstring = matches.findIndex((p) => forms(p).some((f) => f.includes(q)))
+    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
+    setSelectedIndex(best ?? 0)
+  }, [query, matches])
 
   // Existence must be checked against EVERY vault file, not the displayed
   // list — `matches` hides the currently-open file (and truncates at 50), so
