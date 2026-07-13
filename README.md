@@ -49,6 +49,7 @@ Open <http://127.0.0.1:5173/>. `<vault>/index.md` is materialized from a placeho
 - `Cmd/Ctrl-Shift-K` — rename the current file.
 - `Cmd/Ctrl-Backspace` — delete-file picker (confirms before unlinking).
 - `Cmd/Ctrl-U` — upload a file into the vault.
+- `Cmd/Ctrl-E` — emoji picker (inserts a `:shortcode:` at the cursor).
 
 See [FEATURES.md](./FEATURES.md) for the full surface — markdown syntax, editor capabilities, keyboard map, and what's deliberately out of scope.
 

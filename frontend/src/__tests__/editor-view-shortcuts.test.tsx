@@ -119,6 +119,13 @@ describe('EditorView shortcuts on an asset URL', () => {
     expect(screen.queryByPlaceholderText(/upload to vault path/i)).toBeNull()
   })
 
+  it('Cmd-E does NOT open the emoji picker (no buffer to insert into)', async () => {
+    renderAt('/my/photo.jpeg')
+    await waitForResolve()
+    pressShortcut({ key: 'e' })
+    expect(screen.queryByPlaceholderText(/insert emoji/i)).toBeNull()
+  })
+
   it('renders the asset as a real <img>, not an iframe', async () => {
     renderAt('/my/photo.jpeg')
     await waitForResolve()
@@ -132,6 +139,13 @@ describe('EditorView shortcuts on an asset URL', () => {
 
 describe('EditorView shortcuts on a markdown URL', () => {
   beforeEach(() => stubBackend('md'))
+
+  it('Cmd-E opens the emoji picker', async () => {
+    renderAt('/note')
+    await waitForResolve()
+    pressShortcut({ key: 'e' })
+    expect(await screen.findByPlaceholderText(/insert emoji/i)).toBeDefined()
+  })
 
   it('Cmd-K opens the quick switcher', async () => {
     renderAt('/notes/today')

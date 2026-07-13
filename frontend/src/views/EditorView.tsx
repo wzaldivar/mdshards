@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
 import { AssetViewer } from '../components/AssetViewer'
-import { Editor } from '../components/Editor'
+import { Editor, type EditorApi } from '../components/Editor'
+import { EmojiSwitcher } from '../components/EmojiSwitcher'
 import { NotFound } from '../components/NotFound'
 import { QuickSwitcher } from '../components/QuickSwitcher'
 import { DeleteSwitcher } from '../components/DeleteSwitcher'
@@ -31,7 +32,11 @@ export function EditorView() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  // Imperative bridge into the live CodeMirror buffer (set while an md note
+  // is mounted) — the emoji picker inserts through it.
+  const editorApiRef = useRef<EditorApi | null>(null)
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
   const [movedTo, setMovedTo] = useState<string | null>(null)
   // True while a lost server connection has outlasted the grace window and the
@@ -68,6 +73,7 @@ export function EditorView() {
       setDeleteOpen(false)
       setRenameOpen(false)
       setUploadOpen(false)
+      setEmojiOpen(false)
       setOptionsOpen(false)
     }
     return {
@@ -93,12 +99,18 @@ export function EditorView() {
         // — which is the right outcome (no empty modal to dismiss).
         fileInputRef.current?.click()
       },
+      openEmojiPicker: () => {
+        // Inserting needs a live buffer — only meaningful on an md note.
+        if (!currentIsMd) return
+        closeAll()
+        setEmojiOpen(true)
+      },
       openOptions: () => {
         closeAll()
         setOptionsOpen(true)
       },
     }
-  }, [docId, exists])
+  }, [docId, exists, currentIsMd])
 
   useEffect(() => {
     return bindGlobalShortcuts(shortcutHandlers)
@@ -125,6 +137,7 @@ export function EditorView() {
           docId={docId}
           onMoved={setMovedTo}
           onReadOnlyChange={setConnectionLost}
+          apiRef={editorApiRef}
         />
       ) : resolved.type === 'asset' ? (
         <AssetViewer
@@ -189,6 +202,11 @@ export function EditorView() {
           setUploadOpen(false)
           setPendingUploadFile(null)
         }}
+      />
+      <EmojiSwitcher
+        open={emojiOpen}
+        onPick={(name) => editorApiRef.current?.insertText(`:${name}:`)}
+        onClose={() => setEmojiOpen(false)}
       />
       <OptionsPanel open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <input

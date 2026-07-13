@@ -18,6 +18,7 @@ import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ix
 import { yCollab } from 'y-codemirror.next'
 import { catppuccinHighlight } from '../lib/cm-highlight'
 import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
+import { EmojiShortcode } from '../lib/md-emoji'
 import { Highlight } from '../lib/md-highlight'
 import { markdownLive } from '../lib/markdown-live'
 import { pendingRenames } from '../lib/pending-rename'
@@ -35,15 +36,25 @@ import styles from './Editor.module.css'
 const DOC_DELETED_CODE = 4001
 const DOC_MOVED_CODE = 4002
 
+/** Imperative surface EditorView reaches through to touch the live buffer —
+ *  currently just cursor-point insertion for the emoji picker. Populated on
+ *  mount, nulled on teardown. */
+export interface EditorApi {
+  /** Insert `text` at the cursor (replacing any selection) and refocus. */
+  insertText: (text: string) => void
+}
+
 interface Props {
   docId: string
   onMoved: (target: string) => void
   /** Called with `true` when a lost connection outlasts the grace window and
    *  the buffer is locked read-only, and `false` once editing is restored. */
   onReadOnlyChange: (readOnly: boolean) => void
+  /** Receives the imperative editor API while a buffer is mounted. */
+  apiRef?: React.MutableRefObject<EditorApi | null>
 }
 
-export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
+export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
   const navigate = useNavigate()
   const hostRef = useRef<HTMLDivElement | null>(null)
   // Current vim mode label (NORMAL/INSERT/VISUAL/REPLACE), or null when vim is
@@ -222,6 +233,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
     }
 
     const teardown = (): void => {
+      if (apiRef) apiRef.current = null
       if (connectTimer !== null) {
         clearTimeout(connectTimer)
         connectTimer = null
@@ -338,6 +350,19 @@ export function Editor({ docId, onMoved, onReadOnlyChange }: Props) {
         prefs,
       })
       syncVimStatus()
+      if (apiRef) {
+        apiRef.current = {
+          insertText: (text: string) => {
+            if (!view || readOnly) return
+            const { from, to } = view.state.selection.main
+            view.dispatch({
+              changes: { from, to, insert: text },
+              selection: { anchor: from + text.length },
+            })
+            view.focus()
+          },
+        }
+      }
     }
 
     document.addEventListener('visibilitychange', onVisibilityChange)
@@ -432,7 +457,7 @@ function buildView(
       // language pack only loads when a code block actually references it,
       // then the existing `catppuccinHighlight` style colours the tokens.
       markdown({
-        extensions: [Table, TaskList, Strikethrough, Subscript, Superscript, Highlight, Autolink, Wikilink],
+        extensions: [Table, TaskList, Strikethrough, Subscript, Superscript, Highlight, EmojiShortcode, Autolink, Wikilink],
         codeLanguages,
       }),
       syntaxHighlighting(catppuccinHighlight, { fallback: true }),

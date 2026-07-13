@@ -4,6 +4,7 @@
  *   - Cmd/Ctrl-Shift-K    → rename current file
  *   - Cmd/Ctrl-Backspace  → delete switcher
  *   - Cmd/Ctrl-U          → upload a file into the vault
+ *   - Cmd/Ctrl-E          → emoji picker (inserts `:shortcode:` at cursor)
  *   - Cmd/Ctrl-Alt-O      → editor options panel (vim / line numbers)
  *
  * Each binding overrides both the browser default and any CodeMirror keymap
@@ -28,6 +29,7 @@ export interface ShortcutHandlers {
   openDeleteSwitcher: () => void
   openRenameSwitcher: () => void
   openUploadSwitcher: () => void
+  openEmojiPicker: () => void
   openOptions: () => void
 }
 
@@ -58,6 +60,8 @@ function buildListener(handlers: ShortcutHandlers): (e: KeyboardEvent) => void {
       handler = handlers.openDeleteSwitcher
     } else if (isLetter(e, 'KeyU', 'u') && !e.shiftKey) {
       handler = handlers.openUploadSwitcher
+    } else if (isLetter(e, 'KeyE', 'e') && !e.shiftKey) {
+      handler = handlers.openEmojiPicker
     }
 
     if (handler) {

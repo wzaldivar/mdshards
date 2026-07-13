@@ -13,6 +13,7 @@
  */
 
 import { syntaxTree } from '@codemirror/language'
+import { StateEffect } from '@codemirror/state'
 import type { Range, Text } from '@codemirror/state'
 import type { SyntaxNode, Tree } from '@lezer/common'
 import {
@@ -25,6 +26,7 @@ import {
   WidgetType,
 } from '@codemirror/view'
 import { backendUrl } from './backend'
+import { getNameToEmoji, loadEmojiData } from './emoji'
 import { parseWikilinkBody } from './wikilink'
 
 // Inline emphasis / code marks are hidden by ixora's `hideMarks()` (its
@@ -48,6 +50,49 @@ const INLINE_CLASS_NODES: Record<string, string> = {
   Highlight: 'cm-md-mark',
   Subscript: 'cm-md-sub',
   Superscript: 'cm-md-sup',
+}
+
+// `:shortcode:` → glyph rendering for the Emoji extension, backed by the
+// lazily-loaded gemoji dataset (lib/emoji.ts). Unknown shortcodes stay raw
+// text; the cursor inside reveals the shortcode for editing, like every
+// other piece of hidden markup. The FILE always keeps the literal
+// `:shortcode:` — the glyph is render-time only.
+class EmojiWidget extends WidgetType {
+  glyph: string
+  constructor(glyph: string) {
+    super()
+    this.glyph = glyph
+  }
+  override eq(other: EmojiWidget): boolean {
+    return other.glyph === this.glyph
+  }
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.textContent = this.glyph
+    return span
+  }
+}
+
+/** Fired into a view when the gemoji dataset finishes loading, so the
+ *  markdownLive plugin rebuilds and the shortcodes that were left raw on the
+ *  first pass get their glyphs. */
+const emojiDataRefresh = StateEffect.define<null>()
+
+// One pending refresh per view — several decoration passes can run before
+// the (single, shared) dataset load resolves.
+const pendingEmojiRefresh = new WeakSet<EditorView>()
+
+function loadEmojiDataThenRefresh(view: EditorView): void {
+  if (pendingEmojiRefresh.has(view)) return
+  pendingEmojiRefresh.add(view)
+  void loadEmojiData().then(() => {
+    pendingEmojiRefresh.delete(view)
+    try {
+      view.dispatch({ effects: emojiDataRefresh.of(null) })
+    } catch {
+      // View was destroyed while the dataset loaded — nothing to refresh.
+    }
+  })
 }
 
 /** Resolve a vault-relative asset reference against the note's own directory.
@@ -715,6 +760,22 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       if (inlineClass) {
         ranges.push(Decoration.mark({ class: inlineClass }).range(node.from, node.to))
       }
+      // Replace a known `:shortcode:` with its glyph when the cursor is
+      // elsewhere. Until the gemoji dataset arrives the shortcode stays raw;
+      // the load's completion effect triggers a rebuild.
+      if (node.name === 'Emoji' && !rangesOverlap(node.from, node.to, selFrom, selTo)) {
+        const map = getNameToEmoji()
+        if (!map) {
+          loadEmojiDataThenRefresh(view)
+          return
+        }
+        const glyph = map[doc.sliceString(node.from + 1, node.to - 1)]
+        if (glyph) {
+          pushAtomic(
+            Decoration.replace({ widget: new EmojiWidget(glyph) }).range(node.from, node.to),
+          )
+        }
+      }
       if (MARK_NODE_NAMES.has(node.name)) {
         const parent = node.node.parent
         if (!parent) return
@@ -783,7 +844,10 @@ export function markdownLive(opts: BuildOpts) {
         if (
           update.docChanged ||
           update.selectionSet ||
-          update.viewportChanged
+          update.viewportChanged ||
+          // The gemoji dataset finished loading — rebuild so shortcodes left
+          // raw on the first pass get their glyphs.
+          update.transactions.some((tr) => tr.effects.some((e) => e.is(emojiDataRefresh)))
         ) {
           const built = buildDecorations(update.view, opts)
           this.decorations = built.visual

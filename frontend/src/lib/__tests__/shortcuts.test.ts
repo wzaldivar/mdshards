@@ -7,6 +7,7 @@ function makeHandlers() {
     openDeleteSwitcher: vi.fn(),
     openRenameSwitcher: vi.fn(),
     openUploadSwitcher: vi.fn(),
+    openEmojiPicker: vi.fn(),
     openOptions: vi.fn(),
   }
 }
@@ -23,6 +24,15 @@ describe('bindGlobalShortcuts', () => {
     expect(h.openQuickSwitcher).toHaveBeenCalledOnce()
     expect(h.openDeleteSwitcher).not.toHaveBeenCalled()
     expect(h.openRenameSwitcher).not.toHaveBeenCalled()
+    unbind()
+  })
+
+  it('triggers openEmojiPicker on Cmd/Ctrl-E', () => {
+    const h = makeHandlers()
+    const unbind = bindGlobalShortcuts(h)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true }))
+    expect(h.openEmojiPicker).toHaveBeenCalledOnce()
+    expect(h.openQuickSwitcher).not.toHaveBeenCalled()
     unbind()
   })
 
