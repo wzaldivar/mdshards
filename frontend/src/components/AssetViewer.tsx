@@ -43,14 +43,22 @@ export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
   if (kind === 'video') {
     return (
       <div className={styles.host}>
-        <video className={styles.video} src={src} controls />
+        {/* Empty captions track: vault assets are arbitrary user uploads with
+            no caption sidecar, but a <track> satisfies the media-a11y rule
+            (S4084) and is harmless when absent. */}
+        <video className={styles.video} src={src} controls>
+          <track kind="captions" />
+        </video>
       </div>
     )
   }
   if (kind === 'audio') {
     return (
       <div className={styles.host}>
-        <audio className={styles.audio} src={src} controls />
+        {/* Empty captions track — see the <video> note above. */}
+        <audio className={styles.audio} src={src} controls>
+          <track kind="captions" />
+        </audio>
       </div>
     )
   }

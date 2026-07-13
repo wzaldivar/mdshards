@@ -168,11 +168,14 @@ class DocumentManager:
                 while state.flush_pending.is_set():
                     state.flush_pending.clear()
                     await asyncio.sleep(FLUSH_QUIET_SECONDS)
-                await self._flush(state)
+                self._flush(state)
         except asyncio.CancelledError:
             raise
 
-    async def _flush(self, state: _DocState) -> None:
+    def _flush(self, state: _DocState) -> None:
+        # Synchronous by design: it reads `state.doc` (pycrdt Docs are only
+        # ever touched on the loop thread) and does blocking file writes, with
+        # nothing to await. Callers invoke it inline on the loop thread.
         content = str(state.doc.get(TEXT_KEY, type=Text))
         if state.disk_path.exists():
             disk_now = read_md(state.disk_path, self._vault_dir)
@@ -378,10 +381,11 @@ class DocumentManager:
         return conflict
 
     async def _evict_after_grace(self, key: str) -> None:
-        try:
-            await asyncio.sleep(self._grace)
-        except asyncio.CancelledError:
-            return
+        # A reconnect within the grace window cancels this task (see
+        # `acquire`/`kick`). Let the CancelledError propagate — swallowing it
+        # would mark the task "completed" and mislead any awaiter; the cancel
+        # already means "don't evict," so there's nothing to clean up.
+        await asyncio.sleep(self._grace)
         async with self._lock:
             state = self._docs.pop(key, None)
         if state is not None:
@@ -392,7 +396,7 @@ class DocumentManager:
             state.flush_task.cancel()
             with suppress(asyncio.CancelledError):
                 await state.flush_task
-        await self._flush(state)
+        self._flush(state)
 
     async def shutdown(self) -> None:
         async with self._lock:

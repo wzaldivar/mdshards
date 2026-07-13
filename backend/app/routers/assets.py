@@ -16,8 +16,12 @@ class MoveAssetRequest(BaseModel):
     dst: str
 
 
+# Sync `def` on purpose: the body does blocking file I/O
+# (`Path.open`/`copyfileobj`). FastAPI runs a sync path operation in its
+# threadpool, so the copy never blocks the event loop — the correct fix for
+# "sync I/O in an async function" here, rather than pulling in aiofiles.
 @router.post("/assets", status_code=201)
-async def upload_asset(
+def upload_asset(
     file: Annotated[UploadFile, File()],
     path: Annotated[str, Form()],
     overwrite: Annotated[bool, Form()] = False,
