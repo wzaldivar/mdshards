@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { NO_AUTOFILL } from '../lib/no-autofill'
 import { getGemojiList, loadEmojiData, type GemojiEntry } from '../lib/emoji'
 import styles from './QuickSwitcher.module.css'
 
@@ -90,8 +91,7 @@ export function EmojiSwitcher({ open, onPick, onClose }: Props) {
           type="text"
           className={styles.input}
           placeholder="Insert emoji…"
-          autoComplete="off"
-          spellCheck={false}
+          {...NO_AUTOFILL}
         />
         <ul className={styles.list}>
           {entries === null ? (

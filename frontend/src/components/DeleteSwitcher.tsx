@@ -1,4 +1,5 @@
 import { backendUrl } from '../lib/backend'
+import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl } from '../lib/paths'
@@ -185,8 +186,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
           type="text"
           className={styles.input}
           placeholder="Pick a file to delete…"
-          autoComplete="off"
-          spellCheck={false}
+          {...NO_AUTOFILL}
         />
         <ul className={styles.list}>
           {entries.map((entry, i) => {

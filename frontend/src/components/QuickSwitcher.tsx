@@ -1,4 +1,5 @@
 import { backendUrl } from '../lib/backend'
+import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getHomePath } from '../lib/config'
@@ -202,8 +203,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
           type="text"
           className={styles.input}
           placeholder="Go to or create a note…"
-          autoComplete="off"
-          spellCheck={false}
+          {...NO_AUTOFILL}
         />
         <ul className={styles.list}>
           {matches.map((p, i) => (

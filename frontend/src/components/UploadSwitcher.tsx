@@ -1,4 +1,5 @@
 import { backendUrl } from '../lib/backend'
+import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { isViewableAsset } from '../lib/asset-kind'
@@ -201,8 +202,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
           type="text"
           className={styles.input}
           placeholder="Upload to vault path…"
-          autoComplete="off"
-          spellCheck={false}
+          {...NO_AUTOFILL}
         />
         {previewPath && (
           <div className={styles.hint}>

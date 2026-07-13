@@ -1,4 +1,5 @@
 import { backendUrl } from '../lib/backend'
+import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
@@ -116,8 +117,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
           type="text"
           className={styles.input}
           placeholder="Rename to…"
-          autoComplete="off"
-          spellCheck={false}
+          {...NO_AUTOFILL}
         />
         <div className={styles.hint}>
           Renaming <code>{currentDocId}</code>
