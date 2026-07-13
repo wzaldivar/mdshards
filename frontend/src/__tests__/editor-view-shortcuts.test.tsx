@@ -263,14 +263,14 @@ describe('QuickSwitcher force-create', () => {
     const input = await openSwitcherAndType('my')
     fireEvent.keyDown(input, { key: 'Enter' })
     // Give the click async path a turn to settle; no POST should fire.
-    await waitFor(() => expect(posts.length).toBe(0))
+    await waitFor(() => expect(posts).toHaveLength(0))
   })
 
   it('Shift-Enter on "my" creates a new file at "my" (POST /api/files with path=my)', async () => {
     const { posts } = stubWithTree()
     const input = await openSwitcherAndType('my')
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
-    await waitFor(() => expect(posts.length).toBe(1))
+    await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].url.pathname).toBe('/api/files')
     expect(posts[0].body).toMatchObject({ path: 'my' })
   })
@@ -282,14 +282,14 @@ describe('QuickSwitcher force-create', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     // No POST should fire — plain Enter is a no-op with no existing match.
     await new Promise((r) => setTimeout(r, 0))
-    expect(posts.length).toBe(0)
+    expect(posts).toHaveLength(0)
   })
 
   it('Shift-Enter on a novel path creates it', async () => {
     const { posts } = stubWithTree()
     const input = await openSwitcherAndType('brand-new')
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
-    await waitFor(() => expect(posts.length).toBe(1))
+    await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].body).toMatchObject({ path: 'brand-new' })
   })
 })
