@@ -67,25 +67,31 @@ async def _writer(ws: WebSocket, queue: asyncio.Queue[bytes | KickSignal]) -> No
         return
 
 
+async def _handle_frame(
+    ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal], data: bytes
+) -> None:
+    """Dispatch one inbound y-protocol frame: reply to SYNC, relay AWARENESS
+    to the other subscribers."""
+    msg_type = data[0]
+    if msg_type == YMessageType.SYNC:
+        reply = handle_sync_message(data[1:], state.doc)
+        if reply is not None:
+            await ws.send_bytes(reply)
+    elif msg_type == YMessageType.AWARENESS:
+        for q in state.subscribers:
+            if q is not queue:
+                q.put_nowait(data)
+
+
 async def _reader(
     ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal]
 ) -> None:
-    """Handle inbound y-protocol frames (SYNC replies, awareness relay) until
-    the client disconnects."""
+    """Pump inbound frames to `_handle_frame` until the client disconnects."""
     try:
         while True:
             data = await ws.receive_bytes()
-            if not data:
-                continue
-            msg_type = data[0]
-            if msg_type == YMessageType.SYNC:
-                reply = handle_sync_message(data[1:], state.doc)
-                if reply is not None:
-                    await ws.send_bytes(reply)
-            elif msg_type == YMessageType.AWARENESS:
-                for q in state.subscribers:
-                    if q is not queue:
-                        q.put_nowait(data)
+            if data:
+                await _handle_frame(ws, state, queue, data)
     except WebSocketDisconnect:
         pass
 
