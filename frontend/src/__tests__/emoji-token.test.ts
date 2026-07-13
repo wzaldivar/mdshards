@@ -12,8 +12,19 @@ describe('shortcodeTokenAt', () => {
     expect(shortcodeTokenAt('a :zmile: b', 5)).toEqual({ start: 2, end: 9, query: 'zmile' })
   })
 
-  it('finds a closed token with the cursor right behind it', () => {
-    expect(shortcodeTokenAt('a :smile:', 9)).toEqual({ start: 2, end: 9, query: 'smile' })
+  it('finds a closed token with the cursor right BEFORE it', () => {
+    // `|:smile:` — the cursor sits on the emoji.
+    expect(shortcodeTokenAt('a :smile:', 2)).toEqual({ start: 2, end: 9, query: 'smile' })
+  })
+
+  it('does NOT match a closed token with the cursor just past it', () => {
+    // `:smile:|` — the token is finished; Cmd-E should insert a new one.
+    expect(shortcodeTokenAt('a :smile:', 9)).toBeNull()
+  })
+
+  it('still matches an unterminated token at its end (mid-typing)', () => {
+    // `:foo|`
+    expect(shortcodeTokenAt(':foo', 4)).toEqual({ start: 0, end: 4, query: 'foo' })
   })
 
   it('handles hyphen/sign names', () => {
@@ -26,9 +37,6 @@ describe('shortcodeTokenAt', () => {
     expect(shortcodeTokenAt('a :smile: b', 1)).toBeNull()
   })
 
-  it('returns null before the opening colon', () => {
-    expect(shortcodeTokenAt('a :smile:', 2)).toBeNull()
-  })
 
   it('returns null for a bare or empty token', () => {
     expect(shortcodeTokenAt('a : b', 3)).toBeNull()

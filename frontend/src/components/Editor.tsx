@@ -48,6 +48,9 @@ export interface EditorApi {
    *  cursor touches (half-typed `:smi`, typo'd `:zmile:`, or a valid one
    *  being swapped), else inserts at the cursor. Refocuses the editor. */
   insertShortcode: (name: string) => void
+  /** Refocus the buffer — used when a modal opened from the editor closes
+   *  without acting, so typing can resume where it left off. */
+  focus: () => void
 }
 
 interface Props {
@@ -369,6 +372,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
           return token ? { ...token, from: line.from + token.start, to: line.from + token.end } : null
         }
         apiRef.current = {
+          focus: () => view?.focus(),
           emojiQueryAtCursor: () => tokenAtCursor()?.query ?? null,
           insertShortcode: (name: string) => {
             if (!view || readOnly) return

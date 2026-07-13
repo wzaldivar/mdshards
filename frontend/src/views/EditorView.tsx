@@ -214,7 +214,12 @@ export function EditorView() {
         open={emojiOpen}
         initialQuery={emojiSeed}
         onPick={(name) => editorApiRef.current?.insertShortcode(name)}
-        onClose={() => setEmojiOpen(false)}
+        onClose={() => {
+          setEmojiOpen(false)
+          // Cmd-E came from the buffer; Escape should land back in it so
+          // typing resumes where it left off.
+          editorApiRef.current?.focus()
+        }}
       />
       <OptionsPanel open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <input

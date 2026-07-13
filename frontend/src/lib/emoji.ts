@@ -55,20 +55,24 @@ export interface ShortcodeToken {
 const TOKEN_RE = /:[A-Za-z0-9_+-]*:?/g
 
 /** Find the `:shortcode`/`:shortcode:` token the cursor is touching, if any.
- *  `col` is the cursor's column within `lineText`. The cursor counts as
- *  touching from just after the opening `:` through just after the closing
- *  `:` — so Cmd-E on a half-typed `:smi`, inside a typo'd `:zmile:`, or right
- *  behind a valid `:smile:` all seed the picker with the token text and let
- *  the pick REPLACE the whole token. Returns null for a bare/empty `:`. */
+ *  `col` is the cursor's column within `lineText`. Touching follows editing
+ *  intent (cursor drawn as `|`):
+ *    - `|:smile:` and anywhere inside — YES: the cursor sits on the emoji,
+ *      Cmd-E means "act on this one".
+ *    - `:foo|` (unterminated) — YES: mid-typing, Cmd-E finishes it.
+ *    - `:smile:|` (just past a CLOSED token) — NO: the token is done and the
+ *      cursor has moved on; Cmd-E means "insert a new one here".
+ *  Returns null for a bare/empty `:`. */
 export function shortcodeTokenAt(lineText: string, col: number): ShortcodeToken | null {
   TOKEN_RE.lastIndex = 0
   let m: RegExpExecArray | null
   while ((m = TOKEN_RE.exec(lineText))) {
     const start = m.index
     const end = start + m[0].length
-    if (start >= col) break
-    if (col <= end) {
-      const closed = m[0].length > 1 && m[0].endsWith(':')
+    if (start > col) break
+    const closed = m[0].length > 1 && m[0].endsWith(':')
+    const touches = closed ? col < end : col <= end
+    if (col >= start && touches) {
       const query = m[0].slice(1, closed ? -1 : undefined)
       return query ? { start, end, query } : null
     }
