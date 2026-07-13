@@ -55,14 +55,14 @@ export function EditorView() {
   function followMove(): void {
     const target = movedTo
     setMovedTo(null)
-    if (target !== null) void navigate('/' + encodePathToUrl(target))
+    if (target !== null) navigate('/' + encodePathToUrl(target))
   }
 
   function dismissMove(): void {
     setMovedTo(null)
     // Stay on this URL — server already kicked our WS, so the editor is idle.
     // Navigating to '/' avoids confusion since the file at this path is gone.
-    void navigate('/')
+    navigate('/')
   }
 
   // Memoize the handler bag — its identity is the dep used by AssetViewer's
@@ -136,9 +136,11 @@ export function EditorView() {
     setUploadOpen(true)
   }
 
-  return (
-    <div className={styles.view}>
-      {resolved.status === 'loading' ? null : resolved.type === 'md' ? (
+  // Chained ternary in JSX trips S3358; pick the content up front instead.
+  let content: React.ReactNode = null
+  if (resolved.status !== 'loading') {
+    if (resolved.type === 'md') {
+      content = (
         <Editor
           key={docId}
           docId={docId}
@@ -146,7 +148,9 @@ export function EditorView() {
           onReadOnlyChange={setConnectionLost}
           apiRef={editorApiRef}
         />
-      ) : resolved.type === 'asset' ? (
+      )
+    } else if (resolved.type === 'asset') {
+      content = (
         <AssetViewer
           // Keyed by the navigation (location.key), not just the path: a push
           // to the SAME path — e.g. the upload flow overwriting the asset the
@@ -159,11 +163,17 @@ export function EditorView() {
           cacheBust={location.key}
           shortcuts={shortcutHandlers}
         />
-      ) : (
-        <NotFound path={docId} />
-      )}
+      )
+    } else {
+      content = <NotFound path={docId} />
+    }
+  }
+
+  return (
+    <div className={styles.view}>
+      {content}
       {connectionLost && (
-        <div className={`${styles.banner} ${styles.offline}`} role="status">
+        <output className={`${styles.banner} ${styles.offline}`}>
           <span className={styles.dino} aria-hidden="true">
             🦖
           </span>
@@ -171,7 +181,7 @@ export function EditorView() {
             Lost connection to the server — this tab is read-only until it's
             back.
           </span>
-        </div>
+        </output>
       )}
       {movedTo !== null && (
         <div className={styles.banner}>

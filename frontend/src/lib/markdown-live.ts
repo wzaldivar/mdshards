@@ -199,7 +199,7 @@ class ImageWidget extends WidgetType {
 function unwrapLinkTitle(raw: string): string {
   if (raw.length < 2) return raw
   const first = raw[0]
-  const last = raw[raw.length - 1]
+  const last = raw.at(-1)
   const ok =
     (first === '"' && last === '"') ||
     (first === "'" && last === "'") ||
@@ -394,12 +394,9 @@ class TableRowWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const row = document.createElement('div')
-    const baseClass =
-      this.kind === 'header'
-        ? 'cm-md-table-row cm-md-table-header'
-        : this.kind === 'separator'
-          ? 'cm-md-table-separator'
-          : 'cm-md-table-row'
+    let baseClass = 'cm-md-table-row'
+    if (this.kind === 'header') baseClass = 'cm-md-table-row cm-md-table-header'
+    else if (this.kind === 'separator') baseClass = 'cm-md-table-separator'
     row.className = baseClass
     if (this.kind !== 'separator') {
       row.style.setProperty('--cm-md-table-cols', `repeat(${this.cells.length}, 1fr)`)
@@ -823,7 +820,7 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // Wiki link first — intra-app navigation, no new tab.
       const wikiEl = target.closest('.cm-md-wikilink') as HTMLElement | null
       if (wikiEl) {
-        const t = wikiEl.getAttribute('data-target')
+        const t = wikiEl.dataset.target
         if (!t) return false
         event.preventDefault()
         event.stopPropagation()
@@ -834,7 +831,7 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // don't blow away the current note.
       const linkEl = target.closest('.cm-md-link') as HTMLElement | null
       if (!linkEl) return false
-      const href = linkEl.getAttribute('data-href')
+      const href = linkEl.dataset.href
       if (!href) return false
       event.preventDefault()
       event.stopPropagation()

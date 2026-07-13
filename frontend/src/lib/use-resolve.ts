@@ -69,7 +69,7 @@ export function useResolve(docId: string): ResolveState {
         // will equal stripped and we settle.
         if (body.canonical !== stripped) {
           const target = body.canonical === '' ? '/' : '/' + encodePathToUrl(body.canonical)
-          void navigate(target, { replace: true })
+          await navigate(target, { replace: true })
           return
         }
         setState({ for: docId, res: { status: 'ready', type: body.type } })

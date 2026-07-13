@@ -58,7 +58,7 @@ const ROWS: Row[] = [
 
 /** Editor options (Cmd/Ctrl-Alt-O). Each toggle is a local preference persisted
  * to localStorage; the live editor re-applies via the prefs pub/sub. */
-export function OptionsPanel({ open, onClose }: Props) {
+export function OptionsPanel({ open, onClose }: Readonly<Props>) {
   const [prefs, setPrefs] = useState<EditorPrefs>(getEditorPrefs)
 
   // While open, stay in sync with the prefs store: re-read on open, then track

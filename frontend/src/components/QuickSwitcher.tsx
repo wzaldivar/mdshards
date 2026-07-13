@@ -27,7 +27,7 @@ function displayPath(p: string): string {
   return base ? `${base}/${p}` : p
 }
 
-export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
+export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [allPaths, setAllPaths] = useState<string[]>([])
@@ -97,7 +97,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       return
     }
     const forms = (p: string) => [p.toLowerCase(), displayPath(p).toLowerCase()]
-    const byExact = matches.findIndex((p) => forms(p).some((f) => f === q))
+    const byExact = matches.findIndex((p) => forms(p).includes(q))
     const byPrefix = matches.findIndex((p) => forms(p).some((f) => f.startsWith(q)))
     const bySubstring = matches.findIndex((p) => forms(p).some((f) => f.includes(q)))
     const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
@@ -129,7 +129,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     if (allUrls.includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
-      void navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
+      navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
       onClose()
       return
     }
@@ -150,7 +150,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       setError(`create failed: ${r.status}`)
       return
     }
-    void navigate('/' + encodePathToUrl(target))
+    navigate('/' + encodePathToUrl(target))
     onClose()
   }
 

@@ -22,9 +22,7 @@ export async function fetchTree(): Promise<TreeNode> {
 export function flattenTree(root: TreeNode, opts: { filesOnly?: boolean } = {}): string[] {
   const out: string[] = []
   const walk = (node: TreeNode): void => {
-    if (node.type === 'file') {
-      out.push(node.path)
-    } else if (!opts.filesOnly && node.path !== '') {
+    if (node.type === 'file' || (!opts.filesOnly && node.path !== '')) {
       out.push(node.path)
     }
     node.children?.forEach(walk)

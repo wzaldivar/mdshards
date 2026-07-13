@@ -12,7 +12,13 @@ import type { DelimiterType, MarkdownConfig } from '@lezer/markdown'
 // including the unicode-property upgrade where the engine supports it.
 let Punctuation = /[!-/:-@[-`{-~\xA1‐-‧]/
 try {
-  Punctuation = new RegExp('[\\p{Pc}|\\p{Pd}|\\p{Pe}|\\p{Pf}|\\p{Pi}|\\p{Po}|\\p{Ps}]', 'u')
+  // `new RegExp` (not a literal) on purpose: a `/…\p{…}…/u` literal is a
+  // parse-time SyntaxError on engines without Unicode property escapes,
+  // which try/catch can't rescue; the string form defers that to runtime.
+  // `String.raw` avoids doubling every backslash.
+  // A single trailing `|` (literal pipe) is kept intentionally — it was in
+  // the original set; the duplicates were the only defect (S5869).
+  Punctuation = new RegExp(String.raw`[\p{Pc}\p{Pd}\p{Pe}\p{Pf}\p{Pi}\p{Po}\p{Ps}|]`, 'u')
 } catch {
   /* older engines keep the ASCII approximation */
 }

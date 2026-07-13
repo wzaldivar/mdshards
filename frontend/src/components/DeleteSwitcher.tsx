@@ -25,7 +25,7 @@ interface Entry {
   isMd: boolean
 }
 
-export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Props) {
+export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Readonly<Props>) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   // Disk paths of every vault file, excluding `index.md`. Keeping the disk
@@ -102,7 +102,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       return
     }
     const forms = (e: Entry) => [e.target.toLowerCase(), e.label.toLowerCase()]
-    const byExact = entries.findIndex((e) => forms(e).some((f) => f === q))
+    const byExact = entries.findIndex((e) => forms(e).includes(q))
     const byPrefix = entries.findIndex((e) => forms(e).some((f) => f.startsWith(q)))
     const bySubstring = entries.findIndex((e) => forms(e).some((f) => f.includes(q)))
     const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
@@ -130,7 +130,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       return
     }
     onClose()
-    if (wasCurrent) void navigate('/')
+    if (wasCurrent) navigate('/')
   }
 
   function selectAndConfirm(i: number): void {

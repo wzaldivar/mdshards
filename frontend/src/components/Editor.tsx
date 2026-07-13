@@ -63,7 +63,7 @@ interface Props {
   apiRef?: React.MutableRefObject<EditorApi | null>
 }
 
-export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
+export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Props>) {
   const navigate = useNavigate()
   const hostRef = useRef<HTMLDivElement | null>(null)
   // Current vim mode label (NORMAL/INSERT/VISUAL/REPLACE), or null when vim is
@@ -265,7 +265,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
     // so the doc-id form matches the URL form.
     const onWikilinkNavigate = (target: string): void => {
       const clean = target.replace(/^\/+/, '')
-      void navigate('/' + encodePathToUrl(clean))
+      navigate('/' + encodePathToUrl(clean))
     }
 
     const mount = (): void => {
@@ -299,7 +299,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
           // Server kicked us because the file was deleted — bail to root so we
           // don't immediately reconnect to a doc that no longer exists.
           teardown()
-          void navigate('/')
+          navigate('/')
         } else if (event.code === DOC_MOVED_CODE) {
           const target = event.reason ?? ''
           if (pendingRenames.has(target)) {

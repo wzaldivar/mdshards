@@ -18,7 +18,7 @@ interface Props {
   onClose: () => void
 }
 
-export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Props) {
+export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Readonly<Props>) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   const [target, setTarget] = useState('')
@@ -117,7 +117,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
         })
         if (r.ok) {
           onClose()
-          void navigate('/' + encodePathToUrl(docPath))
+          navigate('/' + encodePathToUrl(docPath))
           return
         }
         if (r.status === 409) {
@@ -144,7 +144,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Pro
           // the URL would just bounce the upload back as a download (blocked
           // inside the sandboxed iframe = blank page), so stay put.
           if (isViewableAsset(resolved)) {
-            void navigate('/' + encodePathToUrl(resolved))
+            navigate('/' + encodePathToUrl(resolved))
           }
           return
         }

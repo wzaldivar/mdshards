@@ -16,7 +16,7 @@ interface Props {
   onClose: () => void
 }
 
-export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Props) {
+export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Readonly<Props>) {
   const navigate = useNavigate()
   const [target, setTarget] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -86,7 +86,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
     // conversion's canonical URL is the doc-id the backend returns.
     const body = (await r.json().catch(() => null)) as { to?: string; converted?: boolean } | null
     const destination = body?.converted && body.to ? body.to : dst
-    void navigate('/' + encodePathToUrl(destination))
+    navigate('/' + encodePathToUrl(destination))
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {

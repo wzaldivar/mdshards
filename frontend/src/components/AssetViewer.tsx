@@ -28,7 +28,7 @@ interface Props {
  *  focus — window-level shortcuts just work. Everything else falls back to an
  *  iframe so the browser's native viewer (PDFs, text, etc.) handles it; the
  *  iframe path re-binds shortcuts inside its contentDocument when possible. */
-export function AssetViewer({ path, cacheBust, shortcuts }: Props) {
+export function AssetViewer({ path, cacheBust, shortcuts }: Readonly<Props>) {
   // `path` is the raw vault path (spaces intact); encode for the fetchable src.
   const src = backendUrl('/' + encodePathToUrl(path) + '?v=' + encodeURIComponent(cacheBust))
   const kind = kindFor(path)
@@ -89,7 +89,7 @@ let lastAutoDownload = { src: '', at: 0 }
  *  download fallback, leaving a blank page. Hand control back to the
  *  browser instead — kick off its native download on arrival and show a
  *  panel with a manual link in case the auto-start was blocked. */
-function DownloadAsset({ src, path }: { src: string; path: string }) {
+function DownloadAsset({ src, path }: Readonly<{ src: string; path: string }>) {
   const basename = path.slice(path.lastIndexOf('/') + 1)
 
   useEffect(() => {
@@ -122,12 +122,12 @@ function IframeAsset({
   title,
   shortcuts,
   sandboxed,
-}: {
+}: Readonly<{
   src: string
   title: string
   shortcuts: ShortcutHandlers
   sandboxed: boolean
-}) {
+}>) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
   useEffect(() => {

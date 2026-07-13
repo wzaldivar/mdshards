@@ -4,9 +4,7 @@
  * `backend/app/vault.py`.
  */
 
-export type PathRejection = string
-
-export function validateVaultPath(path: string): PathRejection | null {
+export function validateVaultPath(path: string): string | null {
   if (path === '') return null
   if (path.includes('\0')) return 'null byte in path'
   // Spaces are allowed — stored literally on disk, percent-encoded only when
