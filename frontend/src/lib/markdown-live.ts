@@ -199,7 +199,7 @@ class ImageWidget extends WidgetType {
 function unwrapLinkTitle(raw: string): string {
   if (raw.length < 2) return raw
   const first = raw[0]
-  const last = raw[raw.length - 1]
+  const last = raw.at(-1)
   const ok =
     (first === '"' && last === '"') ||
     (first === "'" && last === "'") ||
@@ -265,66 +265,49 @@ type CellRun =
  *  contribute nothing — they're the `**`/`*`/``/`~~` delimiters. Wrapper
  *  nodes recurse so nested emphasis works. Implicit text (the gaps between
  *  explicit nodes) is emitted as plain `text` runs. */
+// Marker nodes contribute no run — they're the `**`/`*`/`` ` ``/`~~`/`[` `]`
+// delimiters, whose source chars are skipped.
+const INLINE_MARKER_NAMES = new Set(['EmphasisMark', 'CodeMark', 'StrikethroughMark', 'LinkMark'])
+
+/** Text of an InlineCode node between its boundary CodeMark delimiters. */
+function inlineCodeText(node: SyntaxNode, doc: Text): string {
+  let textFrom = node.from
+  let textTo = node.to
+  for (let m = node.firstChild; m; m = m.nextSibling) {
+    if (m.name === 'CodeMark') {
+      if (m.from === node.from) textFrom = m.to
+      if (m.to === node.to) textTo = m.from
+    }
+  }
+  return doc.sliceString(textFrom, textTo)
+}
+
+/** Build the run for a single non-marker child node. Wrapper nodes recurse. */
+function childRun(child: SyntaxNode, doc: Text): CellRun {
+  const inner = (): CellRun[] => parseInlineRuns(child.from, child.to, child, doc)
+  if (child.name === 'StrongEmphasis') return { k: 'bold', runs: inner() }
+  if (child.name === 'Emphasis') return { k: 'italic', runs: inner() }
+  if (child.name === 'Strikethrough') return { k: 'strike', runs: inner() }
+  if (child.name === 'InlineCode') return { k: 'code', text: inlineCodeText(child, doc) }
+  // `\X` — drop the backslash, keep the escaped character.
+  if (child.name === 'Escape') return { k: 'text', text: doc.sliceString(child.from + 1, child.to) }
+  // Anything we don't handle (Link, Image, etc.) — emit the raw text.
+  return { k: 'text', text: doc.sliceString(child.from, child.to) }
+}
+
 function parseInlineRuns(from: number, to: number, parent: SyntaxNode, doc: Text): CellRun[] {
   const runs: CellRun[] = []
   let cursor = from
+  const emitGap = (until: number): void => {
+    if (until > cursor) runs.push({ k: 'text', text: doc.sliceString(cursor, until) })
+  }
   for (let child = parent.firstChild; child; child = child.nextSibling) {
     if (child.to <= from || child.from >= to) continue
-    // Markers — skip the source chars without emitting any run.
-    if (
-      child.name === 'EmphasisMark' ||
-      child.name === 'CodeMark' ||
-      child.name === 'StrikethroughMark' ||
-      child.name === 'LinkMark'
-    ) {
-      if (child.from > cursor) {
-        runs.push({ k: 'text', text: doc.sliceString(cursor, child.from) })
-      }
-      cursor = child.to
-      continue
-    }
-    if (child.from > cursor) {
-      runs.push({ k: 'text', text: doc.sliceString(cursor, child.from) })
-    }
-    switch (child.name) {
-      case 'StrongEmphasis':
-        runs.push({ k: 'bold', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'Emphasis':
-        runs.push({ k: 'italic', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'Strikethrough':
-        runs.push({ k: 'strike', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'InlineCode': {
-        // Code spans have CodeMark children at the boundaries; the text
-        // between them is what we want.
-        let textFrom = child.from
-        let textTo = child.to
-        for (let m = child.firstChild; m; m = m.nextSibling) {
-          if (m.name === 'CodeMark') {
-            if (m.from === child.from) textFrom = m.to
-            if (m.to === child.to) textTo = m.from
-          }
-        }
-        runs.push({ k: 'code', text: doc.sliceString(textFrom, textTo) })
-        break
-      }
-      case 'Escape':
-        // `\X` — drop the backslash, keep the escaped character.
-        runs.push({ k: 'text', text: doc.sliceString(child.from + 1, child.to) })
-        break
-      default:
-        // Anything we don't handle (Link, Image, etc.) — emit the raw text
-        // and don't descend. Tighten later as needed.
-        runs.push({ k: 'text', text: doc.sliceString(child.from, child.to) })
-        break
-    }
+    emitGap(child.from)
+    if (!INLINE_MARKER_NAMES.has(child.name)) runs.push(childRun(child, doc))
     cursor = child.to
   }
-  if (cursor < to) {
-    runs.push({ k: 'text', text: doc.sliceString(cursor, to) })
-  }
+  emitGap(to)
   return runs
 }
 
@@ -394,12 +377,9 @@ class TableRowWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const row = document.createElement('div')
-    const baseClass =
-      this.kind === 'header'
-        ? 'cm-md-table-row cm-md-table-header'
-        : this.kind === 'separator'
-          ? 'cm-md-table-separator'
-          : 'cm-md-table-row'
+    let baseClass = 'cm-md-table-row'
+    if (this.kind === 'header') baseClass = 'cm-md-table-row cm-md-table-header'
+    else if (this.kind === 'separator') baseClass = 'cm-md-table-separator'
     row.className = baseClass
     if (this.kind !== 'separator') {
       row.style.setProperty('--cm-md-table-cols', `repeat(${this.cells.length}, 1fr)`)
@@ -823,7 +803,7 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // Wiki link first — intra-app navigation, no new tab.
       const wikiEl = target.closest('.cm-md-wikilink') as HTMLElement | null
       if (wikiEl) {
-        const t = wikiEl.getAttribute('data-target')
+        const t = wikiEl.dataset.target
         if (!t) return false
         event.preventDefault()
         event.stopPropagation()
@@ -834,7 +814,7 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // don't blow away the current note.
       const linkEl = target.closest('.cm-md-link') as HTMLElement | null
       if (!linkEl) return false
-      const href = linkEl.getAttribute('data-href')
+      const href = linkEl.dataset.href
       if (!href) return false
       event.preventDefault()
       event.stopPropagation()

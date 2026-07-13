@@ -1,9 +1,14 @@
 name: CI
 
 on:
+  # Analyze main (the SonarCloud baseline) on every push, and every PR into
+  # it. PR runs get SonarCloud pull-request analysis — issues are diffed
+  # against main, so a fix actually shows up as resolved (branch analysis of a
+  # scratch branch attributes pre-existing issues to main and hides that).
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   backend:

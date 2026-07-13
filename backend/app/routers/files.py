@@ -26,7 +26,14 @@ class MoveFileRequest(BaseModel):
     dst: str
 
 
-@router.post("/files", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/files",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "invalid vault path"},
+        409: {"description": "file already exists (and overwrite not set)"},
+    },
+)
 def create_file(req: CreateFileRequest) -> dict:
     settings = get_settings()
     try:
@@ -42,7 +49,15 @@ def create_file(req: CreateFileRequest) -> dict:
     return {"path": req.path}
 
 
-@router.post("/files/move")
+@router.post(
+    "/files/move",
+    responses={
+        400: {"description": "invalid path, or source and destination are the same"},
+        403: {"description": "index.md cannot be renamed, nor renamed onto"},
+        404: {"description": "source not found"},
+        409: {"description": "destination already exists"},
+    },
+)
 async def move_file(req: MoveFileRequest, request: Request) -> dict:
     """Rename a note from one vault path to another. Kicks attached clients,
     moves the .md and the CRDT cache, and prunes any source parents the move
@@ -73,7 +88,14 @@ async def move_file(req: MoveFileRequest, request: Request) -> dict:
     return {"from": req.src, "to": req.dst}
 
 
-@router.delete("/files/{file_path:path}")
+@router.delete(
+    "/files/{file_path:path}",
+    responses={
+        400: {"description": "invalid vault path"},
+        403: {"description": "index.md cannot be deleted"},
+        404: {"description": "not found"},
+    },
+)
 async def delete_file(file_path: str, request: Request) -> dict:
     settings = get_settings()
     try:

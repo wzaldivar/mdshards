@@ -20,7 +20,7 @@ interface Props {
  *  by the lazily-loaded gemoji dataset (lib/emoji.ts). Rows show the glyph
  *  plus its primary `:name:`; matching covers every alias and the prose
  *  description (`magnifying` finds `:mag:`). */
-export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
+export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<Props>) {
   const [query, setQuery] = useState('')
   const [entries, setEntries] = useState<GemojiEntry[] | null>(getGemojiList())
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -74,14 +74,14 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
     const descHit = (e: GemojiEntry) => e.description.toLowerCase().includes(q)
     // Rank: exact name > name prefix (shortest completion first, so `smi`
     // offers :smile: before :smiley:) > name substring > description.
+    // Shortest matching-name length, hoisted out of the sort callback so the
+    // filter/map below aren't nested >4 functions deep (S2004).
+    const shortestPrefixLen = (e: GemojiEntry): number =>
+      Math.min(...e.names.filter((n) => n.startsWith(q)).map((n) => n.length))
     const exact = entries.filter((e) => e.names.includes(q))
     const byPrefix = entries
       .filter((e) => !e.names.includes(q) && prefixHit(e))
-      .sort((a, b) => {
-        const len = (e: GemojiEntry) =>
-          Math.min(...e.names.filter((n) => n.startsWith(q)).map((n) => n.length))
-        return len(a) - len(b)
-      })
+      .sort((a, b) => shortestPrefixLen(a) - shortestPrefixLen(b))
     const bySubstring = entries.filter((e) => !prefixHit(e) && nameHit(e))
     const byDesc = entries.filter((e) => !nameHit(e) && descHit(e))
     return [...exact, ...byPrefix, ...bySubstring, ...byDesc]
@@ -116,8 +116,10 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
   if (!open) return null
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={query}
@@ -137,10 +139,15 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
                 key={entry.names[0]}
                 // Keep the keyboard selection visible when the list scrolls.
                 ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-                onClick={() => pick(i)}
               >
-                {entry.emoji} :{entry.names[0]}:
+                <button
+                  type="button"
+                  className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+                  tabIndex={-1}
+                  onClick={() => pick(i)}
+                >
+                  {entry.emoji} :{entry.names[0]}:
+                </button>
               </li>
             ))
           )}

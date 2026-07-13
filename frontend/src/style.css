@@ -43,6 +43,56 @@
   --ctp-base: 239, 241, 245;
   --ctp-mantle: 230, 233, 239;
   --ctp-crust: 220, 224, 232;
+
+  /*
+   * Semantic layer — built on top of the raw palette so both flavors share
+   * these names. Component CSS modules reference these, not the --ctp-*
+   * triplets. Kept in the same :root block as the palette (rather than a
+   * second one) to avoid a duplicate-selector; var() still resolves the
+   * dark-flavor overrides from the @media block below.
+   */
+  --accent: rgb(var(--ctp-lavender));
+  --bg: rgb(var(--ctp-base));
+  --bg-alt: rgb(var(--ctp-mantle));
+  --bg-surface: rgb(var(--ctp-surface0));
+  --bg-surface-elev: rgb(var(--ctp-surface1));
+  --fg: rgb(var(--ctp-text));
+  --fg-muted: rgb(var(--ctp-subtext1));
+  --fg-faint: rgb(var(--ctp-overlay1));
+
+  --link-color: rgb(var(--ctp-blue));
+  --link-external-color: rgb(var(--ctp-teal));
+
+  --heading-color: rgb(var(--ctp-lavender));
+  --bold-color: rgb(var(--ctp-sapphire));
+  --italic-color: rgb(var(--ctp-green));
+  --strike-color: rgb(var(--ctp-maroon));
+  --blockquote-stripe: rgb(var(--ctp-lavender));
+  --blockquote-color: rgb(var(--ctp-rosewater));
+  --list-marker-color: rgb(var(--ctp-sapphire));
+  --hr-color: rgb(var(--ctp-blue));
+
+  --selection-bg: rgb(var(--ctp-lavender), 22%);
+  /* Catppuccin's standard text-selection surface is `surface2` — a solid
+     neutral one shade lighter than `base`. Works for both Latte and Mocha
+     because `--ctp-surface2` swaps with the rest of the palette via the
+     `prefers-color-scheme: dark` block below. */
+  --editor-selection-bg: rgb(var(--ctp-surface2));
+  --danger-bg: rgb(var(--ctp-red), 15%);
+  --danger-bg-strong: rgb(var(--ctp-red), 22%);
+  --danger-color: rgb(var(--ctp-red));
+
+  --code-bg: rgb(var(--ctp-mantle));
+  --code-keyword: rgb(var(--ctp-pink));
+  --code-string: rgb(var(--ctp-green));
+  --code-function: rgb(var(--ctp-yellow));
+  --code-property: rgb(var(--ctp-sapphire));
+  --code-value: rgb(var(--ctp-mauve));
+  --code-tag: rgb(var(--ctp-red));
+  --code-important: rgb(var(--ctp-peach));
+  --code-comment: rgb(var(--ctp-overlay2));
+  --code-punctuation: rgb(var(--ctp-subtext1));
+  --code-normal: rgb(var(--ctp-text));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -77,54 +127,6 @@
   }
 }
 
-/*
- * Semantic layer — built on top of the raw palette so both flavors share these
- * names. Component CSS modules reference these, not the --ctp-* triplets.
- */
-:root {
-  --accent: rgb(var(--ctp-lavender));
-  --bg: rgb(var(--ctp-base));
-  --bg-alt: rgb(var(--ctp-mantle));
-  --bg-surface: rgb(var(--ctp-surface0));
-  --bg-surface-elev: rgb(var(--ctp-surface1));
-  --fg: rgb(var(--ctp-text));
-  --fg-muted: rgb(var(--ctp-subtext1));
-  --fg-faint: rgb(var(--ctp-overlay1));
-
-  --link-color: rgb(var(--ctp-blue));
-  --link-external-color: rgb(var(--ctp-teal));
-
-  --heading-color: rgb(var(--ctp-lavender));
-  --bold-color: rgb(var(--ctp-sapphire));
-  --italic-color: rgb(var(--ctp-green));
-  --strike-color: rgb(var(--ctp-maroon));
-  --blockquote-stripe: rgb(var(--ctp-lavender));
-  --blockquote-color: rgb(var(--ctp-rosewater));
-  --list-marker-color: rgb(var(--ctp-sapphire));
-  --hr-color: rgb(var(--ctp-blue));
-
-  --selection-bg: rgb(var(--ctp-lavender), 22%);
-  /* Catppuccin's standard text-selection surface is `surface2` — a solid
-     neutral one shade lighter than `base`. Works for both Latte and Mocha
-     because `--ctp-surface2` swaps with the rest of the palette via the
-     `prefers-color-scheme: dark` block above. */
-  --editor-selection-bg: rgb(var(--ctp-surface2));
-  --danger-bg: rgb(var(--ctp-red), 15%);
-  --danger-bg-strong: rgb(var(--ctp-red), 22%);
-  --danger-color: rgb(var(--ctp-red));
-
-  --code-bg: rgb(var(--ctp-mantle));
-  --code-keyword: rgb(var(--ctp-pink));
-  --code-string: rgb(var(--ctp-green));
-  --code-function: rgb(var(--ctp-yellow));
-  --code-property: rgb(var(--ctp-sapphire));
-  --code-value: rgb(var(--ctp-mauve));
-  --code-tag: rgb(var(--ctp-red));
-  --code-important: rgb(var(--ctp-peach));
-  --code-comment: rgb(var(--ctp-overlay2));
-  --code-punctuation: rgb(var(--ctp-subtext1));
-  --code-normal: rgb(var(--ctp-text));
-}
 
 html,
 body,
@@ -380,7 +382,7 @@ body {
   padding: 4px 10px;
   background: var(--bg-alt);
   white-space: normal;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .cm-md-table-header .cm-md-table-cell {
   font-weight: 600;

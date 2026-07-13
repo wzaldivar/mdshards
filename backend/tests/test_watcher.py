@@ -85,7 +85,7 @@ async def test_self_write_is_ignored(tmp_path: Path) -> None:
     try:
         state = await mgr.acquire("foo")
         state.doc.get(TEXT_KEY, type=Text).__iadd__("typed by a client")
-        await mgr._flush(state)  # our own write; sets last_disk_content
+        mgr._flush(state)  # our own write; sets last_disk_content
         # A watcher event for our own flush must not disturb the doc.
         await mgr.reconcile_external(state.disk_path)
         assert _text(state) == "typed by a client"

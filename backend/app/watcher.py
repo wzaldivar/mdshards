@@ -46,8 +46,8 @@ class _VaultEventHandler(FileSystemEventHandler):
             self._dispatch(event.src_path)
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if not event.is_directory:
-            self._dispatch(event.src_path)
+        # A newly-created file reconciles exactly like a modification.
+        self.on_modified(event)
 
     def on_moved(self, event: FileSystemEvent) -> None:
         # Atomic-save editors (Obsidian, Vim, our own `os.replace` flush) land

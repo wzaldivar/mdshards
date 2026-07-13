@@ -19,7 +19,7 @@ from pycrdt import (
 )
 
 from .config import get_settings
-from .docs import DOC_DELETED_CODE, DOC_MOVED_CODE, DocumentManager, KickSignal
+from .docs import DOC_DELETED_CODE, DOC_MOVED_CODE, DocumentManager, KickSignal, _DocState
 from .files import ensure_index_exists
 from .vault import VaultPathError, resolve_md
 
@@ -45,6 +45,55 @@ __all__ = [
     "create_update_message",
     "handle_sync_message",
 ]
+
+
+async def _writer(ws: WebSocket, queue: asyncio.Queue[bytes | KickSignal]) -> None:
+    """Push doc updates / awareness to the client. A `KickSignal` from the
+    queue tells us to close the WebSocket with the given code/reason — used by
+    the delete and rename paths to notify attached clients."""
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
+            except TimeoutError:
+                await ws.send_bytes(_KEEPALIVE_MSG)
+                continue
+            if isinstance(msg, KickSignal):
+                with suppress(Exception):
+                    await ws.close(code=msg.code, reason=msg.reason)
+                return
+            await ws.send_bytes(msg)
+    except (WebSocketDisconnect, RuntimeError):
+        return
+
+
+async def _handle_frame(
+    ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal], data: bytes
+) -> None:
+    """Dispatch one inbound y-protocol frame: reply to SYNC, relay AWARENESS
+    to the other subscribers."""
+    msg_type = data[0]
+    if msg_type == YMessageType.SYNC:
+        reply = handle_sync_message(data[1:], state.doc)
+        if reply is not None:
+            await ws.send_bytes(reply)
+    elif msg_type == YMessageType.AWARENESS:
+        for q in state.subscribers:
+            if q is not queue:
+                q.put_nowait(data)
+
+
+async def _reader(
+    ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal]
+) -> None:
+    """Pump inbound frames to `_handle_frame` until the client disconnects."""
+    try:
+        while True:
+            data = await ws.receive_bytes()
+            if data:
+                await _handle_frame(ws, state, queue, data)
+    except WebSocketDisconnect:
+        pass
 
 
 @router.websocket("/ws/{doc_id:path}")
@@ -79,43 +128,9 @@ async def ws_endpoint(ws: WebSocket, doc_id: str) -> None:
 
     await ws.send_bytes(create_sync_message(state.doc))
 
-    async def writer() -> None:
-        """Push doc updates / awareness to the client. A `KickSignal` from the
-        queue tells us to close the WebSocket with the given code/reason —
-        used by the delete and rename paths to notify attached clients."""
-        try:
-            while True:
-                try:
-                    msg = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
-                except TimeoutError:
-                    await ws.send_bytes(_KEEPALIVE_MSG)
-                    continue
-                if isinstance(msg, KickSignal):
-                    with suppress(Exception):
-                        await ws.close(code=msg.code, reason=msg.reason)
-                    return
-                await ws.send_bytes(msg)
-        except (WebSocketDisconnect, RuntimeError):
-            return
-
-    writer_task = asyncio.create_task(writer())
-
+    writer_task = asyncio.create_task(_writer(ws, queue))
     try:
-        while True:
-            data = await ws.receive_bytes()
-            if not data:
-                continue
-            msg_type = data[0]
-            if msg_type == YMessageType.SYNC:
-                reply = handle_sync_message(data[1:], state.doc)
-                if reply is not None:
-                    await ws.send_bytes(reply)
-            elif msg_type == YMessageType.AWARENESS:
-                for q in state.subscribers:
-                    if q is not queue:
-                        q.put_nowait(data)
-    except WebSocketDisconnect:
-        pass
+        await _reader(ws, state, queue)
     finally:
         writer_task.cancel()
         with suppress(asyncio.CancelledError):

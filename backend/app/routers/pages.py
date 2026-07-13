@@ -46,7 +46,13 @@ def _spa_shell() -> str:
     return _PLACEHOLDER_SHELL
 
 
-@router.get("/{full_path:path}")
+@router.get(
+    "/{full_path:path}",
+    responses={
+        400: {"description": "invalid vault path"},
+        404: {"description": "asset sub-resource not found"},
+    },
+)
 def page_or_asset(full_path: str, request: Request):
     """Catch-all that hands the browser one of:
       - the SPA shell (markdown, missing, asset doc-nav, `.md` URLs), or
@@ -80,11 +86,15 @@ def page_or_asset(full_path: str, request: Request):
 
     # `.md` URL whose doc-id form has no `<vault>/X.md.md` on disk. Per the
     # md-wins rule, the literal `<vault>/X.md` (if it exists) is itself a
-    # markdown note with doc-id `X-without-.md`. Redirect the SPA to that
-    # canonical URL — the next request lands in the md branch above.
+    # markdown note with doc-id `X-without-.md`. Hand the browser the SPA
+    # shell and let it canonicalize to `/X` client-side via `/api/resolve`'s
+    # `canonical` field (`useResolve` does a `replace`-navigate). Doing this
+    # in the SPA rather than a server 302 keeps user-controlled request data
+    # out of any redirect `Location`. The branch itself is still required so
+    # a `.md` URL never falls through to asset resolution below — that would
+    # serve the raw bytes of a literal `X.md` note and violate md-wins.
     if stripped.endswith(".md"):
-        canonical = stripped[:-3]
-        return RedirectResponse(url=f"/{canonical}" if canonical else "/", status_code=302)
+        return HTMLResponse(_spa_shell())
 
     try:
         asset_path = resolve_asset(stripped, settings.vault_dir)

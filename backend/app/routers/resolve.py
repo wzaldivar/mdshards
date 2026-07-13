@@ -59,8 +59,11 @@ def _resolve(stripped: str, vault_root: Path) -> ResolveResponse:
     return ResolveResponse(type="missing", canonical=stripped)
 
 
-@router.get("/resolve")
-@router.get("/resolve/{url_path:path}")
+@router.get("/resolve", responses={400: {"description": "invalid vault path"}})
+@router.get(
+    "/resolve/{url_path:path}",
+    responses={400: {"description": "invalid vault path"}},
+)
 def resolve(url_path: str = "") -> ResolveResponse:
     """Tell the SPA what kind of resource lives at a URL path and what the
     canonical URL for it is. Called by `useResolve` on every navigation; the

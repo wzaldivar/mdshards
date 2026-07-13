@@ -10,7 +10,7 @@ interface Props {
  *  too easy to mis-type a path without noticing. The card shows the URL the
  *  user tried, a button back to the root, and a reminder that Cmd-K still
  *  works for quick navigation/creation. */
-export function NotFound({ path }: Props) {
+export function NotFound({ path }: Readonly<Props>) {
   const navigate = useNavigate()
   const display = path === '' || path === '/' ? '/' : '/' + path.replace(/^\/+/, '')
   return (
@@ -25,7 +25,7 @@ export function NotFound({ path }: Props) {
           <button
             type="button"
             className={styles.primaryBtn}
-            onClick={() => void navigate('/')}
+            onClick={() => navigate('/')}
           >
             Go home
           </button>

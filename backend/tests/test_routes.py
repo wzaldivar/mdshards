@@ -77,15 +77,18 @@ def test_dotty_md_url_resolves_to_md(client) -> None:
     assert '<div id="app"></div>' in r.text
 
 
-def test_md_url_with_literal_md_file_redirects_to_canonical(client) -> None:
+def test_md_url_with_literal_md_file_serves_shell(client) -> None:
     """A `.md` URL is allowed now. If the canonical doc-id form
     (`<vault>/x.md.md`) doesn't exist but the literal `<vault>/x.md` does —
-    which is itself a markdown note with doc-id `x` — redirect to `/x`."""
+    which is itself a markdown note with doc-id `x` — the catch-all serves
+    the SPA shell (no server 302). The SPA canonicalizes `/x.md` → `/x`
+    client-side from `/api/resolve`'s `canonical` field
+    (test_resolve_md_url_falls_back_to_canonical covers that contract)."""
     c, vault = client
     (vault / "x.md").write_text("hi")
     r = c.get("/x.md", follow_redirects=False)
-    assert r.status_code == 302
-    assert r.headers["location"] == "/x"
+    assert r.status_code == 200
+    assert '<div id="app"></div>' in r.text
 
 
 def test_md_url_with_nested_md_md_serves_directly(client) -> None:

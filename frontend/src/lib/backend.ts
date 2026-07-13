@@ -14,9 +14,18 @@
  * origin guard (Sec-Fetch-Site for /api, Origin↔Host equality for /ws)
  * across origins is the deployer's problem. See README "Deployment".
  */
-export const BACKEND_HOST = ((import.meta.env.VITE_BACKEND_HOST as string | undefined) ?? '')
-  // Normalize away a trailing slash so `BACKEND_HOST + '/api/...'` is clean.
-  .replace(/\/+$/, '')
+/** Drop trailing slashes so `BACKEND_HOST + '/api/...'` is clean. A plain
+ *  scan, not a regex — `/\/+$/` trips SonarCloud's super-linear-backtracking
+ *  check (S8786), and a loop is O(n) with zero backtracking. */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length
+  while (end > 0 && s[end - 1] === '/') end--
+  return s.slice(0, end)
+}
+
+export const BACKEND_HOST = stripTrailingSlashes(
+  (import.meta.env.VITE_BACKEND_HOST as string | undefined) ?? '',
+)
 
 /** Prefix an origin-rooted backend path (`/api/...`, `/pic.png`) with the
  *  configured backend origin. Pass-through when none is configured. */

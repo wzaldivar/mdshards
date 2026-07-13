@@ -1,7 +1,6 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { backendWsUrl } from './backend'
-import { loadConfig } from './config'
 import { encodePathToUrl } from './paths'
 
 export interface DocBundle {
@@ -12,7 +11,7 @@ export interface DocBundle {
 
 /** Re-exported for call sites that still treat the server's grace period
  *  as their concern (Editor's awareness heartbeat). */
-export const fetchServerConfig = loadConfig
+export { loadConfig as fetchServerConfig } from './config'
 
 
 export function openDoc(docId: string): DocBundle {

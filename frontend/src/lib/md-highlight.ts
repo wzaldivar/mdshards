@@ -8,14 +8,13 @@ import type { DelimiterType, MarkdownConfig } from '@lezer/markdown'
  *  Rendering: markdown-live tags the span with `.cm-md-mark` (style.css) and
  *  hides the marks cursor-aware like the other inline markup. */
 
-// Same punctuation classification lezer-markdown uses for flanking checks,
-// including the unicode-property upgrade where the engine supports it.
-let Punctuation = /[!-/:-@[-`{-~\xA1‐-‧]/
-try {
-  Punctuation = new RegExp('[\\p{Pc}|\\p{Pd}|\\p{Pe}|\\p{Pf}|\\p{Pi}|\\p{Po}|\\p{Ps}]', 'u')
-} catch {
-  /* older engines keep the ASCII approximation */
-}
+// Punctuation classification matching lezer-markdown's flanking checks. A
+// regex literal (not a runtime-built RegExp with an ASCII fallback) is safe:
+// every browser that can load this ESM/React-19 bundle also supports Unicode
+// property escapes (Chrome 64+, Safari 11.1+, Firefox 78+), so the old
+// fallback was unreachable. The trailing `|` (literal pipe) was in the
+// original set and is kept deliberately.
+const Punctuation = /[\p{Pc}\p{Pd}\p{Pe}\p{Pf}\p{Pi}\p{Po}\p{Ps}|]/u
 
 const HighlightDelim: DelimiterType = { resolve: 'Highlight', mark: 'HighlightMark' }
 

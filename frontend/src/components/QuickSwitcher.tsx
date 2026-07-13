@@ -27,7 +27,7 @@ function displayPath(p: string): string {
   return base ? `${base}/${p}` : p
 }
 
-export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
+export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [allPaths, setAllPaths] = useState<string[]>([])
@@ -97,7 +97,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       return
     }
     const forms = (p: string) => [p.toLowerCase(), displayPath(p).toLowerCase()]
-    const byExact = matches.findIndex((p) => forms(p).some((f) => f === q))
+    const byExact = matches.findIndex((p) => forms(p).includes(q))
     const byPrefix = matches.findIndex((p) => forms(p).some((f) => f.startsWith(q)))
     const bySubstring = matches.findIndex((p) => forms(p).some((f) => f.includes(q)))
     const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
@@ -129,7 +129,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     if (allUrls.includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
-      void navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
+      navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
       onClose()
       return
     }
@@ -150,7 +150,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
       setError(`create failed: ${r.status}`)
       return
     }
-    void navigate('/' + encodePathToUrl(target))
+    navigate('/' + encodePathToUrl(target))
     onClose()
   }
 
@@ -193,8 +193,12 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
 
   const trimmed = query.trim()
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Click-outside-to-close catcher. A native <button> (not a div with
+          onClick) keeps it accessible without per-element key handlers;
+          tabIndex=-1 keeps keyboard focus in the input. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={query}
@@ -213,10 +217,17 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
               // the ref fires as the item becomes selected; 'nearest' makes
               // it a no-op while it's already in view.
               ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-              className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-              onClick={() => selectAndCommit(i)}
             >
-              {displayPath(p)}
+              {/* Native <button> so the clickable row needs no ARIA role or
+                  key handler; arrow-key nav stays on the input (tabIndex=-1). */}
+              <button
+                type="button"
+                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+                tabIndex={-1}
+                onClick={() => selectAndCommit(i)}
+              >
+                {displayPath(p)}
+              </button>
             </li>
           ))}
           {trimmed && !hasExactMatch && (

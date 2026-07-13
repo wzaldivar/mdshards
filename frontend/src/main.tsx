@@ -15,12 +15,11 @@ const root = createRoot(rootEl)
 // the origin's root; the reverse proxy handles the prefix mapping. A
 // single Vite-built bundle therefore works at any sub-path without
 // rebuilding.
-void loadConfig().then((cfg) => {
-  root.render(
-    <StrictMode>
-      <BrowserRouter basename={cfg.homePath || undefined}>
-        <App />
-      </BrowserRouter>
-    </StrictMode>,
-  )
-})
+const cfg = await loadConfig()
+root.render(
+  <StrictMode>
+    <BrowserRouter basename={cfg.homePath || undefined}>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+)

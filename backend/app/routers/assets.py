@@ -16,8 +16,19 @@ class MoveAssetRequest(BaseModel):
     dst: str
 
 
-@router.post("/assets", status_code=201)
-async def upload_asset(
+# Sync `def` on purpose: the body does blocking file I/O
+# (`Path.open`/`copyfileobj`). FastAPI runs a sync path operation in its
+# threadpool, so the copy never blocks the event loop — the correct fix for
+# "sync I/O in an async function" here, rather than pulling in aiofiles.
+@router.post(
+    "/assets",
+    status_code=201,
+    responses={
+        400: {"description": "invalid vault path, or a .md target (use /api/files)"},
+        409: {"description": "asset already exists (and overwrite not set)"},
+    },
+)
+def upload_asset(
     file: Annotated[UploadFile, File()],
     path: Annotated[str, Form()],
     overwrite: Annotated[bool, Form()] = False,
@@ -51,7 +62,14 @@ async def upload_asset(
     return {"path": path}
 
 
-@router.post("/assets/move")
+@router.post(
+    "/assets/move",
+    responses={
+        400: {"description": "invalid path, a lowercase .md source, or src == dst"},
+        404: {"description": "source not found"},
+        409: {"description": "destination already exists"},
+    },
+)
 def move_asset(req: MoveAssetRequest) -> dict:
     """Rename/move a non-md asset from one vault path to another. No CRDT
     manager involvement — assets never enter the in-memory doc layer.
@@ -93,7 +111,13 @@ def move_asset(req: MoveAssetRequest) -> dict:
     return {"from": req.src, "to": req.dst, "converted": False}
 
 
-@router.delete("/assets/{asset_path:path}")
+@router.delete(
+    "/assets/{asset_path:path}",
+    responses={
+        400: {"description": "invalid vault path"},
+        404: {"description": "not found"},
+    },
+)
 def delete_asset(asset_path: str) -> dict:
     settings = get_settings()
     try:

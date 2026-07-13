@@ -115,7 +115,7 @@ async def test_conflict_file_written_on_external_divergence(tmp_path: Path) -> N
         # External writer overwrites the file with divergent content.
         (tmp_path / "foo.md").write_text("external write")
 
-        await mgr._flush(state)
+        mgr._flush(state)
 
         conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
         assert len(conflicts) == 1
@@ -145,7 +145,7 @@ async def test_no_conflict_when_disk_matches_in_memory(tmp_path: Path) -> None:
     mgr = _mgr(tmp_path)
     try:
         state = await mgr.acquire("foo")
-        await mgr._flush(state)
+        mgr._flush(state)
         conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
         assert conflicts == []
     finally:
@@ -165,7 +165,7 @@ async def test_cache_preserves_item_ids_across_manager_recreate(tmp_path: Path) 
         s = await mgr1.acquire("foo")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("hello")
         sv_before = s.doc.get_state()
-        await mgr1._flush(s)
+        mgr1._flush(s)
     finally:
         await mgr1.shutdown()
 
@@ -191,7 +191,7 @@ async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -
     try:
         s = await mgr1.acquire("foo")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("from the editor")
-        await mgr1._flush(s)
+        mgr1._flush(s)
     finally:
         await mgr1.shutdown()
 
@@ -262,7 +262,7 @@ async def test_rename_moves_cache_and_kicks_clients(tmp_path: Path) -> None:
         s.doc.get(TEXT_KEY, type=Text).__iadd__("history")
         q: asyncio.Queue[bytes | None] = asyncio.Queue()
         s.subscribers.add(q)
-        await mgr._flush(s)
+        mgr._flush(s)
         src_cache = mgr._cache_path(s.disk_path)
         assert src_cache.exists()
 
@@ -290,7 +290,7 @@ async def test_purge_removes_cache_file(tmp_path: Path) -> None:
         s = await mgr.acquire("notes/today")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("x")
         cache_path = mgr._cache_path(s.disk_path)
-        await mgr._flush(s)
+        mgr._flush(s)
         assert cache_path.exists()
         await mgr.release("notes/today")
         mgr.purge("notes/today")
@@ -311,8 +311,8 @@ async def test_prune_orphaned_cache_drops_files_with_no_md(tmp_path: Path) -> No
         gone = await mgr1.acquire("gone")
         kept.doc.get(TEXT_KEY, type=Text).__iadd__("k")
         gone.doc.get(TEXT_KEY, type=Text).__iadd__("g")
-        await mgr1._flush(kept)
-        await mgr1._flush(gone)
+        mgr1._flush(kept)
+        mgr1._flush(gone)
         kept_cache = mgr1._cache_path(kept.disk_path)
         gone_cache = mgr1._cache_path(gone.disk_path)
         assert kept_cache.exists() and gone_cache.exists()
@@ -340,8 +340,8 @@ async def test_two_docs_get_distinct_cache_files(tmp_path: Path) -> None:
         b = await mgr.acquire("bar")
         a.doc.get(TEXT_KEY, type=Text).__iadd__("A")
         b.doc.get(TEXT_KEY, type=Text).__iadd__("B")
-        await mgr._flush(a)
-        await mgr._flush(b)
+        mgr._flush(a)
+        mgr._flush(b)
         ca = mgr._cache_path(a.disk_path)
         cb = mgr._cache_path(b.disk_path)
         assert ca != cb

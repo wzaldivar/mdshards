@@ -8,7 +8,18 @@
   padding-top: 15vh;
   z-index: 1000;
 }
+.scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
 .modal {
+  position: relative;
+  z-index: 1;
   width: min(640px, 90vw);
   background: var(--bg-surface);
   color: var(--fg);

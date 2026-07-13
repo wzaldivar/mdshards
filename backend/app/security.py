@@ -137,50 +137,54 @@ class OriginGuard:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         kind = scope["type"]
         if kind == "http":
-            path = scope.get("path", "")
-            method = scope.get("method", "GET").upper()
-            # /api/* and /ws/* are the surfaces the bundle calls. Require a
-            # browser-style `Sec-Fetch-Site` on every method, including GET —
-            # that's what blocks bare curl / scripted callers.
-            if _is_api_or_ws(path):
-                headers = scope.get("headers") or []
-                site = _header(headers, b"sec-fetch-site")
-                if site is None or site not in SAFE_SEC_FETCH_SITE:
-                    await _reject_http(send)
-                    return
-                if not is_request_allowed(scope):
-                    await _reject_http(send)
-                    return
-                await self.app(scope, receive, send)
-                return
-            # Static paths: keep the looser gate so typed-URL nav works.
-            if method in SAFE_METHODS:
-                await self.app(scope, receive, send)
+            await self._handle_http(scope, receive, send)
+        elif kind == "websocket":
+            await self._handle_websocket(scope, receive, send)
+        else:
+            # `lifespan` and anything else — pass through unchanged.
+            await self.app(scope, receive, send)
+
+    async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        method = scope.get("method", "GET").upper()
+        # /api/* and /ws/* are the surfaces the bundle calls. Require a
+        # browser-style `Sec-Fetch-Site` on every method, including GET —
+        # that's what blocks bare curl / scripted callers.
+        if _is_api_or_ws(path):
+            headers = scope.get("headers") or []
+            site = _header(headers, b"sec-fetch-site")
+            if site is None or site not in SAFE_SEC_FETCH_SITE:
+                await _reject_http(send)
                 return
             if not is_request_allowed(scope):
                 await _reject_http(send)
                 return
             await self.app(scope, receive, send)
             return
-        if kind == "websocket":
-            # All WebSocket endpoints live under /ws. Unlike the HTTP /api
-            # branch we do NOT require `Sec-Fetch-Site`: browsers omit ALL
-            # Sec-Fetch-* metadata on the WebSocket opening handshake, so
-            # requiring it would reject every legitimate browser connection.
-            # Browsers DO always send `Origin` on the WS handshake, so we use
-            # Origin-presence as the browser fingerprint that blocks bare
-            # non-browser callers (curl sends none) — the same casual-bypass
-            # gate the /api branch gets from Sec-Fetch-Site. is_request_allowed
-            # then validates that Origin against the `Host` header, blocking the
-            # cross-origin hijack case.
-            headers = scope.get("headers") or []
-            if _header(headers, b"origin") is None:
-                await _reject_websocket(receive, send)
-                return
-            if not is_request_allowed(scope):
-                await _reject_websocket(receive, send)
-                return
+        # Static paths: keep the looser gate so typed-URL nav works.
+        if method in SAFE_METHODS:
             await self.app(scope, receive, send)
             return
-        # `lifespan` and anything else — pass through unchanged.
+        if not is_request_allowed(scope):
+            await _reject_http(send)
+            return
+        await self.app(scope, receive, send)
+
+    async def _handle_websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # All WebSocket endpoints live under /ws. Unlike the HTTP /api branch
+        # we do NOT require `Sec-Fetch-Site`: browsers omit ALL Sec-Fetch-*
+        # metadata on the WebSocket opening handshake, so requiring it would
+        # reject every legitimate browser connection. Browsers DO always send
+        # `Origin` on the WS handshake, so we use Origin-presence as the
+        # browser fingerprint that blocks bare non-browser callers (curl sends
+        # none) — the same casual-bypass gate the /api branch gets from
+        # Sec-Fetch-Site. is_request_allowed then validates that Origin against
+        # the `Host` header, blocking the cross-origin hijack case.
+        headers = scope.get("headers") or []
+        if _header(headers, b"origin") is None:
+            await _reject_websocket(receive, send)
+            return
+        if not is_request_allowed(scope):
+            await _reject_websocket(receive, send)
+            return
         await self.app(scope, receive, send)
