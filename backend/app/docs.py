@@ -130,7 +130,6 @@ class DocumentManager:
         disk_content = read_md(disk_path, self._vault_dir) if disk_path.exists() else ""
 
         doc = Doc()
-        text = doc.get(TEXT_KEY, type=Text)
         authoritative: str
         if cache_path.exists():
             # Restore the prior CRDT state with all its original item IDs so
@@ -145,6 +144,10 @@ class DocumentManager:
                 # but keep the live Doc unchanged.
                 self._write_conflict_file(disk_path, disk_content)
         else:
+            # Fresh doc: bind the root Text and seed it from disk. (In the
+            # cache branch apply_update reconstructs the root, so the bind
+            # only belongs here — no need to hold it "from the beginning".)
+            text = doc.get(TEXT_KEY, type=Text)
             if disk_content:
                 text += disk_content
             authoritative = disk_content
