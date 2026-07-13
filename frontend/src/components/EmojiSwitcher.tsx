@@ -5,9 +5,13 @@ import styles from './QuickSwitcher.module.css'
 
 interface Props {
   open: boolean
-  /** Called with the picked shortcode NAME (no colons); the parent inserts
-   *  `:name:` into the buffer. The file keeps the shortcode — the glyph is
-   *  render-time only (markdown-live's Emoji handling). */
+  /** Seed query — the shortcode token the cursor was touching when the
+   *  picker opened (`:smi` → "smi"), so a half-typed or wrong emoji can be
+   *  finished/replaced without retyping. Empty for a plain open. */
+  initialQuery: string
+  /** Called with the picked shortcode NAME (no colons); the parent writes
+   *  `:name:` into the buffer (replacing the touched token, if any). The
+   *  file keeps the shortcode — the glyph is render-time only. */
   onPick: (name: string) => void
   onClose: () => void
 }
@@ -16,16 +20,23 @@ interface Props {
  *  by the lazily-loaded gemoji dataset (lib/emoji.ts). Rows show the glyph
  *  plus its primary `:name:`; matching covers every alias and the prose
  *  description (`magnifying` finds `:mag:`). */
-export function EmojiSwitcher({ open, onPick, onClose }: Props) {
+export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [entries, setEntries] = useState<GemojiEntry[] | null>(getGemojiList())
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
+  // Arms on open when there's a seed; the select must happen AFTER the
+  // render that commits the seeded value into the input (a microtask can
+  // beat that commit and select stale text, making typing append instead of
+  // replace) — hence the separate effect below keyed on `query`.
+  const pendingSelect = useRef(false)
+
   useEffect(() => {
     if (!open) return
-    setQuery('')
+    setQuery(initialQuery)
     setSelectedIndex(0)
+    pendingSelect.current = initialQuery.length > 0
     let cancelled = false
     void loadEmojiData().then(() => {
       if (!cancelled) setEntries(getGemojiList())
@@ -34,7 +45,22 @@ export function EmojiSwitcher({ open, onPick, onClose }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, initialQuery])
+
+  useEffect(() => {
+    if (!open || !pendingSelect.current) return
+    const input = inputRef.current
+    // Compare against the SEED, not the live query: on a reopen the first
+    // commit still shows the previous session's query, and selecting that
+    // stale text would burn the one-shot flag before the seed ever renders.
+    if (input && initialQuery && input.value === initialQuery) {
+      // Select the seeded token so typing a different name replaces it
+      // outright, while Enter still takes the best match for the seed.
+      input.focus()
+      input.select()
+      pendingSelect.current = false
+    }
+  }, [open, query, initialQuery])
 
   const matches = useMemo(() => {
     if (!entries) return []
@@ -44,12 +70,21 @@ export function EmojiSwitcher({ open, onPick, onClose }: Props) {
     // even with an empty query. ~2k plain rows render fine.
     if (!q) return entries
     const nameHit = (e: GemojiEntry) => e.names.some((n) => n.includes(q))
+    const prefixHit = (e: GemojiEntry) => e.names.some((n) => n.startsWith(q))
     const descHit = (e: GemojiEntry) => e.description.toLowerCase().includes(q)
-    // Names outrank descriptions; exact name outranks both.
+    // Rank: exact name > name prefix (shortest completion first, so `smi`
+    // offers :smile: before :smiley:) > name substring > description.
     const exact = entries.filter((e) => e.names.includes(q))
-    const byName = entries.filter((e) => !e.names.includes(q) && nameHit(e))
+    const byPrefix = entries
+      .filter((e) => !e.names.includes(q) && prefixHit(e))
+      .sort((a, b) => {
+        const len = (e: GemojiEntry) =>
+          Math.min(...e.names.filter((n) => n.startsWith(q)).map((n) => n.length))
+        return len(a) - len(b)
+      })
+    const bySubstring = entries.filter((e) => !prefixHit(e) && nameHit(e))
     const byDesc = entries.filter((e) => !nameHit(e) && descHit(e))
-    return [...exact, ...byName, ...byDesc]
+    return [...exact, ...byPrefix, ...bySubstring, ...byDesc]
   }, [entries, query])
 
   useEffect(() => {

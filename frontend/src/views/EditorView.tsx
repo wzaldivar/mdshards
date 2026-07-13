@@ -33,6 +33,9 @@ export function EditorView() {
   const [renameOpen, setRenameOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  // Seed query for the emoji picker — the shortcode token the cursor was
+  // touching when Cmd-E fired (see EditorApi.emojiQueryAtCursor).
+  const [emojiSeed, setEmojiSeed] = useState('')
   const [optionsOpen, setOptionsOpen] = useState(false)
   // Imperative bridge into the live CodeMirror buffer (set while an md note
   // is mounted) — the emoji picker inserts through it.
@@ -103,6 +106,10 @@ export function EditorView() {
         // Inserting needs a live buffer — only meaningful on an md note.
         if (!currentIsMd) return
         closeAll()
+        // Cursor on a `:shortcode` token? Seed the search with it — the pick
+        // then REPLACES that token (finish `:smi`, fix `:zmile:`, swap a
+        // valid `:smile:` for something else).
+        setEmojiSeed(editorApiRef.current?.emojiQueryAtCursor() ?? '')
         setEmojiOpen(true)
       },
       openOptions: () => {
@@ -205,7 +212,8 @@ export function EditorView() {
       />
       <EmojiSwitcher
         open={emojiOpen}
-        onPick={(name) => editorApiRef.current?.insertText(`:${name}:`)}
+        initialQuery={emojiSeed}
+        onPick={(name) => editorApiRef.current?.insertShortcode(name)}
         onClose={() => setEmojiOpen(false)}
       />
       <OptionsPanel open={optionsOpen} onClose={() => setOptionsOpen(false)} />

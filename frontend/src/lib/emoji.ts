@@ -40,3 +40,38 @@ export function getNameToEmoji(): Record<string, string> | null {
 export function getGemojiList(): GemojiEntry[] | null {
   return list
 }
+
+export interface ShortcodeToken {
+  /** Column of the opening `:` within the line. */
+  start: number
+  /** Column just past the token (past the closing `:` when present). */
+  end: number
+  /** The inner text, colons stripped — the picker's seed query. */
+  query: string
+}
+
+// Same charset as the md-emoji parser (GitHub names: letters, digits,
+// underscore, hyphen, signs).
+const TOKEN_RE = /:[A-Za-z0-9_+-]*:?/g
+
+/** Find the `:shortcode`/`:shortcode:` token the cursor is touching, if any.
+ *  `col` is the cursor's column within `lineText`. The cursor counts as
+ *  touching from just after the opening `:` through just after the closing
+ *  `:` — so Cmd-E on a half-typed `:smi`, inside a typo'd `:zmile:`, or right
+ *  behind a valid `:smile:` all seed the picker with the token text and let
+ *  the pick REPLACE the whole token. Returns null for a bare/empty `:`. */
+export function shortcodeTokenAt(lineText: string, col: number): ShortcodeToken | null {
+  TOKEN_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = TOKEN_RE.exec(lineText))) {
+    const start = m.index
+    const end = start + m[0].length
+    if (start >= col) break
+    if (col <= end) {
+      const closed = m[0].length > 1 && m[0].endsWith(':')
+      const query = m[0].slice(1, closed ? -1 : undefined)
+      return query ? { start, end, query } : null
+    }
+  }
+  return null
+}

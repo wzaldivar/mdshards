@@ -18,6 +18,7 @@ import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ix
 import { yCollab } from 'y-codemirror.next'
 import { catppuccinHighlight } from '../lib/cm-highlight'
 import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
+import { shortcodeTokenAt } from '../lib/emoji'
 import { EmojiShortcode } from '../lib/md-emoji'
 import { Highlight } from '../lib/md-highlight'
 import { markdownLive } from '../lib/markdown-live'
@@ -37,11 +38,16 @@ const DOC_DELETED_CODE = 4001
 const DOC_MOVED_CODE = 4002
 
 /** Imperative surface EditorView reaches through to touch the live buffer —
- *  currently just cursor-point insertion for the emoji picker. Populated on
- *  mount, nulled on teardown. */
+ *  the emoji picker's context probe + insertion. Populated on mount, nulled
+ *  on teardown. */
 export interface EditorApi {
-  /** Insert `text` at the cursor (replacing any selection) and refocus. */
-  insertText: (text: string) => void
+  /** The `:shortcode` token the cursor is touching, colons stripped — the
+   *  picker's seed query — or null when the cursor isn't on one. */
+  emojiQueryAtCursor: () => string | null
+  /** Write `:name:` into the buffer: replaces the whole shortcode token the
+   *  cursor touches (half-typed `:smi`, typo'd `:zmile:`, or a valid one
+   *  being swapped), else inserts at the cursor. Refocuses the editor. */
+  insertShortcode: (name: string) => void
 }
 
 interface Props {
@@ -351,10 +357,26 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Props) {
       })
       syncVimStatus()
       if (apiRef) {
+        // Both calls scan at CALL time relative to the current cursor —
+        // the modal keeps the editor blurred (selection frozen), so the
+        // token found on open is the one replaced on pick even if remote
+        // CRDT edits shifted absolute positions meanwhile.
+        const tokenAtCursor = () => {
+          if (!view) return null
+          const head = view.state.selection.main.head
+          const line = view.state.doc.lineAt(head)
+          const token = shortcodeTokenAt(line.text, head - line.from)
+          return token ? { ...token, from: line.from + token.start, to: line.from + token.end } : null
+        }
         apiRef.current = {
-          insertText: (text: string) => {
+          emojiQueryAtCursor: () => tokenAtCursor()?.query ?? null,
+          insertShortcode: (name: string) => {
             if (!view || readOnly) return
-            const { from, to } = view.state.selection.main
+            const text = `:${name}:`
+            const token = tokenAtCursor()
+            const sel = view.state.selection.main
+            const from = token ? token.from : sel.from
+            const to = token ? token.to : sel.to
             view.dispatch({
               changes: { from, to, insert: text },
               selection: { anchor: from + text.length },
