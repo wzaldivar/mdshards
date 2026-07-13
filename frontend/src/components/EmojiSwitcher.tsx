@@ -116,8 +116,10 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
   if (!open) return null
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={query}
@@ -137,10 +139,15 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Props) {
                 key={entry.names[0]}
                 // Keep the keyboard selection visible when the list scrolls.
                 ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-                onClick={() => pick(i)}
               >
-                {entry.emoji} :{entry.names[0]}:
+                <button
+                  type="button"
+                  className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+                  tabIndex={-1}
+                  onClick={() => pick(i)}
+                >
+                  {entry.emoji} :{entry.names[0]}:
+                </button>
               </li>
             ))
           )}

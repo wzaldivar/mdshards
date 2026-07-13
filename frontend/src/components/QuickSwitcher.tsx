@@ -193,8 +193,12 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
 
   const trimmed = query.trim()
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Click-outside-to-close catcher. A native <button> (not a div with
+          onClick) keeps it accessible without per-element key handlers;
+          tabIndex=-1 keeps keyboard focus in the input. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={query}
@@ -213,10 +217,17 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
               // the ref fires as the item becomes selected; 'nearest' makes
               // it a no-op while it's already in view.
               ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-              className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-              onClick={() => selectAndCommit(i)}
             >
-              {displayPath(p)}
+              {/* Native <button> so the clickable row needs no ARIA role or
+                  key handler; arrow-key nav stays on the input (tabIndex=-1). */}
+              <button
+                type="button"
+                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+                tabIndex={-1}
+                onClick={() => selectAndCommit(i)}
+              >
+                {displayPath(p)}
+              </button>
             </li>
           ))}
           {trimmed && !hasExactMatch && (

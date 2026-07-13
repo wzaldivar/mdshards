@@ -176,8 +176,10 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
   if (!open) return null
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={query}
@@ -200,14 +202,19 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
                 // the ref fires as the item becomes selected; 'nearest' makes
                 // it a no-op while it's already in view.
                 ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                className={classes.join(' ')}
-                onClick={() => selectAndConfirm(i)}
               >
-                {confirming === entry.target ? (
-                  <span>Confirm delete: {entry.label} (Enter)</span>
-                ) : (
-                  <span>{entry.label}</span>
-                )}
+                <button
+                  type="button"
+                  className={classes.join(' ')}
+                  tabIndex={-1}
+                  onClick={() => selectAndConfirm(i)}
+                >
+                  {confirming === entry.target ? (
+                    <span>Confirm delete: {entry.label} (Enter)</span>
+                  ) : (
+                    <span>{entry.label}</span>
+                  )}
+                </button>
               </li>
             )
           })}

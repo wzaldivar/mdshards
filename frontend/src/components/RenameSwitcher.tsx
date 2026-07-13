@@ -100,8 +100,10 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
   if (!open) return null
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.backdrop}>
+      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal}>
         <input
           ref={inputRef}
           value={target}

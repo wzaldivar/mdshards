@@ -106,13 +106,10 @@ export function OptionsPanel({ open, onClose }: Props) {
   }
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div
-        className={styles.modal}
-        role="dialog"
-        aria-label="Editor options"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className={styles.backdrop}>
+      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
+      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className={styles.modal} role="dialog" aria-label="Editor options">
         <div className={styles.header}>Editor options</div>
         <ul className={styles.list}>
           {ROWS.map((row) => {
