@@ -69,7 +69,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 
 **Out of scope (will not be added)**
 
-- Nothing in this category yet — every "missing" extended-syntax item above is a candidate, just unscheduled.
+- In-buffer emoji autocompletion (a GitHub/Slack-style popup while typing `:smi…`). Deliberate: the `Cmd/Ctrl-E` picker exists precisely so the editor never interrupts typing with completion UI. Type the shortcode blind or use the picker.
 
 ### Project-specific syntax (beyond CommonMark/GFM)
 
