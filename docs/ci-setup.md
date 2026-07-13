@@ -72,6 +72,18 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t wzaldivar/mdshards:1.0.0 -t wzaldivar/mdshards:latest --push .
 ```
 
+### Docker Hub page description
+
+The release workflow also syncs the Docker Hub repository overview from
+`docs/dockerhub-overview.md` (and sets the short description) on each publish,
+using the same `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets. This step is
+**non-fatal** — Docker Hub's description API historically requires the account
+*password* rather than an access token, so if it returns 401 the image publish
+still succeeds. If you hit that, add a `DOCKERHUB_DESCRIPTION_TOKEN` secret set
+to your account password (the workflow prefers it over `DOCKERHUB_TOKEN` for
+this step only), or just paste `docs/dockerhub-overview.md` into the page by
+hand.
+
 ## Badges
 
 The README badges resolve automatically once each service is linked; before
