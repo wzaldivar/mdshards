@@ -176,3 +176,10 @@ TLS-terminating proxy just works) — make sure the proxy forwards the browser's
 (cd backend && pytest)                # backend (FastAPI + pytest)
 npm --prefix frontend run test        # frontend (Vitest)
 ```
+
+## License
+
+[MIT](./LICENSE). Dependencies are all permissive (MIT / BSD / Apache-2.0 / ISC)
+or weak-copyleft that imposes no obligation on this code (MPL-2.0 files consumed
+unmodified; the one shipped in the frontend bundle, DOMPurify, is taken under
+its Apache-2.0 option).
