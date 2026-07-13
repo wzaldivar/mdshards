@@ -1,4 +1,4 @@
-# <img src="frontend/public/favicon.svg" alt="" width="30" height="30" align="top"> mdshards
+# <img src="docs/logo.svg" alt="" width="30" height="30" align="top"> mdshards
 
 A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket.
 
