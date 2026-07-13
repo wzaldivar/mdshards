@@ -204,6 +204,23 @@ body {
   text-underline-offset: 2px;
   cursor: pointer;
 }
+/* Extended inline syntax (markdown-live's INLINE_CLASS_NODES). */
+.cm-md-mark {
+  /* ==highlight== — translucent so selection/caret stay visible through it. */
+  background: rgb(var(--ctp-yellow), 30%);
+  border-radius: 2px;
+}
+.cm-md-sub,
+.cm-md-sup {
+  font-size: 0.75em;
+}
+.cm-md-sub {
+  vertical-align: sub; /* H~2~O */
+}
+.cm-md-sup {
+  vertical-align: super; /* x^2^ */
+}
+
 .cm-md-h1,
 .cm-md-h2,
 .cm-md-h3,

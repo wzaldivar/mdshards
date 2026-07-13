@@ -13,11 +13,12 @@ import { getCM, vim } from '@replit/codemirror-vim'
 import { syntaxHighlighting } from '@codemirror/language'
 import { languages as codeLanguages } from '@codemirror/language-data'
 import { markdown } from '@codemirror/lang-markdown'
-import { Autolink, Strikethrough, Table, TaskList } from '@lezer/markdown'
+import { Autolink, Strikethrough, Subscript, Superscript, Table, TaskList } from '@lezer/markdown'
 import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ixora'
 import { yCollab } from 'y-codemirror.next'
 import { catppuccinHighlight } from '../lib/cm-highlight'
 import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
+import { Highlight } from '../lib/md-highlight'
 import { markdownLive } from '../lib/markdown-live'
 import { pendingRenames } from '../lib/pending-rename'
 import {
@@ -420,8 +421,9 @@ function buildView(
       keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
       // GFM-style: Table (without this, the `---` row inside a table is
       // mis-parsed as a horizontal rule and the table fragments visually),
-      // TaskList, Strikethrough, and Autolink. Plus our Wikilink inline
-      // parser for `[[…]]` syntax.
+      // TaskList, Strikethrough, and Autolink. Extended syntax: Subscript
+      // (`H~2~O`), Superscript (`x^2^`), and our own Highlight (`==text==`,
+      // lib/md-highlight.ts). Plus our Wikilink inline parser for `[[…]]`.
       //
       // `codeLanguages` enables per-language syntax highlighting inside
       // fenced code blocks (` ```python `, ` ```ts `, etc.). The
@@ -430,7 +432,7 @@ function buildView(
       // language pack only loads when a code block actually references it,
       // then the existing `catppuccinHighlight` style colours the tokens.
       markdown({
-        extensions: [Table, TaskList, Strikethrough, Autolink, Wikilink],
+        extensions: [Table, TaskList, Strikethrough, Subscript, Superscript, Highlight, Autolink, Wikilink],
         codeLanguages,
       }),
       syntaxHighlighting(catppuccinHighlight, { fallback: true }),

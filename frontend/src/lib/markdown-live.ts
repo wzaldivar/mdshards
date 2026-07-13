@@ -27,10 +27,28 @@ import {
 import { backendUrl } from './backend'
 import { parseWikilinkBody } from './wikilink'
 
-// Inline emphasis / code marks are hidden by ixora's `hideMarks()`. We still
-// own HeaderMark hiding because the strict heading-context rule means we
-// sometimes need to leave the `#` visible.
-const MARK_NODE_NAMES = new Set(['HeaderMark'])
+// Inline emphasis / code marks are hidden by ixora's `hideMarks()` (its
+// list is hardcoded to Emphasis/InlineCode/Strikethrough). We own HeaderMark
+// hiding because the strict heading-context rule means we sometimes need to
+// leave the `#` visible, and the extended-syntax marks (`==` highlight,
+// `~` subscript, `^` superscript) because ixora doesn't know them. All hide
+// cursor-aware: the raw markup reappears while the selection touches the
+// parent node.
+const MARK_NODE_NAMES = new Set([
+  'HeaderMark',
+  'HighlightMark',
+  'SubscriptMark',
+  'SuperscriptMark',
+])
+
+// Extended-syntax inline wrappers → the CSS class that renders them
+// (style.css). Applied as a mark decoration over the whole node; the
+// delimiter chars inside are hidden separately via MARK_NODE_NAMES.
+const INLINE_CLASS_NODES: Record<string, string> = {
+  Highlight: 'cm-md-mark',
+  Subscript: 'cm-md-sub',
+  Superscript: 'cm-md-sup',
+}
 
 /** Resolve a vault-relative asset reference against the note's own directory.
  *  Assets are vault helpers — refs that don't land inside the vault must not
@@ -692,6 +710,10 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
             return false
           }
         }
+      }
+      const inlineClass = INLINE_CLASS_NODES[node.name]
+      if (inlineClass) {
+        ranges.push(Decoration.mark({ class: inlineClass }).range(node.from, node.to))
       }
       if (MARK_NODE_NAMES.has(node.name)) {
         const parent = node.node.parent

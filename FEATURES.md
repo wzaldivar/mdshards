@@ -54,13 +54,13 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Task lists (`- [x]` / `- [ ]`).
 - Automatic URL linking (autolink extension).
 - Disabling auto-link by wrapping in backticks (`` `https://x.com` ``).
+- Highlight (`==text==`) — custom inline extension (`lib/md-highlight.ts`, mirrors lezer's Strikethrough rules: exactly two `=`, emphasis-style flanking); renders with a translucent yellow background, marks hidden cursor-aware.
+- Subscript (`H~2~O`) — `@lezer/markdown`'s `Subscript` extension; rendered via `vertical-align: sub`, marks hidden cursor-aware.
+- Superscript (`X^2^`) — `@lezer/markdown`'s `Superscript` extension; rendered via `vertical-align: super`, marks hidden cursor-aware.
 
 **Missing — candidates for follow-up**
 
 - Table alignment (`:---`, `:---:`, `---:`) — separator colons aren't parsed; cells default to left-aligned.
-- Highlight (`==text==`) — `@lezer/markdown` ships the extension; not wired in yet.
-- Subscript (`H~2~O`) — extension exists; not wired in.
-- Superscript (`X^2^`) — extension exists; not wired in.
 - Emoji shortcodes (`:joy:`) — `Emoji` extension exists; not wired in (does not resolve to actual emoji glyphs, only parses the syntax).
 - Footnotes (`[^1]` and `[^1]: text`) — no parser extension shipped with `@lezer/markdown`; would need a custom inline parser + a reference-style resolution pass.
 - Heading IDs (`### Title {#custom-id}`) — would need both parsing and integration with the URL/anchor system.
