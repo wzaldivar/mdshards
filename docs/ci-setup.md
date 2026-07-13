@@ -64,6 +64,13 @@ Docker Hub. Two secrets are required:
    *Actions → Release → Run workflow* with the version (e.g. `1.0.0`) — useful
    when the tag was pushed before the secrets were in place.
 
+**Immutability guardrail:** the workflow refuses to publish a `<version>` that
+already exists on Docker Hub (it queries the Hub tags API and fails the run),
+so a re-tag or re-run can't silently overwrite a released version. `:latest`
+always moves to the build, and a *deliberate* overwrite is possible via *Run
+workflow* with `allow_overwrite = true`. The check fails open if Hub's API is
+unreachable — it's a convenience rail, not a security control.
+
 Local alternative (no CI):
 
 ```sh

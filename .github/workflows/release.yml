@@ -18,6 +18,10 @@ on:
       version:
         description: "Version to publish, e.g. 1.0.0"
         required: true
+      allow_overwrite:
+        description: "Overwrite the version tag if it already exists on Docker Hub"
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -38,6 +42,24 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [ -n "$TOKEN" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"
           else echo "enabled=false" >> "$GITHUB_OUTPUT"; echo "::notice::DOCKERHUB_TOKEN not set — skipping Docker Hub publish of $VERSION"; fi
+
+      # Immutability guard: refuse to overwrite a version already on Docker Hub.
+      # `:latest` and deliberate re-runs (Run workflow with allow_overwrite=true)
+      # are the only intended overwrites. Fail-OPEN if Hub's API is unreachable
+      # — this is a convenience rail, not a security control, so a metadata
+      # blip shouldn't block a release.
+      - name: Refuse to overwrite an existing version
+        if: steps.meta.outputs.enabled == 'true' && !inputs.allow_overwrite
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://hub.docker.com/v2/repositories/wzaldivar/mdshards/tags/${VERSION}" || echo 000)
+          if [ "$code" = "200" ]; then
+            echo "::error::wzaldivar/mdshards:${VERSION} already exists on Docker Hub. Published versions are immutable — bump to a new version instead. To overwrite on purpose, re-run via Actions → Release → Run workflow with allow_overwrite = true."
+            exit 1
+          fi
+          echo "Version ${VERSION} is not on Docker Hub yet (HTTP ${code}) — proceeding."
 
       - if: steps.meta.outputs.enabled == 'true'
         uses: docker/setup-qemu-action@v3
