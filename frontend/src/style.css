@@ -204,6 +204,15 @@ body {
   text-underline-offset: 2px;
   cursor: pointer;
 }
+/* Emoji glyphs render slightly larger than the text (tuned by eye: 1.2rem
+   keeps a good relation with the 1rem body). */
+.cm-md-emoji {
+  font-size: 1.2rem;
+  /* Keep the taller glyph from inflating the line box. */
+  line-height: 1;
+  vertical-align: text-bottom;
+}
+
 /* Extended inline syntax (markdown-live's INLINE_CLASS_NODES). */
 .cm-md-mark {
   /* ==highlight== — translucent so selection/caret stay visible through it. */

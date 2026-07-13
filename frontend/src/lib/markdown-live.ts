@@ -68,6 +68,7 @@ class EmojiWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const span = document.createElement('span')
+    span.className = 'cm-md-emoji'
     span.textContent = this.glyph
     return span
   }
