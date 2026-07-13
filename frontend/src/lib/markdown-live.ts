@@ -777,7 +777,14 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
         }
         const glyph = map[doc.sliceString(node.from + 1, node.to - 1)]
         if (glyph) {
-          pushAtomic(
+          // Deliberately NOT atomic: cursor movement is character-wise, so
+          // ArrowLeft from `:smile:|` steps INSIDE to `:smile|:` (the move
+          // makes the token "touched", the rebuild reveals it raw) instead
+          // of leaping the whole token — which stranded the cursor at
+          // `|:emoji1:` when two shortcodes sat back to back. The moment the
+          // cursor lands in the range the widget is gone, so the usual
+          // "cursor inside a replaced range" pitfalls don't apply.
+          ranges.push(
             Decoration.replace({ widget: new EmojiWidget(glyph) }).range(node.from, node.to),
           )
         }
