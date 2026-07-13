@@ -1,5 +1,4 @@
 from functools import lru_cache
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -81,20 +80,15 @@ def page_or_asset(full_path: str, request: Request):
 
     # `.md` URL whose doc-id form has no `<vault>/X.md.md` on disk. Per the
     # md-wins rule, the literal `<vault>/X.md` (if it exists) is itself a
-    # markdown note with doc-id `X-without-.md`. Redirect the SPA to that
-    # canonical URL — the next request lands in the md branch above.
+    # markdown note with doc-id `X-without-.md`. Hand the browser the SPA
+    # shell and let it canonicalize to `/X` client-side via `/api/resolve`'s
+    # `canonical` field (`useResolve` does a `replace`-navigate). Doing this
+    # in the SPA rather than a server 302 keeps user-controlled request data
+    # out of any redirect `Location`. The branch itself is still required so
+    # a `.md` URL never falls through to asset resolution below — that would
+    # serve the raw bytes of a literal `X.md` note and violate md-wins.
     if stripped.endswith(".md"):
-        canonical = stripped[:-3]
-        target = f"/{canonical}" if canonical else "/"
-        # `stripped` is already vault-validated by `resolve_md` above (no
-        # backslashes/`..`, and leading slashes stripped, so `target` can't
-        # become a protocol-relative `//host` or carry a scheme). Assert that
-        # same-origin invariant at the sink so the redirect can never leave
-        # the origin — an explicit open-redirect guard, not a real gap.
-        split = urlsplit(target)
-        if split.scheme or split.netloc:
-            raise HTTPException(400, detail="illegal redirect target")
-        return RedirectResponse(url=target, status_code=302)
+        return HTMLResponse(_spa_shell())
 
     try:
         asset_path = resolve_asset(stripped, settings.vault_dir)
