@@ -38,14 +38,17 @@ export function EmojiSwitcher({ open, onPick, onClose }: Props) {
   const matches = useMemo(() => {
     if (!entries) return []
     const q = query.trim().toLowerCase()
-    if (!q) return entries.slice(0, 50)
+    // No display cap, unlike the file switchers: an emoji picker is also a
+    // BROWSING tool — the whole dataset stays reachable by arrows/scrolling
+    // even with an empty query. ~2k plain rows render fine.
+    if (!q) return entries
     const nameHit = (e: GemojiEntry) => e.names.some((n) => n.includes(q))
     const descHit = (e: GemojiEntry) => e.description.toLowerCase().includes(q)
     // Names outrank descriptions; exact name outranks both.
     const exact = entries.filter((e) => e.names.includes(q))
     const byName = entries.filter((e) => !e.names.includes(q) && nameHit(e))
     const byDesc = entries.filter((e) => !nameHit(e) && descHit(e))
-    return [...exact, ...byName, ...byDesc].slice(0, 50)
+    return [...exact, ...byName, ...byDesc]
   }, [entries, query])
 
   useEffect(() => {
