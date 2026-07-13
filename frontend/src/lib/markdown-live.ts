@@ -265,66 +265,49 @@ type CellRun =
  *  contribute nothing — they're the `**`/`*`/``/`~~` delimiters. Wrapper
  *  nodes recurse so nested emphasis works. Implicit text (the gaps between
  *  explicit nodes) is emitted as plain `text` runs. */
+// Marker nodes contribute no run — they're the `**`/`*`/`` ` ``/`~~`/`[` `]`
+// delimiters, whose source chars are skipped.
+const INLINE_MARKER_NAMES = new Set(['EmphasisMark', 'CodeMark', 'StrikethroughMark', 'LinkMark'])
+
+/** Text of an InlineCode node between its boundary CodeMark delimiters. */
+function inlineCodeText(node: SyntaxNode, doc: Text): string {
+  let textFrom = node.from
+  let textTo = node.to
+  for (let m = node.firstChild; m; m = m.nextSibling) {
+    if (m.name === 'CodeMark') {
+      if (m.from === node.from) textFrom = m.to
+      if (m.to === node.to) textTo = m.from
+    }
+  }
+  return doc.sliceString(textFrom, textTo)
+}
+
+/** Build the run for a single non-marker child node. Wrapper nodes recurse. */
+function childRun(child: SyntaxNode, doc: Text): CellRun {
+  const inner = (): CellRun[] => parseInlineRuns(child.from, child.to, child, doc)
+  if (child.name === 'StrongEmphasis') return { k: 'bold', runs: inner() }
+  if (child.name === 'Emphasis') return { k: 'italic', runs: inner() }
+  if (child.name === 'Strikethrough') return { k: 'strike', runs: inner() }
+  if (child.name === 'InlineCode') return { k: 'code', text: inlineCodeText(child, doc) }
+  // `\X` — drop the backslash, keep the escaped character.
+  if (child.name === 'Escape') return { k: 'text', text: doc.sliceString(child.from + 1, child.to) }
+  // Anything we don't handle (Link, Image, etc.) — emit the raw text.
+  return { k: 'text', text: doc.sliceString(child.from, child.to) }
+}
+
 function parseInlineRuns(from: number, to: number, parent: SyntaxNode, doc: Text): CellRun[] {
   const runs: CellRun[] = []
   let cursor = from
+  const emitGap = (until: number): void => {
+    if (until > cursor) runs.push({ k: 'text', text: doc.sliceString(cursor, until) })
+  }
   for (let child = parent.firstChild; child; child = child.nextSibling) {
     if (child.to <= from || child.from >= to) continue
-    // Markers — skip the source chars without emitting any run.
-    if (
-      child.name === 'EmphasisMark' ||
-      child.name === 'CodeMark' ||
-      child.name === 'StrikethroughMark' ||
-      child.name === 'LinkMark'
-    ) {
-      if (child.from > cursor) {
-        runs.push({ k: 'text', text: doc.sliceString(cursor, child.from) })
-      }
-      cursor = child.to
-      continue
-    }
-    if (child.from > cursor) {
-      runs.push({ k: 'text', text: doc.sliceString(cursor, child.from) })
-    }
-    switch (child.name) {
-      case 'StrongEmphasis':
-        runs.push({ k: 'bold', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'Emphasis':
-        runs.push({ k: 'italic', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'Strikethrough':
-        runs.push({ k: 'strike', runs: parseInlineRuns(child.from, child.to, child, doc) })
-        break
-      case 'InlineCode': {
-        // Code spans have CodeMark children at the boundaries; the text
-        // between them is what we want.
-        let textFrom = child.from
-        let textTo = child.to
-        for (let m = child.firstChild; m; m = m.nextSibling) {
-          if (m.name === 'CodeMark') {
-            if (m.from === child.from) textFrom = m.to
-            if (m.to === child.to) textTo = m.from
-          }
-        }
-        runs.push({ k: 'code', text: doc.sliceString(textFrom, textTo) })
-        break
-      }
-      case 'Escape':
-        // `\X` — drop the backslash, keep the escaped character.
-        runs.push({ k: 'text', text: doc.sliceString(child.from + 1, child.to) })
-        break
-      default:
-        // Anything we don't handle (Link, Image, etc.) — emit the raw text
-        // and don't descend. Tighten later as needed.
-        runs.push({ k: 'text', text: doc.sliceString(child.from, child.to) })
-        break
-    }
+    emitGap(child.from)
+    if (!INLINE_MARKER_NAMES.has(child.name)) runs.push(childRun(child, doc))
     cursor = child.to
   }
-  if (cursor < to) {
-    runs.push({ k: 'text', text: doc.sliceString(cursor, to) })
-  }
+  emitGap(to)
   return runs
 }
 
