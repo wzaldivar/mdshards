@@ -144,12 +144,11 @@ class DocumentManager:
                 # but keep the live Doc unchanged.
                 self._write_conflict_file(disk_path, disk_content)
         else:
-            # Fresh doc: bind the root Text and seed it from disk. (In the
-            # cache branch apply_update reconstructs the root, so the bind
-            # only belongs here — no need to hold it "from the beginning".)
-            text = doc.get(TEXT_KEY, type=Text)
+            # Fresh doc: seed the root Text from disk in place. No local — the
+            # point is the side-effecting mutation of the shared type, not a
+            # value we reuse (an intermediate `text` var reads as a dead store).
             if disk_content:
-                text += disk_content
+                doc.get(TEXT_KEY, type=Text).insert(0, disk_content)
             authoritative = disk_content
 
         state = _DocState(doc=doc, disk_path=disk_path, last_disk_content=authoritative)
