@@ -20,6 +20,7 @@ from pycrdt import (
 
 from .config import get_settings
 from .docs import DOC_DELETED_CODE, DOC_MOVED_CODE, DocumentManager, KickSignal
+from .files import ensure_index_exists
 from .vault import VaultPathError, resolve_md
 
 router = APIRouter()
@@ -59,9 +60,16 @@ async def ws_endpoint(ws: WebSocket, doc_id: str) -> None:
     # empty Doc on the server, and resurrect the deleted file on the next
     # flush. Refuse with the same code the live-kick path uses so the
     # frontend's existing close-code handler navigates the tab to root.
+    #
+    # The root index is the exception: it regenerates from its template
+    # whenever it's missing — always, in every deployment mode — so a WS
+    # for it materializes the file instead of kicking the client.
     if not disk_path.exists():
-        await ws.close(code=DOC_DELETED_CODE, reason="deleted")
-        return
+        if disk_path == (settings.vault_dir / "index.md").resolve():
+            ensure_index_exists(settings.vault_dir)
+        else:
+            await ws.close(code=DOC_DELETED_CODE, reason="deleted")
+            return
 
     await ws.accept()
     manager: DocumentManager = ws.app.state.doc_manager

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..config import get_settings
+from ..files import ensure_index_exists
 from ..vault import VaultPathError, resolve_asset, resolve_md
 
 router = APIRouter(prefix="/api")
@@ -28,6 +29,12 @@ def _resolve(stripped: str, vault_root: Path) -> ResolveResponse:
     """Apply the md-wins resolution rule, recursing into the canonical form
     when a `.md` URL doesn't have a matching `<X>.md.md` on disk."""
     if stripped in ("", "index"):
+        # The root index regenerates from its template whenever it's missing
+        # on disk — ALWAYS, not just in the deployment mode where the backend
+        # serves the SPA shell. Resolve is the one call every navigation to
+        # `/` makes regardless of who served the shell (dev server, vite
+        # preview, nginx, static host), so the guarantee lives here too.
+        ensure_index_exists(vault_root)
         return ResolveResponse(type="md", canonical="")
 
     try:

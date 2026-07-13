@@ -646,3 +646,18 @@ def test_resolve_allows_spaces(client) -> None:
     r = c.get("/api/resolve/with space")
     assert r.status_code == 200
     assert r.json() == {"type": "md", "canonical": "with space"}
+
+
+def test_resolve_root_regenerates_missing_index(client) -> None:
+    """/api/resolve is the one call every navigation to `/` makes regardless
+    of who served the SPA shell (dev server, preview, nginx, static host) —
+    a missing index.md must rematerialize there, not only on mode 1's
+    document route."""
+    c, vault = client
+    index = vault / "index.md"
+    if index.exists():
+        index.unlink()
+    r = c.get("/api/resolve")
+    assert r.json() == {"type": "md", "canonical": ""}
+    assert index.exists()
+    assert "Welcome to mdshards" in index.read_text()

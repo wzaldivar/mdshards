@@ -141,3 +141,18 @@ def test_disk_persisted_after_ws_disconnect(client) -> None:
     # WS closed; eviction scheduled at 0.1s; allow time for flush.
     time.sleep(0.6)
     assert (vault / "note.md").read_text() == "persisted via ws"
+
+
+def test_ws_regenerates_missing_index(client) -> None:
+    """The root index regenerates from its template whenever it's missing —
+    in EVERY deployment mode, so the WS chokepoint (which every editor
+    session passes through) materializes it instead of kicking the client
+    with DOC_DELETED."""
+    c, vault = client
+    index = vault / "index.md"
+    if index.exists():
+        index.unlink()
+    with c.websocket_connect("/ws/", headers={"origin": "http://testserver"}) as ws:
+        ws.receive_bytes()  # server's SYNC_STEP1 — connection accepted, not kicked
+    assert index.exists()
+    assert "Welcome to mdshards" in index.read_text()
