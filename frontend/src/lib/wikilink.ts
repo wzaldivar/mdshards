@@ -13,12 +13,29 @@
  * rest of the paragraph.
  */
 
-import type { InlineParser, MarkdownConfig } from '@lezer/markdown'
+import type { InlineContext, InlineParser, MarkdownConfig } from '@lezer/markdown'
 
 const OPEN_BRACKET = 91 // [
 const CLOSE_BRACKET = 93 // ]
 const PIPE = 124 // |
 const NEWLINE = 10
+
+/** Scan from just past the opening `[[` for the closing `]]`, tracking the
+ *  first `|`. Returns the closing-bracket offset and pipe offset (-1 if none),
+ *  or null if the run is malformed (newline, nested `[[`, or no close). Split
+ *  out of `parse` to keep that function's cognitive complexity in check. */
+function scanToClose(cx: InlineContext, start: number): { closeAt: number; pipeAt: number } | null {
+  let pipeAt = -1
+  for (let scan = start; scan < cx.end; scan++) {
+    const c = cx.char(scan)
+    if (c === NEWLINE) return null
+    // Reject nested `[[` so `[[ a [[ b ]] ]]` doesn't grab the whole span.
+    if (c === OPEN_BRACKET && cx.char(scan + 1) === OPEN_BRACKET) return null
+    if (c === CLOSE_BRACKET && cx.char(scan + 1) === CLOSE_BRACKET) return { closeAt: scan, pipeAt }
+    if (c === PIPE && pipeAt === -1) pipeAt = scan
+  }
+  return null
+}
 
 const WikilinkInline: InlineParser = {
   name: 'Wikilink',
@@ -29,26 +46,12 @@ const WikilinkInline: InlineParser = {
     if (next !== OPEN_BRACKET) return -1
     if (cx.char(pos + 1) !== OPEN_BRACKET) return -1
 
-    let scan = pos + 2
-    let sawPipe = false
-    let pipeAt = -1
-    while (scan < cx.end) {
-      const c = cx.char(scan)
-      if (c === NEWLINE) return -1
-      // Reject nested `[[` so `[[ a [[ b ]] ]]` doesn't grab the whole span.
-      if (c === OPEN_BRACKET && cx.char(scan + 1) === OPEN_BRACKET) return -1
-      if (c === CLOSE_BRACKET && cx.char(scan + 1) === CLOSE_BRACKET) break
-      if (c === PIPE && !sawPipe) {
-        sawPipe = true
-        pipeAt = scan
-      }
-      scan++
-    }
-    if (scan >= cx.end) return -1
-    const end = scan + 2 // past the closing ]]
+    const scan = scanToClose(cx, pos + 2)
+    if (!scan) return -1
+    const end = scan.closeAt + 2 // past the closing ]]
 
     // Reject empty target — `[[]]` and `[[|alias]]` are noise, not a link.
-    const targetEnd = sawPipe ? pipeAt : scan
+    const targetEnd = scan.pipeAt !== -1 ? scan.pipeAt : scan.closeAt
     if (targetEnd - (pos + 2) === 0) return -1
 
     return cx.addElement(cx.elt('Wikilink', pos, end))

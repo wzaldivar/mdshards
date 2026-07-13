@@ -73,6 +73,57 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Rea
     setCollidingPath(null)
   }
 
+  // md SOURCE → POST /api/files. On disk it's always `.md`; if the user
+  // re-extensioned the target (e.g. `foo.md` typed as `foo.jpeg`) the doc-id
+  // is `foo.jpeg` and the disk file `foo.jpeg.md` — md-wins serves it from
+  // `/foo.jpeg`. A second Enter on the same colliding path = overwrite.
+  async function submitMarkdown(resolved: string, f: File): Promise<void> {
+    const docPath = resolved.toLowerCase().endsWith('.md') ? resolved.slice(0, -3) : resolved
+    const r = await fetch(backendUrl('/api/files'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: docPath,
+        content: await f.text(),
+        overwrite: collidingPath === resolved,
+      }),
+    })
+    if (r.ok) {
+      onClose()
+      navigate('/' + encodePathToUrl(docPath))
+    } else if (r.status === 409) {
+      // Existing note: same accept-or-rename prompt as assets. On disk it
+      // stays lowercase `.md` regardless of the source file's casing.
+      setCollidingPath(resolved)
+      setError(`note "${docPath}" already exists — press Enter again to overwrite it, or edit the path`)
+    } else {
+      setError(`upload failed: ${r.status} ${await r.text()}`)
+    }
+  }
+
+  // non-md SOURCE → POST /api/assets. The target keeps whatever extension the
+  // user typed; the backend stores the bytes literally.
+  async function submitAsset(resolved: string, f: File): Promise<void> {
+    const fd = new FormData()
+    fd.append('path', resolved)
+    fd.append('file', f, f.name)
+    if (collidingPath === resolved) fd.append('overwrite', 'true')
+    const r = await fetch(backendUrl('/api/assets'), { method: 'POST', body: fd })
+    if (r.ok) {
+      onClose()
+      // Auto-navigate only when the asset's URL shows something — media or an
+      // iframe-renderable document. Anything else (.zip, .tar…) would just
+      // bounce back as a download (blank page inside the sandbox), so stay put.
+      if (isViewableAsset(resolved)) navigate('/' + encodePathToUrl(resolved))
+    } else if (r.status === 409) {
+      // Collision: require acceptance or renaming, never silent replace.
+      setCollidingPath(resolved)
+      setError(`"${resolved}" already exists — press Enter again to overwrite it, or edit the path`)
+    } else {
+      setError(`upload failed: ${r.status} ${await r.text()}`)
+    }
+  }
+
   async function commit(): Promise<void> {
     if (!file) {
       setError('pick a file first')
@@ -88,75 +139,11 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Rea
       setError(reason)
       return
     }
-    // Dispatch is by SOURCE file type, not by target extension:
-    //   - md source → POST /api/files. On disk: always `.md`. If the user
-    //     re-extensioned the target (e.g. `foo.md` upload typed as
-    //     `foo.jpeg`), the doc-id is `foo.jpeg` and the disk file is
-    //     `foo.jpeg.md` — the md-wins routing rule serves it back from
-    //     URL `/foo.jpeg`.
-    //   - non-md source → POST /api/assets. The target keeps whatever
-    //     extension the user typed; backend stores the bytes literally.
-    const sourceIsMd = file.name.toLowerCase().endsWith('.md')
+    // Dispatch is by SOURCE file type, not by target extension.
     setBusy(true)
     try {
-      let r: Response
-      if (sourceIsMd) {
-        const docPath = resolved.toLowerCase().endsWith('.md')
-          ? resolved.slice(0, -3)
-          : resolved
-        const text = await file.text()
-        r = await fetch(backendUrl('/api/files'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: docPath,
-            content: text,
-            // Second Enter on the same colliding path = explicit acceptance.
-            overwrite: collidingPath === resolved,
-          }),
-        })
-        if (r.ok) {
-          onClose()
-          navigate('/' + encodePathToUrl(docPath))
-          return
-        }
-        if (r.status === 409) {
-          // Existing note: same accept-or-rename prompt as assets. The
-          // note on disk stays lowercase `.md` regardless of the source
-          // file's extension casing.
-          setCollidingPath(resolved)
-          setError(
-            `note "${docPath}" already exists — press Enter again to overwrite it, or edit the path`,
-          )
-          return
-        }
-      } else {
-        const fd = new FormData()
-        fd.append('path', resolved)
-        fd.append('file', file, file.name)
-        // Second Enter on the same colliding path = explicit acceptance.
-        if (collidingPath === resolved) fd.append('overwrite', 'true')
-        r = await fetch(backendUrl('/api/assets'), { method: 'POST', body: fd })
-        if (r.ok) {
-          onClose()
-          // Auto-navigate only when the asset's URL shows something — media
-          // or an iframe-renderable document. For anything else (.zip, .tar…)
-          // the URL would just bounce the upload back as a download (blocked
-          // inside the sandboxed iframe = blank page), so stay put.
-          if (isViewableAsset(resolved)) {
-            navigate('/' + encodePathToUrl(resolved))
-          }
-          return
-        }
-        if (r.status === 409) {
-          // Collision: require acceptance or renaming, never silent replace.
-          setCollidingPath(resolved)
-          setError(`"${resolved}" already exists — press Enter again to overwrite it, or edit the path`)
-          return
-        }
-      }
-      const detail = await r.text()
-      setError(`upload failed: ${r.status} ${detail}`)
+      if (file.name.toLowerCase().endsWith('.md')) await submitMarkdown(resolved, file)
+      else await submitAsset(resolved, file)
     } catch (e) {
       setError((e as Error).message)
     } finally {
