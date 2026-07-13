@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, fix/sonar-s5146-open-redirect]
+    # `sonar-issues` is a long-lived scratch branch for running the full CI +
+    # SonarCloud scan on demand without opening a PR — push work there anytime.
+    branches: [main, sonar-issues]
   pull_request:
 
 jobs:
