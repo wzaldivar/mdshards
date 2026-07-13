@@ -80,7 +80,9 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
     const queryIsCurrentFile = query.trim() === currentTarget
     if (currentTarget !== 'index' && !queryIsCurrentFile) list.push('index')
     list.push(...others)
-    return list.slice(0, 50)
+    // No display cap — the whole vault stays reachable by arrows/scrolling
+    // even with an empty query (same reasoning as the emoji picker).
+    return list
   }, [query, allPaths, currentDocId])
 
   // Move the highlight to the first BEST match as the user types (exact
@@ -102,9 +104,9 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Props) {
   }, [query, matches])
 
   // Existence must be checked against EVERY vault file, not the displayed
-  // list — `matches` hides the currently-open file (and truncates at 50), so
-  // a display-based check would offer Shift-Enter "create" for paths that
-  // already exist and 409 on confirm (e.g. typing `hello` while on /hello).
+  // list — `matches` hides the currently-open file, so a display-based check
+  // would offer Shift-Enter "create" for paths that already exist and 409 on
+  // confirm (e.g. typing `hello` while on /hello).
   const allUrls = useMemo(() => allPaths.map(diskPathToUrl), [allPaths])
 
   const hasExactMatch = useMemo(() => {

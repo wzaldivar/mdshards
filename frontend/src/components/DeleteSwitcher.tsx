@@ -78,7 +78,8 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Pro
       if (q && !url.toLowerCase().includes(q)) continue
       list.push({ label: url, target: url, isMd })
     }
-    return list.slice(0, 50)
+    // No display cap — every vault file stays reachable by arrows/scrolling.
+    return list
   }, [query, allFiles, currentDocId, currentIsMd])
 
   // Withdraw an in-progress confirmation when the query moves — but ONLY
