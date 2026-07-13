@@ -204,10 +204,11 @@ body {
   text-underline-offset: 2px;
   cursor: pointer;
 }
-/* Emoji glyphs render slightly larger than the text (tuned by eye: 1.2rem
-   keeps a good relation with the 1rem body). */
+/* Emoji glyphs render slightly larger than their SURROUNDING text — `em`,
+   not `rem`, so the 1.2× relation holds in every context: body text gets a
+   1.2× glyph, an H1 gets a 1.2× -of-the-heading glyph. Tuned by eye. */
 .cm-md-emoji {
-  font-size: 1.2rem;
+  font-size: 1.2em;
   /* Keep the taller glyph from inflating the line box. */
   line-height: 1;
   vertical-align: text-bottom;
