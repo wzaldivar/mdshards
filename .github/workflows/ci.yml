@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/sonar-s5146-open-redirect]
   pull_request:
 
 jobs:

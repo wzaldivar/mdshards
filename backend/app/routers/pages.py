@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -84,7 +85,16 @@ def page_or_asset(full_path: str, request: Request):
     # canonical URL — the next request lands in the md branch above.
     if stripped.endswith(".md"):
         canonical = stripped[:-3]
-        return RedirectResponse(url=f"/{canonical}" if canonical else "/", status_code=302)
+        target = f"/{canonical}" if canonical else "/"
+        # `stripped` is already vault-validated by `resolve_md` above (no
+        # backslashes/`..`, and leading slashes stripped, so `target` can't
+        # become a protocol-relative `//host` or carry a scheme). Assert that
+        # same-origin invariant at the sink so the redirect can never leave
+        # the origin — an explicit open-redirect guard, not a real gap.
+        split = urlsplit(target)
+        if split.scheme or split.netloc:
+            raise HTTPException(400, detail="illegal redirect target")
+        return RedirectResponse(url=target, status_code=302)
 
     try:
         asset_path = resolve_asset(stripped, settings.vault_dir)
