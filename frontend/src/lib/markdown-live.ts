@@ -761,9 +761,15 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
         ranges.push(Decoration.mark({ class: inlineClass }).range(node.from, node.to))
       }
       // Replace a known `:shortcode:` with its glyph when the cursor is
-      // elsewhere. Until the gemoji dataset arrives the shortcode stays raw;
-      // the load's completion effect triggers a rebuild.
-      if (node.name === 'Emoji' && !rangesOverlap(node.from, node.to, selFrom, selTo)) {
+      // elsewhere. "Elsewhere" follows the same touching convention as the
+      // Cmd-E token scanner (lib/emoji.ts::shortcodeTokenAt): the raw
+      // shortcode shows from `|:smile:` through `:smile|:`, while `:smile:|`
+      // — cursor just past the closed token — keeps the glyph. That boundary
+      // also makes the emoji snap in the moment the closing `:` is typed.
+      // Until the gemoji dataset arrives the shortcode stays raw; the load's
+      // completion effect triggers a rebuild.
+      const touchesEmoji = selFrom < node.to && selTo >= node.from
+      if (node.name === 'Emoji' && !touchesEmoji) {
         const map = getNameToEmoji()
         if (!map) {
           loadEmojiDataThenRefresh(view)
