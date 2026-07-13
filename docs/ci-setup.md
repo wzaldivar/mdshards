@@ -50,6 +50,28 @@ No token needed; Snyk polls the repo itself. (If you later prefer a CI-gated
 scan instead, add `snyk/actions` with a `SNYK_TOKEN` secret — not wired here
 on purpose, to keep the pipeline secret-light.)
 
+## Docker Hub release (`.github/workflows/release.yml`)
+
+Tagging `v*` (or running the workflow manually) builds the single-container
+image multi-arch and pushes `wzaldivar/mdshards:<version>` + `:latest` to
+Docker Hub. Two secrets are required:
+
+1. Create a Docker Hub **access token** (Docker Hub → Account Settings →
+   Personal access tokens), read/write scope.
+2. Add repo secrets `DOCKERHUB_USERNAME` (`wzaldivar`) and `DOCKERHUB_TOKEN`
+   (the token). Until both exist the job is a green no-op.
+3. Re-publish an already-tagged version by running the **Release** workflow via
+   *Actions → Release → Run workflow* with the version (e.g. `1.0.0`) — useful
+   when the tag was pushed before the secrets were in place.
+
+Local alternative (no CI):
+
+```sh
+docker login -u wzaldivar
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t wzaldivar/mdshards:1.0.0 -t wzaldivar/mdshards:latest --push .
+```
+
 ## Badges
 
 The README badges resolve automatically once each service is linked; before
