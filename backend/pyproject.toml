@@ -9,3 +9,11 @@ select = ["E", "F", "I", "B", "UP"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["app"]
+# `app/main.py` wires the ASGI app + lifespan; exercised via TestClient but
+# uvicorn's own entry isn't unit-tested. Kept in scope — it still reports.
+
+[tool.coverage.report]
+show_missing = true

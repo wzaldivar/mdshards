@@ -104,5 +104,14 @@ export default defineConfig({
       // strict ESM rejects; inlining forces vitest to transform the package.
       deps: { inline: ['@retronav/ixora'] },
     },
+    coverage: {
+      provider: 'v8',
+      // lcov for Codecov + SonarCloud; text for the local terminal summary.
+      reporter: ['text', 'lcov'],
+      reportsDirectory: 'coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      // Test files, type-only decls, and the app entry (untestable bootstrap).
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+    },
   },
 })

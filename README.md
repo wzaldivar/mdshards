@@ -1,5 +1,10 @@
 # <img src="docs/logo.svg" alt="" width="30" height="30" align="top"> mdshards
 
+[![CI](https://github.com/wzaldivar/mdshards/actions/workflows/ci.yml/badge.svg)](https://github.com/wzaldivar/mdshards/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/wzaldivar/mdshards/branch/main/graph/badge.svg)](https://codecov.io/gh/wzaldivar/mdshards)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=wzaldivar_mdshards&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=wzaldivar_mdshards)
+[![Known Vulnerabilities](https://snyk.io/test/github/wzaldivar/mdshards/badge.svg)](https://snyk.io/test/github/wzaldivar/mdshards)
+
 A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket.
 
 See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory (supported, missing, out of scope) and **[CLAUDE.md](./CLAUDE.md)** for the full architectural spec and load-bearing decisions.
@@ -173,9 +178,15 @@ TLS-terminating proxy just works) — make sure the proxy forwards the browser's
 ## Tests
 
 ```sh
-(cd backend && pytest)                # backend (FastAPI + pytest)
-npm --prefix frontend run test        # frontend (Vitest)
+(cd backend && pytest)                    # backend (FastAPI + pytest)
+(cd backend && pytest --cov=app)          # …with coverage
+npm --prefix frontend run test            # frontend (Vitest)
+npm --prefix frontend run test:coverage   # …with coverage
 ```
+
+CI (GitHub Actions) runs both suites with coverage on every push and PR and
+reports to Codecov, SonarCloud, and Snyk. Linking those services is a one-time
+account step — see **[docs/ci-setup.md](./docs/ci-setup.md)**.
 
 ## License
 

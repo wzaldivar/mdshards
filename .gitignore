@@ -9,3 +9,8 @@ __pycache__
 .DS_Store
 .env
 /.docker-test-data
+
+# Coverage artifacts (generated in CI, uploaded to Codecov/SonarCloud)
+backend/.coverage
+backend/coverage.xml
+frontend/coverage/
