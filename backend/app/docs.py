@@ -162,15 +162,14 @@ class DocumentManager:
         return state
 
     async def _flush_loop(self, state: _DocState) -> None:
-        try:
-            while True:
-                await state.flush_pending.wait()
-                while state.flush_pending.is_set():
-                    state.flush_pending.clear()
-                    await asyncio.sleep(FLUSH_QUIET_SECONDS)
-                self._flush(state)
-        except asyncio.CancelledError:
-            raise
+        # Cancelled at teardown; CancelledError propagates on its own (no
+        # cleanup needed), so there's no try/except to wrap the loop in.
+        while True:
+            await state.flush_pending.wait()
+            while state.flush_pending.is_set():
+                state.flush_pending.clear()
+                await asyncio.sleep(FLUSH_QUIET_SECONDS)
+            self._flush(state)
 
     def _flush(self, state: _DocState) -> None:
         # Synchronous by design: it reads `state.doc` (pycrdt Docs are only
@@ -328,7 +327,7 @@ class DocumentManager:
             with suppress(asyncio.CancelledError):
                 await state.flush_task
         signal = KickSignal(code=code, reason=reason)
-        for q in list(state.subscribers):
+        for q in state.subscribers:
             q.put_nowait(signal)
 
     def purge(self, doc_id: str) -> None:

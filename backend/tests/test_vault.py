@@ -115,5 +115,6 @@ def test_assert_inside_rejects_symlink_at_nonexistent_ancestor(tmp_path: Path) -
 
 
 def test_assert_inside_rejects_absolute_path_outside(tmp_path: Path) -> None:
+    outside = Path("/etc/passwd")
     with pytest.raises(VaultPathError):
-        assert_inside(Path("/etc/passwd"), tmp_path)
+        assert_inside(outside, tmp_path)

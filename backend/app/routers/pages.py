@@ -46,7 +46,13 @@ def _spa_shell() -> str:
     return _PLACEHOLDER_SHELL
 
 
-@router.get("/{full_path:path}")
+@router.get(
+    "/{full_path:path}",
+    responses={
+        400: {"description": "invalid vault path"},
+        404: {"description": "asset sub-resource not found"},
+    },
+)
 def page_or_asset(full_path: str, request: Request):
     """Catch-all that hands the browser one of:
       - the SPA shell (markdown, missing, asset doc-nav, `.md` URLs), or
