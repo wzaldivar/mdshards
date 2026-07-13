@@ -18,8 +18,13 @@
   cursor: default;
 }
 .modal {
+  /* `position: relative` + margin/padding reset override the UA <dialog>
+     defaults (position: absolute; margin: auto; padding: 1em) so it lays
+     out as a normal flex child inside the backdrop, as the div did. */
   position: relative;
   z-index: 1;
+  margin: 0;
+  padding: 0;
   width: min(420px, 90vw);
   background: var(--bg-surface);
   color: var(--fg);

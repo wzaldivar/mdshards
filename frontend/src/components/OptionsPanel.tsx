@@ -109,7 +109,10 @@ export function OptionsPanel({ open, onClose }: Props) {
     <div className={styles.backdrop}>
       {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
       <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal} role="dialog" aria-label="Editor options">
+      {/* Native <dialog> (open, non-modal) instead of a div with
+          role="dialog" (S6819). Kept non-modal — the custom backdrop/scrim
+          above handles the overlay/close; `open` just makes it visible. */}
+      <dialog className={styles.modal} aria-label="Editor options" open>
         <div className={styles.header}>Editor options</div>
         <ul className={styles.list}>
           {ROWS.map((row) => {
@@ -136,7 +139,7 @@ export function OptionsPanel({ open, onClose }: Props) {
         <div className={styles.footer}>
           <span className={styles.kbd}>Esc</span> to close
         </div>
-      </div>
+      </dialog>
     </div>
   )
 }
