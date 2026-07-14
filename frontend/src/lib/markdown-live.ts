@@ -15,7 +15,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { StateEffect } from '@codemirror/state'
 import type { Range, Text } from '@codemirror/state'
-import type { SyntaxNode, Tree } from '@lezer/common'
+import type { SyntaxNode, SyntaxNodeRef, Tree } from '@lezer/common'
 import {
   Decoration,
   type DecorationSet,
@@ -443,6 +443,362 @@ interface BuiltDecorations {
   atomic: DecorationSet
 }
 
+/** Shared accumulator + inputs threaded through the per-node `decorate*`
+ *  handlers below. `buildDecorations` owns the arrays/sets; the handlers only
+ *  push into them (visual decorations into `ranges`, atomic ones via
+ *  `pushAtomic`) and read the selection / doc / resolved link refs. */
+interface DecoContext {
+  view: EditorView
+  opts: BuildOpts
+  doc: Text
+  selFrom: number
+  selTo: number
+  linkRefs: Map<string, LinkRef>
+  ranges: Range<Decoration>[]
+  /** Nodes whose whole markup was replaced (HR, link, wikilink, image) so the
+   *  MARK handler skips their now-hidden child marks. */
+  visited: Set<number>
+  /** ATX headings that failed the blank-line context check, so the `#`
+   *  HeaderMark stays visible as plain text. */
+  ignoredHeadings: Set<number>
+  pushAtomic: (r: Range<Decoration>) => void
+}
+
+// Each handler below owns one node type from the live-preview matrix. They run
+// in sequence per node (see `enter` in buildDecorations); node names are
+// mutually exclusive, so at most one acts. A handler that fully renders its
+// node — replacing the raw markup with a widget/hidden range — returns `true`
+// to signal "stop descending into children"; the others return void.
+
+/** ATX heading: tag the line so CSS sizes H1..H6, but only when the heading is
+ *  properly surrounded by blank lines (or sits at a document edge) — see
+ *  `isValidAtxHeading`. Otherwise remember it so the `#` marker stays raw. */
+function decorateHeading(node: SyntaxNodeRef, ctx: DecoContext): void {
+  const headingMatch = HEADING_NAME_RE.exec(node.name)
+  if (!headingMatch) return
+  const { doc } = ctx
+  const line = doc.lineAt(node.from)
+  const prev = line.number > 1 ? doc.line(line.number - 1).text : null
+  const next = line.number < doc.lines ? doc.line(line.number + 1).text : null
+  if (isValidAtxHeading(prev, next)) {
+    const level = Number(headingMatch[1])
+    ctx.ranges.push(Decoration.line({ class: `cm-md-h${level}` }).range(line.from))
+  } else {
+    ctx.ignoredHeadings.add(node.from)
+  }
+}
+
+/** Setext heading (`Heading\n===` / `---`): style the text line like the ATX
+ *  equivalent. The underline's HeaderMark is hidden by `decorateMark`. */
+function decorateSetext(node: SyntaxNodeRef, ctx: DecoContext): void {
+  const setextMatch = SETEXT_NAME_RE.exec(node.name)
+  if (!setextMatch) return
+  const line = ctx.doc.lineAt(node.from)
+  const level = Number(setextMatch[1])
+  ctx.ranges.push(Decoration.line({ class: `cm-md-h${level}` }).range(line.from))
+}
+
+/** Find the TableCell node whose start lies in `[from, to)`, if any.
+ *  lezer-markdown omits a TableCell for empty cells, so a gap can be empty. */
+function cellInSegment(
+  cellsByStart: Map<number, SyntaxNode>,
+  from: number,
+  to: number,
+): SyntaxNode | null {
+  for (const [start, n] of cellsByStart) {
+    if (start >= from && start < to) return n
+  }
+  return null
+}
+
+/** Slot a table row's inline content into columns using its pipe positions.
+ *  Returns null for rows with fewer than two pipes (the parser's greedy
+ *  spillover from pipe-less lines attached to the table). Empty cells fall
+ *  back to an empty run list per gap. */
+function tableRowCellRuns(child: SyntaxNode, doc: Text): CellRun[][] | null {
+  const pipes: number[] = []
+  const cellsByStart = new Map<number, SyntaxNode>()
+  for (let g = child.firstChild; g; g = g.nextSibling) {
+    if (g.name === 'TableDelimiter') pipes.push(g.from)
+    else if (g.name === 'TableCell') cellsByStart.set(g.from, g.node)
+  }
+  if (pipes.length < 2) return null
+  const cellRuns: CellRun[][] = []
+  for (let i = 0; i < pipes.length - 1; i++) {
+    const cell = cellInSegment(cellsByStart, pipes[i] + 1, pipes[i + 1])
+    cellRuns.push(cell ? parseInlineRuns(cell.from, cell.to, cell, doc) : [])
+  }
+  return cellRuns
+}
+
+/** GFM table: replace each non-cursor row's text with a `TableRowWidget` (a
+ *  real DOM grid). The `.cm-line` stays `display: block` so CodeMirror's
+ *  vertical-motion math walks into each row; the row under the cursor gets no
+ *  decoration so its raw markdown shows for editing.
+ *
+ *  Tree shape (verified empirically):
+ *    Table
+ *      TableHeader       (the `| h | h |` row)  →  TableDelimiter+ TableCell+
+ *      TableDelimiter    (the `|---|---|` separator row, top-level)
+ *      TableRow*         (each data row, same shape as TableHeader)
+ *
+ *  Returns true always: cell content is rendered by the widget straight from
+ *  the source slice, so there's nothing for inline handlers to do inside — we
+ *  stop iterate from descending. (Inline formatting inside rendered cells is
+ *  therefore plain text — an explicit trade-off until the widget parses it.) */
+function decorateTable(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Table') return false
+  const { doc, selFrom, selTo } = ctx
+  for (let child = node.node.firstChild; child; child = child.nextSibling) {
+    const isRow = child.name === 'TableHeader' || child.name === 'TableRow'
+    if (!isRow && child.name !== 'TableDelimiter') continue
+    const lineObj = doc.lineAt(child.from)
+    if (rangesOverlap(lineObj.from, lineObj.to, selFrom, selTo)) continue
+    if (isRow) {
+      const cellRuns = tableRowCellRuns(child, doc)
+      if (!cellRuns) continue
+      ctx.pushAtomic(
+        Decoration.replace({
+          widget: new TableRowWidget(
+            cellRuns,
+            child.name === 'TableHeader' ? 'header' : 'data',
+          ),
+        }).range(lineObj.from, lineObj.to),
+      )
+    } else {
+      // Top-level inside Table = the `|---|---|` separator row.
+      ctx.pushAtomic(
+        Decoration.replace({ widget: new TableRowWidget([], 'separator') }).range(
+          lineObj.from,
+          lineObj.to,
+        ),
+      )
+    }
+  }
+  return true
+}
+
+/** Backslash escape (`\|`, `\*`, ...): hide just the leading `\` when the
+ *  cursor isn't on it, so the rendered text shows the literal escaped char.
+ *  Mark + `display: none` rather than Replace, to avoid the widgetBuffer noise
+ *  that breaks the table grid. */
+function decorateEscape(node: SyntaxNodeRef, ctx: DecoContext): void {
+  if (node.name !== 'Escape') return
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-escape-mark' }).range(node.from, node.from + 1),
+  )
+}
+
+/** Horizontal rule: swap the `---` / `***` / `___` for a visual divider when
+ *  the cursor is elsewhere; otherwise show the raw markup for editing. */
+function decorateHorizontalRule(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'HorizontalRule') return false
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return false
+  const lineStart = ctx.doc.lineAt(node.from).from
+  ctx.ranges.push(Decoration.line({ class: 'cm-md-hr' }).range(lineStart))
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, node.to))
+  ctx.visited.add(node.from)
+  return true
+}
+
+/** Inline link `[label](url "title")` AND reference/shortcut forms
+ *  `[label][id]` / `[label]`. For inline, lezer emits URL (+ optional
+ *  LinkTitle); reference forms have no URL and resolve against the
+ *  pre-collected `LinkReference` definitions. Either way, hide brackets + URL
+ *  and mark the visible label clickable, with an optional hover `title`. */
+function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Link') return false
+  const { doc, selFrom, selTo } = ctx
+  if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+  let closeBracket = -1
+  let url = ''
+  let title: string | null = null
+  let labelText: string | null = null
+  for (let child = node.node.firstChild; child; child = child.nextSibling) {
+    if (
+      child.name === 'LinkMark' &&
+      doc.sliceString(child.from, child.to) === ']' &&
+      closeBracket === -1
+    ) {
+      closeBracket = child.from
+    }
+    if (child.name === 'URL') url = doc.sliceString(child.from, child.to)
+    if (child.name === 'LinkTitle') {
+      title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
+    }
+    if (child.name === 'LinkLabel') {
+      const raw = doc.sliceString(child.from, child.to)
+      labelText = raw.slice(1, -1).trim().toLowerCase()
+    }
+  }
+  if (closeBracket <= node.from + 1) return false
+  // Reference forms: no URL child — look up by explicit label or, for the
+  // shortcut `[label]` form, by the bracketed text itself.
+  if (!url) {
+    const key =
+      labelText ?? doc.sliceString(node.from + 1, closeBracket).trim().toLowerCase()
+    const ref = ctx.linkRefs.get(key)
+    if (ref) {
+      url = ref.url
+      if (title === null && ref.title !== undefined) title = ref.title
+    }
+  }
+  // Unresolved reference (no matching definition) — leave the raw markup
+  // visible so the user sees something's wrong.
+  if (!url) return false
+  const attrs: Record<string, string> = { 'data-href': url }
+  if (title !== null) attrs.title = title
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, node.from + 1))
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-link', attributes: attrs }).range(
+      node.from + 1,
+      closeBracket,
+    ),
+  )
+  ctx.pushAtomic(Decoration.replace({}).range(closeBracket, node.to))
+  ctx.visited.add(node.from)
+  return true
+}
+
+/** Wiki link `[[target]]` / `[[target|alias]]`: hide the brackets (and the
+ *  separator + target when aliased) and mark the visible label clickable.
+ *  Navigation happens via the mousedown handler. (`![[...]]` embeds never
+ *  reach here — the stock Image parser wins the `!`; see `decorateImage`.) */
+function decorateWikilink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Wikilink') return false
+  const { doc, selFrom, selTo } = ctx
+  if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+  const inner = doc.sliceString(node.from + 2, node.to - 2)
+  const parsed = parseWikilinkBody(inner)
+  if (!parsed) return false
+  const labelFrom =
+    parsed.alias === null
+      ? node.from + 2
+      : node.from + 2 + parsed.target.length + 1 // past `target|`
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, labelFrom))
+  ctx.ranges.push(
+    Decoration.mark({
+      class: 'cm-md-wikilink',
+      attributes: { 'data-target': parsed.target },
+    }).range(labelFrom, node.to - 2),
+  )
+  ctx.pushAtomic(Decoration.replace({}).range(node.to - 2, node.to))
+  ctx.visited.add(node.from)
+  return true
+}
+
+/** Image `![alt](url "title")` and Obsidian embed `![[target]]` /
+ *  `![[target|alt]]`: replace the whole node with an `ImageWidget` when the
+ *  cursor is outside. Embeds resolve via `/api/embed` (one request,
+ *  adjacent-to-note then vault root); non-image embed targets stay raw. */
+function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Image') return false
+  const { doc, opts, selFrom, selTo } = ctx
+  if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+  // The stock Image parser wins the `!` and yields an Image node with no URL
+  // child whose text (past the bang) is `[[...]]` — detect it by shape.
+  const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
+  if (embed && kindFor(embed.target) === 'image') {
+    const src = backendUrl(
+      '/api/embed?note=' +
+        encodeURIComponent(opts.noteDocId) +
+        '&target=' +
+        encodeURIComponent(embed.target),
+    )
+    ctx.pushAtomic(
+      Decoration.replace({
+        widget: new ImageWidget(embed.alias ?? embed.target, src, null),
+      }).range(node.from, node.to),
+    )
+    ctx.visited.add(node.from)
+    return true
+  }
+  let urlRaw = ''
+  let title: string | null = null
+  let closeBracket = -1
+  for (let child = node.node.firstChild; child; child = child.nextSibling) {
+    if (
+      child.name === 'LinkMark' &&
+      doc.sliceString(child.from, child.to) === ']' &&
+      closeBracket === -1
+    ) {
+      closeBracket = child.from
+    }
+    if (child.name === 'URL') urlRaw = doc.sliceString(child.from, child.to)
+    if (child.name === 'LinkTitle') {
+      title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
+    }
+  }
+  // `>=` : empty alt (`![](pic.png)`) is valid and common — Obsidian and
+  // paste-from-clipboard both write it.
+  if (!urlRaw || closeBracket < node.from + 2) return false
+  const alt = doc.sliceString(node.from + 2, closeBracket)
+  // In-vault refs resolve to origin-rooted paths; prefix the baked backend
+  // origin when configured (deployment mode 3). The FILE keeps its
+  // vault-relative ref — this is render-time only.
+  const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
+  const src =
+    resolved && !/^(https?:|data:)/i.test(resolved) ? backendUrl(resolved) : resolved
+  ctx.pushAtomic(
+    Decoration.replace({ widget: new ImageWidget(alt, src, title) }).range(
+      node.from,
+      node.to,
+    ),
+  )
+  ctx.visited.add(node.from)
+  return true
+}
+
+/** Extended-syntax inline wrappers (highlight / sub / sup): mark the whole
+ *  node with its CSS class. The delimiter chars are hidden by `decorateMark`,
+ *  so this must NOT stop descent. */
+function decorateInlineClass(node: SyntaxNodeRef, ctx: DecoContext): void {
+  const inlineClass = INLINE_CLASS_NODES[node.name]
+  if (!inlineClass) return
+  ctx.ranges.push(Decoration.mark({ class: inlineClass }).range(node.from, node.to))
+}
+
+/** `:shortcode:` → glyph when the cursor is elsewhere. "Elsewhere" follows the
+ *  Cmd-E touching convention: raw from `|:smile:` through `:smile|:`, glyph at
+ *  `:smile:|`. Deliberately NOT atomic so cursor movement is character-wise.
+ *  Until the gemoji dataset loads the shortcode stays raw; the load's
+ *  completion effect triggers a rebuild. */
+function decorateEmoji(node: SyntaxNodeRef, ctx: DecoContext): void {
+  if (node.name !== 'Emoji') return
+  const touchesEmoji = ctx.selFrom < node.to && ctx.selTo >= node.from
+  if (touchesEmoji) return
+  const map = getNameToEmoji()
+  if (!map) {
+    loadEmojiDataThenRefresh(ctx.view)
+    return
+  }
+  const glyph = map[ctx.doc.sliceString(node.from + 1, node.to - 1)]
+  if (glyph) {
+    ctx.ranges.push(
+      Decoration.replace({ widget: new EmojiWidget(glyph) }).range(node.from, node.to),
+    )
+  }
+}
+
+/** Inline/heading marks we own (HeaderMark + the extended-syntax delimiters):
+ *  hide them via an atomic Replace when their parent isn't already fully
+ *  replaced, isn't cursor-touched, and (for headings) passed the context
+ *  check. `#` HeaderMarks also swallow one trailing space for alignment. */
+function decorateMark(node: SyntaxNodeRef, ctx: DecoContext): void {
+  if (!MARK_NODE_NAMES.has(node.name)) return
+  const parent = node.node.parent
+  if (!parent) return
+  if (ctx.visited.has(parent.from)) return
+  if (rangesOverlap(parent.from, parent.to, ctx.selFrom, ctx.selTo)) return
+  if (node.name === 'HeaderMark' && ctx.ignoredHeadings.has(parent.from)) return
+  let to = node.to
+  if (node.name === 'HeaderMark' && ctx.doc.sliceString(to, to + 1) === ' ') {
+    to += 1
+  }
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, to))
+}
+
 function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
   const ranges: Range<Decoration>[] = []
   const atomicRanges: Range<Decoration>[] = []
@@ -468,354 +824,35 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
   // stays as raw text.
   const ignoredHeadings = new Set<number>()
 
+  const ctx: DecoContext = {
+    view,
+    opts,
+    doc,
+    selFrom,
+    selTo,
+    linkRefs,
+    ranges,
+    visited,
+    ignoredHeadings,
+    pushAtomic,
+  }
+
+  // Node names are mutually exclusive, so these run in sequence and at most
+  // one acts on a given node. A handler that fully renders its node returns
+  // true → we stop iterate from descending into the now-hidden children.
   tree.iterate({
     enter: (node) => {
-      // Headings: tag the line so CSS can size H1..H6 distinctly, but only
-      // when the heading is properly surrounded by blank lines (or sits at
-      // the edge of the document) — see `isValidAtxHeading`.
-      const headingMatch = HEADING_NAME_RE.exec(node.name)
-      if (headingMatch) {
-        const line = doc.lineAt(node.from)
-        const prev = line.number > 1 ? doc.line(line.number - 1).text : null
-        const next = line.number < doc.lines ? doc.line(line.number + 1).text : null
-        if (isValidAtxHeading(prev, next)) {
-          const level = Number(headingMatch[1])
-          ranges.push(Decoration.line({ class: `cm-md-h${level}` }).range(line.from))
-        } else {
-          ignoredHeadings.add(node.from)
-        }
-      }
-
-      // Setext-style headings — `Heading 1\n=========` / `Heading 2\n---------`.
-      // lezer-markdown emits SetextHeading1/2 spanning both lines, with a
-      // HeaderMark child covering just the underline. Style the first line
-      // (the text) the same as the ATX equivalent; the underline's
-      // HeaderMark gets hidden by the MARK_NODE_NAMES branch below when the
-      // cursor isn't on the heading.
-      const setextMatch = SETEXT_NAME_RE.exec(node.name)
-      if (setextMatch) {
-        const line = doc.lineAt(node.from)
-        const level = Number(setextMatch[1])
-        ranges.push(Decoration.line({ class: `cm-md-h${level}` }).range(line.from))
-      }
-
-      // GFM table — each row's entire text content is replaced with a
-      // `TableRowWidget` (a real DOM grid). The `.cm-line` itself stays in
-      // CodeMirror's default `display: block`, which is the only shape its
-      // vertical-motion math is happy with — that's why ArrowDown actually
-      // navigates from line above the table through each row instead of
-      // jumping over the whole block. The row with the cursor on it gets NO
-      // decoration so the raw markdown source shows for editing.
-      //
-      // Tree shape (verified empirically):
-      //   Table
-      //     TableHeader       (the `| h | h |` row)
-      //       TableDelimiter+ TableCell+
-      //     TableDelimiter    (the `|---|---|` separator row, top-level)
-      //     TableRow*         (each data row, same shape as TableHeader)
-      if (node.name === 'Table') {
-        for (let child = node.node.firstChild; child; child = child.nextSibling) {
-          if (child.name === 'TableHeader' || child.name === 'TableRow') {
-            const lineObj = doc.lineAt(child.from)
-            if (rangesOverlap(lineObj.from, lineObj.to, selFrom, selTo)) continue
-            // Walk the row's children once: collect pipe positions (used to
-            // determine column count + locate empty cells) and TableCell
-            // nodes keyed by start position. lezer-markdown only emits a
-            // TableCell when there's content — empty cells like `| a |  |
-            // c |` have no node — so we use the pipes to slot cells into
-            // columns and fall back to an empty cell when no TableCell
-            // sits between consecutive pipes. Also filter out rows with no
-            // pipes (the parser's greedy spillover from pipe-less lines
-            // attached to the table).
-            const pipes: number[] = []
-            const cellsByStart = new Map<number, SyntaxNode>()
-            for (let g = child.firstChild; g; g = g.nextSibling) {
-              if (g.name === 'TableDelimiter') pipes.push(g.from)
-              else if (g.name === 'TableCell') cellsByStart.set(g.from, g.node)
-            }
-            if (pipes.length < 2) continue
-            const cellRuns: CellRun[][] = []
-            for (let i = 0; i < pipes.length - 1; i++) {
-              const segmentFrom = pipes[i] + 1
-              const segmentTo = pipes[i + 1]
-              // Find the TableCell node whose range lies between this pair
-              // of pipes, if any.
-              let cell: SyntaxNode | null = null
-              for (const [start, n] of cellsByStart) {
-                if (start >= segmentFrom && start < segmentTo) {
-                  cell = n
-                  break
-                }
-              }
-              cellRuns.push(
-                cell ? parseInlineRuns(cell.from, cell.to, cell, doc) : [],
-              )
-            }
-            pushAtomic(
-              Decoration.replace({
-                widget: new TableRowWidget(
-                  cellRuns,
-                  child.name === 'TableHeader' ? 'header' : 'data',
-                ),
-              }).range(lineObj.from, lineObj.to),
-            )
-          } else if (child.name === 'TableDelimiter') {
-            // Top-level inside Table = the `|---|---|` separator row.
-            const lineObj = doc.lineAt(child.from)
-            if (rangesOverlap(lineObj.from, lineObj.to, selFrom, selTo)) continue
-            pushAtomic(
-              Decoration.replace({
-                widget: new TableRowWidget([], 'separator'),
-              }).range(lineObj.from, lineObj.to),
-            )
-          }
-        }
-
-        // Return false — there's nothing useful to do inside the table for
-        // any other inline handler. Cell content gets rendered by the widget
-        // directly from the source slice, so we don't need iterate to descend
-        // and re-decorate Escape/Emphasis/Link inside cells. (Inline
-        // formatting inside rendered cells is therefore plain text for now —
-        // an explicit trade-off until the widget itself parses inline marks.)
-        return false
-      }
-
-      // Backslash escapes (`\|`, `\*`, ...) — lezer-markdown emits an Escape
-      // node spanning the two-character sequence. Hide just the leading `\`
-      // when the cursor isn't on it, so the rendered text shows the literal
-      // escaped character (`|`, `*`, ...). Mark + CSS `display: none` rather
-      // than Replace, so we don't get the widgetBuffer noise that breaks the
-      // table grid.
-      if (node.name === 'Escape') {
-        if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
-          ranges.push(
-            Decoration.mark({ class: 'cm-md-escape-mark' }).range(node.from, node.from + 1),
-          )
-        }
-      }
-
-      // Horizontal rule: when the cursor is elsewhere, swap the `---` /
-      // `***` / `___` literal for a visual divider; otherwise show the raw
-      // markup so it can be edited.
-      if (node.name === 'HorizontalRule') {
-        if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
-          const lineStart = doc.lineAt(node.from).from
-          ranges.push(Decoration.line({ class: 'cm-md-hr' }).range(lineStart))
-          pushAtomic(Decoration.replace({}).range(node.from, node.to))
-          visited.add(node.from)
-          return false
-        }
-      }
-
-      // Inline link `[label](url "title")` AND reference link `[label][id]` /
-      // shortcut `[label]`. For inline, lezer emits a URL child (and
-      // optionally a LinkTitle child); for reference forms there's no URL,
-      // and we resolve it against the `LinkReference` definitions
-      // pre-collected at the top of buildDecorations. Either way, hide the
-      // brackets + URL portion and mark the visible label as clickable, with
-      // an optional `title` attribute exposed as the hover tooltip.
-      if (node.name === 'Link') {
-        if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
-          let closeBracket = -1
-          let url = ''
-          let title: string | null = null
-          let labelText: string | null = null
-          for (let child = node.node.firstChild; child; child = child.nextSibling) {
-            if (
-              child.name === 'LinkMark' &&
-              doc.sliceString(child.from, child.to) === ']' &&
-              closeBracket === -1
-            ) {
-              closeBracket = child.from
-            }
-            if (child.name === 'URL') {
-              url = doc.sliceString(child.from, child.to)
-            }
-            if (child.name === 'LinkTitle') {
-              title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
-            }
-            if (child.name === 'LinkLabel') {
-              const raw = doc.sliceString(child.from, child.to)
-              labelText = raw.slice(1, -1).trim().toLowerCase()
-            }
-          }
-          if (closeBracket > node.from + 1) {
-            // Reference forms: no URL child — look up by explicit label or,
-            // for the shortcut `[label]` form, by the bracketed text itself.
-            if (!url) {
-              const key =
-                labelText ??
-                doc.sliceString(node.from + 1, closeBracket).trim().toLowerCase()
-              const ref = linkRefs.get(key)
-              if (ref) {
-                url = ref.url
-                if (title === null && ref.title !== undefined) title = ref.title
-              }
-            }
-            if (url) {
-              const attrs: Record<string, string> = { 'data-href': url }
-              if (title !== null) attrs.title = title
-              pushAtomic(Decoration.replace({}).range(node.from, node.from + 1))
-              ranges.push(
-                Decoration.mark({
-                  class: 'cm-md-link',
-                  attributes: attrs,
-                }).range(node.from + 1, closeBracket),
-              )
-              pushAtomic(Decoration.replace({}).range(closeBracket, node.to))
-              visited.add(node.from)
-              return false
-            }
-            // Unresolved reference (no matching definition) — leave the raw
-            // markup visible so the user sees something's wrong.
-          }
-        }
-      }
-
-      // Wiki link `[[target]]` / `[[target|alias]]`: hide the brackets (and
-      // the separator + target when an alias is present) and decorate the
-      // visible label as clickable. Intra-app navigation happens via the
-      // mousedown handler at the bottom of this file. (`![[...]]` image
-      // embeds never reach this branch — the stock Image parser wins the
-      // `!` and wraps the run in an Image node; see the Image branch below.)
-      if (node.name === 'Wikilink') {
-        if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
-          const inner = doc.sliceString(node.from + 2, node.to - 2)
-          const parsed = parseWikilinkBody(inner)
-          if (parsed) {
-            const labelFrom = parsed.alias === null
-              ? node.from + 2
-              : node.from + 2 + parsed.target.length + 1 // past `target|`
-            pushAtomic(Decoration.replace({}).range(node.from, labelFrom))
-            ranges.push(
-              Decoration.mark({
-                class: 'cm-md-wikilink',
-                attributes: { 'data-target': parsed.target },
-              }).range(labelFrom, node.to - 2),
-            )
-            pushAtomic(Decoration.replace({}).range(node.to - 2, node.to))
-            visited.add(node.from)
-            return false
-          }
-        }
-      }
-
-      // Image `![alt](url "title")`: replace the whole node with the widget
-      // when the cursor is outside. Walk the tree for URL + optional
-      // LinkTitle — the alt text is the source between `![` and the first
-      // closing `]`.
-      if (node.name === 'Image') {
-        if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
-          // Obsidian-style image embed `![[target]]` / `![[target|alt]]`.
-          // The stock Image parser wins the `!` and yields an Image node
-          // with no URL child whose text (past the bang) is `[[...]]` —
-          // detect it by shape. ONE request: `/api/embed` resolves the
-          // target server-side, adjacent-to-note first, vault root second
-          // (adjacent overshadows root — user decision 2026-07-14). No
-          // shortest-unique-path search beyond that. Non-image targets stay
-          // raw — transclusion is out of scope.
-          const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
-          if (embed && kindFor(embed.target) === 'image') {
-            const src = backendUrl(
-              '/api/embed?note=' +
-                encodeURIComponent(opts.noteDocId) +
-                '&target=' +
-                encodeURIComponent(embed.target),
-            )
-            pushAtomic(
-              Decoration.replace({
-                widget: new ImageWidget(embed.alias ?? embed.target, src, null),
-              }).range(node.from, node.to),
-            )
-            visited.add(node.from)
-            return false
-          }
-          let urlRaw = ''
-          let title: string | null = null
-          let closeBracket = -1
-          for (let child = node.node.firstChild; child; child = child.nextSibling) {
-            if (
-              child.name === 'LinkMark' &&
-              doc.sliceString(child.from, child.to) === ']' &&
-              closeBracket === -1
-            ) {
-              closeBracket = child.from
-            }
-            if (child.name === 'URL') urlRaw = doc.sliceString(child.from, child.to)
-            if (child.name === 'LinkTitle')
-              title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
-          }
-          // `>=` : empty alt (`![](pic.png)`) is valid and common — Obsidian
-          // and paste-from-clipboard both write it. Requiring alt characters
-          // silently left those images as raw text.
-          if (urlRaw && closeBracket >= node.from + 2) {
-            const alt = doc.sliceString(node.from + 2, closeBracket)
-            // In-vault refs resolve to origin-rooted paths; prefix the baked
-            // backend origin when one is configured (deployment mode 3). The
-            // FILE keeps its vault-relative ref — this is render-time only.
-            const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
-            const src =
-              resolved && !/^(https?:|data:)/i.test(resolved) ? backendUrl(resolved) : resolved
-            pushAtomic(
-              Decoration.replace({ widget: new ImageWidget(alt, src, title) }).range(
-                node.from,
-                node.to,
-              ),
-            )
-            visited.add(node.from)
-            return false
-          }
-        }
-      }
-      const inlineClass = INLINE_CLASS_NODES[node.name]
-      if (inlineClass) {
-        ranges.push(Decoration.mark({ class: inlineClass }).range(node.from, node.to))
-      }
-      // Replace a known `:shortcode:` with its glyph when the cursor is
-      // elsewhere. "Elsewhere" follows the same touching convention as the
-      // Cmd-E token scanner (lib/emoji.ts::shortcodeTokenAt): the raw
-      // shortcode shows from `|:smile:` through `:smile|:`, while `:smile:|`
-      // — cursor just past the closed token — keeps the glyph. That boundary
-      // also makes the emoji snap in the moment the closing `:` is typed.
-      // Until the gemoji dataset arrives the shortcode stays raw; the load's
-      // completion effect triggers a rebuild.
-      const touchesEmoji = selFrom < node.to && selTo >= node.from
-      if (node.name === 'Emoji' && !touchesEmoji) {
-        const map = getNameToEmoji()
-        if (!map) {
-          loadEmojiDataThenRefresh(view)
-          return
-        }
-        const glyph = map[doc.sliceString(node.from + 1, node.to - 1)]
-        if (glyph) {
-          // Deliberately NOT atomic: cursor movement is character-wise, so
-          // ArrowLeft from `:smile:|` steps INSIDE to `:smile|:` (the move
-          // makes the token "touched", the rebuild reveals it raw) instead
-          // of leaping the whole token — which stranded the cursor at
-          // `|:emoji1:` when two shortcodes sat back to back. The moment the
-          // cursor lands in the range the widget is gone, so the usual
-          // "cursor inside a replaced range" pitfalls don't apply.
-          ranges.push(
-            Decoration.replace({ widget: new EmojiWidget(glyph) }).range(node.from, node.to),
-          )
-        }
-      }
-      if (MARK_NODE_NAMES.has(node.name)) {
-        const parent = node.node.parent
-        if (!parent) return
-        if (visited.has(parent.from)) return
-        if (rangesOverlap(parent.from, parent.to, selFrom, selTo)) return
-        // The parent ATXHeading didn't pass the blank-line check, so leave
-        // the `#` visible as plain text instead of hiding it.
-        if (node.name === 'HeaderMark' && ignoredHeadings.has(parent.from)) return
-        // For `#` HeaderMarks, also swallow the one trailing space so the
-        // heading text aligns with surrounding lines when the markup is hidden.
-        let to = node.to
-        if (node.name === 'HeaderMark' && doc.sliceString(to, to + 1) === ' ') {
-          to += 1
-        }
-        pushAtomic(Decoration.replace({}).range(node.from, to))
-      }
+      decorateHeading(node, ctx)
+      decorateSetext(node, ctx)
+      if (decorateTable(node, ctx)) return false
+      decorateEscape(node, ctx)
+      if (decorateHorizontalRule(node, ctx)) return false
+      if (decorateLink(node, ctx)) return false
+      if (decorateWikilink(node, ctx)) return false
+      if (decorateImage(node, ctx)) return false
+      decorateInlineClass(node, ctx)
+      decorateEmoji(node, ctx)
+      decorateMark(node, ctx)
     },
   })
 
