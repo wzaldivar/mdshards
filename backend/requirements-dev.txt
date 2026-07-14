@@ -1,0 +1,9 @@
+# Development / CI on top of the runtime deps. The prod image installs ONLY
+# requirements.txt — test and lint tooling must never ship in it.
+-r requirements.txt
+
+pytest
+pytest-asyncio
+pytest-cov
+httpx
+ruff

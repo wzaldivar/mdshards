@@ -39,7 +39,7 @@ See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory
 
 ```sh
 mise install                          # pins Python 3.13 + Node 22 (LTS)
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt
 npm --prefix frontend install
 mkdir vault && export VAULT_DIR=$(pwd)/vault
 
