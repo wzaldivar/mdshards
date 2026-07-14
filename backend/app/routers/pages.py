@@ -101,10 +101,10 @@ def page_or_asset(full_path: str, request: Request):
     except VaultPathError:
         asset_path = None
 
-    is_doc_nav = request.headers.get("sec-fetch-dest") == "document"
+    dest = request.headers.get("sec-fetch-dest")
     asset_exists = asset_path is not None and asset_path.exists() and asset_path.is_file()
 
-    if is_doc_nav:
+    if dest == "document":
         return HTMLResponse(_spa_shell())
     if asset_exists:
         # `Content-Security-Policy: sandbox` neutralizes scripts/forms in the
@@ -138,4 +138,13 @@ def page_or_asset(full_path: str, request: Request):
         if asset_path.suffix.lower() in _SCRIPTABLE_SUFFIXES:
             headers["Content-Security-Policy"] = "sandbox"
         return FileResponse(asset_path, headers=headers)
+    # No Fetch Metadata at all — browsers only send `Sec-Fetch-*` to
+    # potentially trustworthy origins (https / localhost), so a plain-HTTP
+    # LAN browser lands here for every missing path. A top-level navigation
+    # advertises `text/html` in `Accept`; img/fetch sub-resources don't.
+    # Serve the shell so the SPA's NotFound view renders instead of a bare
+    # 404 body. Existing assets were already handled above, so iframe and
+    # image fetches of real files still get bytes.
+    if dest is None and "text/html" in request.headers.get("accept", ""):
+        return HTMLResponse(_spa_shell())
     raise HTTPException(404, detail="not found")

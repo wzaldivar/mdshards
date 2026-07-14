@@ -53,6 +53,21 @@ def test_missing_path_doc_nav_serves_spa_shell(client) -> None:
     assert '<div id="app"></div>' in r.text
 
 
+def test_missing_path_nav_without_fetch_metadata_serves_shell(bare_client) -> None:
+    """Browsers omit ALL Sec-Fetch-* headers off https/localhost, so a
+    top-level nav from a plain-HTTP LAN address arrives with no
+    Sec-Fetch-Dest. It still advertises text/html in Accept — that must be
+    enough to get the SPA shell so the NotFound view renders."""
+    c, _ = bare_client
+    r = c.get(
+        "/no/such/page",
+        headers={"accept": "text/html,application/xhtml+xml"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert '<div id="app"></div>' in r.text
+
+
 def test_missing_path_subresource_returns_404(client) -> None:
     """A sub-resource fetch (img/iframe) for a missing path should 404, not
     serve the SPA shell — otherwise broken `<img src>` references would
