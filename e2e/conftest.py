@@ -232,3 +232,27 @@ TINY_PNG = bytes.fromhex(
     "1f15c4890000000d4944415478da63f8cfc0500f00040501a04a968d21"
     "0000000049454e44ae426082"
 )
+
+
+def make_png(width: int, height: int) -> bytes:
+    """Minimal valid RGBA PNG of the given dimensions, stdlib only — tests
+    tell images apart by naturalWidth, not color."""
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    raw = b"".join(b"\x00" + b"\xff\x00\x00\xff" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )

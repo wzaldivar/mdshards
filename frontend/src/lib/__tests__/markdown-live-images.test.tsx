@@ -66,21 +66,25 @@ describe('markdown images with empty alt', () => {
 })
 
 describe('wikilink image embeds', () => {
-  it('renders `![[attachments/pic.png]]` as an image, vault-rooted', () => {
+  it('renders `![[attachments/pic.png]]` via the server-side embed resolver', () => {
     const doc = 'intro\n\n![[attachments/pic.png]]\n'
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
-    // vault-rooted (NOT note-relative — matches wikilink navigation)
-    expect(imgs()[0].getAttribute('src')).toBe('/attachments/pic.png')
+    // ONE request; /api/embed resolves adjacent-first-else-root server-side
+    expect(imgs()[0].getAttribute('src')).toBe(
+      '/api/embed?note=notes%2Ftoday&target=attachments%2Fpic.png',
+    )
     // the raw markup (bang and brackets) is fully hidden
     expect(document.querySelector('.cm-content')!.textContent).not.toContain('![[')
   })
 
-  it('uses the alias as alt text and percent-encodes spaces', () => {
+  it('uses the alias as alt text and encodes spaces in the query', () => {
     const doc = 'intro\n\n![[my pics/my pic.png|the alt]]\n'
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
-    expect(imgs()[0].getAttribute('src')).toBe('/my%20pics/my%20pic.png')
+    expect(imgs()[0].getAttribute('src')).toBe(
+      '/api/embed?note=notes%2Ftoday&target=my%20pics%2Fmy%20pic.png',
+    )
     expect(imgs()[0].getAttribute('alt')).toBe('the alt')
   })
 

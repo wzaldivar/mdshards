@@ -25,7 +25,7 @@ See **`FEATURES.md`** for the user-facing surface inventory — markdown syntax 
     - `resolve.py` — the md-wins / asset-fallback disambiguator (the routing rule described below); backs `GET /api/resolve/{path}`.
     - `pages.py` — catch-all that returns either the SPA shell or a 404 based on `Sec-Fetch-Dest` (document → shell, sub-resource → 404; when the header is absent — plain-HTTP LAN browsers get no Fetch Metadata — `Accept: text/html` stands in for the doc-nav signal on missing paths).
     - `files.py` — REST for markdown notes (upload-as-md, metadata, rename, delete). Mutations route through the CRDT layer.
-    - `assets.py` — REST for non-`.md` bytes (upload, serve, delete). Bypasses CRDT entirely.
+    - `assets.py` — REST for non-`.md` bytes (upload, serve, delete; `GET /api/embed` resolves wikilink image-embed targets server-side, adjacent-to-note first then vault root). Bypasses CRDT entirely.
     - `tree.py` — vault listing for the quick-switcher / delete picker.
     - `config.py` — `/api/config`; surfaces `homePath` (the React Router basename, derived from `BASE_URL`).
 - `/frontend` — React 19 + TypeScript SPA (Vite). Routing via `react-router` v7; component styles via CSS Modules. Editor is CodeMirror 6 + `y-codemirror.next` bound to a `Y.Doc` synced via `y-websocket`.

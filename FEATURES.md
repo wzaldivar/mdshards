@@ -76,7 +76,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Wiki links — `[[target]]` and `[[target|alias]]`. Clickable; navigates intra-app via the SPA router (no full reload). Dashed-underline visual to distinguish from regular `[text](url)` links. The target is the doc-id form (no `.md` suffix, no leading `/`); resolution follows the backend's md-wins / asset-fallback rule.
-- Wiki-link image embeds — `![[pic.png]]` and `![[pic.png|alt]]` (Obsidian's default embed syntax). The target is the **vault-rooted** path, exactly like wikilink navigation — no shortest-unique-path search, so an Obsidian vault configured with "New link format: Absolute path in vault" round-trips perfectly, while Obsidian's default "shortest path" only resolves when the bare name happens to live at the vault root. Non-image targets (`![[note]]` transclusion) stay raw — out of scope.
+- Wiki-link image embeds — `![[pic.png]]` and `![[pic.png|alt]]` (Obsidian's default embed syntax). The browser makes **one request** (`GET /api/embed?note=…&target=…`) and the server resolves the target at request time: **adjacent to the note first** (a folder next to the note overshadows a same-named one at the vault root), vault root second — two `stat()` calls, always fresh, no wasted 404 round-trip. `..` segments are allowed while the result stays inside the vault. No shortest-unique-path search beyond that: an Obsidian vault set to "New link format: Absolute path in vault" or "Relative to file" round-trips; the default "shortest path" resolves only when the bare name lives next to the note or at the root. Non-image targets (`![[note]]` transclusion) stay raw — out of scope.
 
 ## Editor
 

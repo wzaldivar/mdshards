@@ -28,7 +28,6 @@ import {
 import { kindFor } from './asset-kind'
 import { backendUrl } from './backend'
 import { getNameToEmoji, loadEmojiData } from './emoji'
-import { encodePathToUrl } from './paths'
 import { parseWikilink, parseWikilinkBody } from './wikilink'
 
 // Inline emphasis / code marks are hidden by ixora's `hideMarks()` (its
@@ -710,14 +709,19 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
           // Obsidian-style image embed `![[target]]` / `![[target|alt]]`.
           // The stock Image parser wins the `!` and yields an Image node
           // with no URL child whose text (past the bang) is `[[...]]` —
-          // detect it by shape. Resolution matches wikilink navigation:
-          // the target is the VAULT-ROOTED path, no shortest-unique-path
-          // search (an Obsidian vault set to "absolute path in vault" link
-          // format round-trips exactly). Non-image targets stay raw —
-          // transclusion is out of scope.
+          // detect it by shape. ONE request: `/api/embed` resolves the
+          // target server-side, adjacent-to-note first, vault root second
+          // (adjacent overshadows root — user decision 2026-07-14). No
+          // shortest-unique-path search beyond that. Non-image targets stay
+          // raw — transclusion is out of scope.
           const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
           if (embed && kindFor(embed.target) === 'image') {
-            const src = backendUrl('/' + encodePathToUrl(embed.target))
+            const src = backendUrl(
+              '/api/embed?note=' +
+                encodeURIComponent(opts.noteDocId) +
+                '&target=' +
+                encodeURIComponent(embed.target),
+            )
             pushAtomic(
               Decoration.replace({
                 widget: new ImageWidget(embed.alias ?? embed.target, src, null),
