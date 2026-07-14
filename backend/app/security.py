@@ -12,12 +12,18 @@ There is no auth (see CLAUDE.md). The threats this middleware addresses are:
 
 2. Non-browser callers (curl, scripts, server-to-server) hitting `/api/*`
    or `/ws/*` and bypassing the prebuilt frontend. Browsers send
-   `Sec-Fetch-Site` on every ordinary request; curl by default sends
-   nothing. So on `/api/*` we REQUIRE `Sec-Fetch-Site` to be present and in
-   the same-origin / same-site / none set. This is not crypto-strong
-   (`curl -H "Sec-Fetch-Site: same-origin"` still gets through), but it
-   stops the casual bypass and matches the "only the loaded bundle drives
-   the API" intent.
+   `Sec-Fetch-Site` on requests to potentially trustworthy origins; curl by
+   default sends nothing. So on `/api/*` we require a browser fingerprint:
+   `Sec-Fetch-Site` when present must be in the same-origin / same-site /
+   none set. But Fetch Metadata is ONLY delivered to potentially trustworthy
+   origins (https:// or localhost) — a browser reaching a plain-HTTP LAN
+   deployment (`http://192.168.x.x`, the primary use case) sends NO
+   Sec-Fetch-* headers at all. There we fall back to the headers such a
+   browser does send: `Origin` (every non-GET fetch) or `Referer`
+   (same-origin GETs under the default referrer policy), matched against our
+   own `Host`. This is not crypto-strong (`curl -H "Sec-Fetch-Site:
+   same-origin"` still gets through), but it stops the casual bypass and
+   matches the "only the loaded bundle drives the API" intent.
 
    WebSocket handshakes are the exception: browsers do NOT emit any
    Sec-Fetch-* metadata on the WS opening handshake, so requiring it there
@@ -61,6 +67,17 @@ def _header(headers: Iterable[tuple[bytes, bytes]], name: bytes) -> str | None:
     return None
 
 
+def _matches_host(url_value: str, host: str) -> bool:
+    """True when `url_value` (an `Origin` or `Referer` value) names the same
+    host:port as our own `Host` header. Scheme is deliberately ignored — a
+    TLS-terminating proxy sees `http` while the browser saw `https`."""
+    try:
+        netloc = urlparse(url_value).netloc.lower()
+    except ValueError:
+        return False
+    return bool(netloc) and netloc == host.lower()
+
+
 def is_request_allowed(scope: Scope) -> bool:
     """Decide whether a single ASGI scope (HTTP or WebSocket) is from a
     permitted origin. Returns True for non-browser callers (no `Origin`
@@ -89,11 +106,38 @@ def is_request_allowed(scope: Scope) -> bool:
         # Can't establish what our own origin is. Fall back to the
         # Sec-Fetch-Site verdict above (which already passed).
         return True
-    try:
-        origin_netloc = urlparse(origin).netloc.lower()
-    except ValueError:
+    return _matches_host(origin, host)
+
+
+def api_request_allowed(scope: Scope) -> bool:
+    """The stricter `/api/*` gate: require a browser fingerprint tying the
+    request to our own origin.
+
+    Browsers only deliver Fetch Metadata (`Sec-Fetch-*`) to potentially
+    trustworthy origins — https:// or localhost. When `Sec-Fetch-Site` is
+    present, trust its verdict (plus the Origin↔Host cross-check). When it's
+    absent — every plain-HTTP LAN deployment, which is this tool's primary
+    habitat — fall back to the headers such a browser still sends: `Origin`
+    (attached to every non-GET fetch) or `Referer` (attached to same-origin
+    GETs under the default `strict-origin-when-cross-origin` policy). One of
+    them must be present and match our own `Host`. Bare curl / scripted
+    callers send none of the three and stay blocked."""
+    headers = scope.get("headers") or []
+    site = _header(headers, b"sec-fetch-site")
+    if site is not None:
+        return site in SAFE_SEC_FETCH_SITE and is_request_allowed(scope)
+    host = _header(headers, b"host")
+    if not host:
         return False
-    return origin_netloc == host.lower()
+    # `Origin` is authoritative when present; only consult `Referer` when
+    # the request carries no `Origin` at all (same-origin GET fetches).
+    origin = _header(headers, b"origin")
+    if origin is not None:
+        return _matches_host(origin, host)
+    referer = _header(headers, b"referer")
+    if referer is not None:
+        return _matches_host(referer, host)
+    return False
 
 
 async def _reject_http(send: Send) -> None:
@@ -148,15 +192,11 @@ class OriginGuard:
         path = scope.get("path", "")
         method = scope.get("method", "GET").upper()
         # /api/* and /ws/* are the surfaces the bundle calls. Require a
-        # browser-style `Sec-Fetch-Site` on every method, including GET —
-        # that's what blocks bare curl / scripted callers.
+        # browser fingerprint on every method, including GET — that's what
+        # blocks bare curl / scripted callers. See api_request_allowed for
+        # the plain-HTTP fallback (no Sec-Fetch-* off localhost/https).
         if _is_api_or_ws(path):
-            headers = scope.get("headers") or []
-            site = _header(headers, b"sec-fetch-site")
-            if site is None or site not in SAFE_SEC_FETCH_SITE:
-                await _reject_http(send)
-                return
-            if not is_request_allowed(scope):
+            if not api_request_allowed(scope):
                 await _reject_http(send)
                 return
             await self.app(scope, receive, send)

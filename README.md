@@ -160,7 +160,9 @@ Alternatively, skip the baking with a **routing trick**: build unbaked
 (origin-rooted URLs) and make your static server proxy the backend surfaces
 itself. A verified nginx example lives in [`deploy/`](./deploy) —
 `nginx.conf` (the routing rules: `Sec-Fetch-Dest`-based shell-vs-backend
-split, vault-asset fallback, verbatim `Host` forwarding via `$http_host`),
+split with a path-shape fallback for plain-HTTP LAN clients — browsers only
+send `Sec-Fetch-*` to https/localhost origins — vault-asset fallback,
+verbatim `Host` forwarding via `$http_host`),
 `nginx.Dockerfile`, and `docker-compose.yml` (the full two-container stack,
 `docker compose up --build` from that directory). Also your problem, but a
 better one to have.
@@ -171,9 +173,10 @@ Set `BASE_URL=/wiki` on the **backend** (env var). It's wired into FastAPI's
 `root_path` and surfaced to the bundle as `homePath` via `/api/config`, which the
 SPA uses as its React Router basename. The frontend never learns the prefix at
 build time. The origin guard accepts same-origin API/WS calls by matching the
-browser's `Origin` against the request's `Host` header (scheme-agnostic, so a
-TLS-terminating proxy just works) — make sure the proxy forwards the browser's
-`Host` header, as nginx/Caddy/Traefik do by default.
+browser's `Origin` (or, on plain-HTTP LAN origins where browsers omit all
+`Sec-Fetch-*` headers, the `Referer`) against the request's `Host` header
+(scheme-agnostic, so a TLS-terminating proxy just works) — make sure the proxy
+forwards the browser's `Host` header, as nginx/Caddy/Traefik do by default.
 
 ## Tests
 

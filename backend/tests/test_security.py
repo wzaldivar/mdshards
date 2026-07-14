@@ -1,8 +1,10 @@
 """Tests for the Origin/Sec-Fetch-Site guards.
 
-On /api/* and /ws/*: requests MUST carry `Sec-Fetch-Site` in the
-same-origin / same-site / none set — browsers send this on every request,
-curl by default doesn't. That's the curl-bypass block.
+On /api/* and /ws/*: requests MUST carry a browser fingerprint —
+`Sec-Fetch-Site` in the same-origin / same-site / none set when present,
+else an `Origin` or `Referer` matching our own `Host` (browsers omit ALL
+Sec-Fetch-* headers on plain-HTTP non-localhost origins). curl by default
+sends none of the three. That's the curl-bypass block.
 
 On static paths (/, /assets, /favicon, vault assets): looser gate
 preserved — safe methods pass unconditionally, only state-changing requests
@@ -128,6 +130,70 @@ def test_bare_asset_upload_is_blocked(bare_client) -> None:
     )
     assert r.status_code == 403
     assert not (vault / "evil.png").exists()
+
+
+# ---- HTTP: plain-HTTP LAN fallback (no Fetch Metadata at all) ----
+#
+# Browsers only deliver `Sec-Fetch-*` to potentially trustworthy origins
+# (https:// or localhost). A browser using the app at `http://192.168.x.x`
+# sends NO Sec-Fetch-* headers on any request — only `Referer` (same-origin
+# GETs under the default referrer policy) and `Origin` (non-GET fetches).
+# The guard must accept those and still block callers with neither.
+
+
+def test_lan_http_get_with_matching_referer_is_allowed(bare_client) -> None:
+    """Same-origin GET fetch from a plain-HTTP LAN page: no Sec-Fetch-*, but
+    Referer names our own host → allowed. This is the request shape that made
+    the app unusable on any IP other than localhost."""
+    c, _ = bare_client
+    r = c.get("/api/tree", headers={"referer": "http://testserver/some/page"})
+    assert r.status_code == 200
+
+
+def test_lan_http_get_with_foreign_referer_is_blocked(bare_client) -> None:
+    c, _ = bare_client
+    r = c.get("/api/tree", headers={"referer": "http://evil.example.com/"})
+    assert r.status_code == 403
+
+
+def test_lan_http_post_with_matching_origin_is_allowed(bare_client) -> None:
+    """Non-GET fetches always carry Origin; over plain HTTP it must stand in
+    for the absent Sec-Fetch-Site."""
+    c, vault = bare_client
+    r = c.post(
+        "/api/files",
+        json={"path": "lan_note"},
+        headers={"origin": "http://testserver"},
+    )
+    assert r.status_code == 201
+    assert (vault / "lan_note.md").exists()
+
+
+def test_lan_http_post_with_foreign_origin_is_blocked(bare_client) -> None:
+    c, vault = bare_client
+    r = c.post(
+        "/api/files",
+        json={"path": "evil"},
+        headers={"origin": "http://evil.example.com"},
+    )
+    assert r.status_code == 403
+    assert not (vault / "evil.md").exists()
+
+
+def test_lan_http_foreign_origin_with_matching_referer_is_blocked(bare_client) -> None:
+    """Origin is authoritative when present — a matching Referer must not
+    rescue a mismatched Origin."""
+    c, vault = bare_client
+    r = c.post(
+        "/api/files",
+        json={"path": "evil"},
+        headers={
+            "origin": "http://evil.example.com",
+            "referer": "http://testserver/",
+        },
+    )
+    assert r.status_code == 403
+    assert not (vault / "evil.md").exists()
 
 
 def test_bare_get_on_static_path_still_works(bare_client) -> None:
