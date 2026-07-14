@@ -159,14 +159,30 @@ class ImageWidget extends WidgetType {
   readonly alt: string
   readonly src: string
   readonly title: string | null
-  constructor(alt: string, src: string, title: string | null = null) {
+  /** Second-chance URL tried when `src` fails to load. Used by wikilink
+   *  embeds, whose targets resolve vault-rooted first and note-relative on
+   *  a miss — the browser's own load error is the existence check, so no
+   *  vault index is needed client-side. */
+  readonly fallbackSrc: string | null
+  constructor(
+    alt: string,
+    src: string,
+    title: string | null = null,
+    fallbackSrc: string | null = null,
+  ) {
     super()
     this.alt = alt
     this.src = src
     this.title = title
+    this.fallbackSrc = fallbackSrc
   }
   eq(other: ImageWidget): boolean {
-    return other.alt === this.alt && other.src === this.src && other.title === this.title
+    return (
+      other.alt === this.alt &&
+      other.src === this.src &&
+      other.title === this.title &&
+      other.fallbackSrc === this.fallbackSrc
+    )
   }
   toDOM(): HTMLElement {
     if (!this.src) {
@@ -188,6 +204,16 @@ class ImageWidget extends WidgetType {
     img.src = this.src
     if (this.title !== null) img.title = this.title
     img.className = 'cm-md-image'
+    if (this.fallbackSrc && this.fallbackSrc !== this.src) {
+      const fallback = this.fallbackSrc
+      img.addEventListener(
+        'error',
+        () => {
+          img.src = fallback
+        },
+        { once: true },
+      )
+    }
     return img
   }
   ignoreEvent(): boolean {
@@ -710,17 +736,23 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
           // Obsidian-style image embed `![[target]]` / `![[target|alt]]`.
           // The stock Image parser wins the `!` and yields an Image node
           // with no URL child whose text (past the bang) is `[[...]]` —
-          // detect it by shape. Resolution matches wikilink navigation:
-          // the target is the VAULT-ROOTED path, no shortest-unique-path
-          // search (an Obsidian vault set to "absolute path in vault" link
-          // format round-trips exactly). Non-image targets stay raw —
-          // transclusion is out of scope.
+          // detect it by shape. The target resolves TWO ways: NOTE-RELATIVE
+          // first (a folder next to the note overshadows a same-named one at
+          // the vault root — user decision 2026-07-14), then vault-rooted as
+          // an on-error fallback. The browser's own load failure is the
+          // existence check, so no vault index is needed. No
+          // shortest-unique-path search beyond that. Non-image targets stay
+          // raw — transclusion is out of scope.
           const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
           if (embed && kindFor(embed.target) === 'image') {
-            const src = backendUrl('/' + encodePathToUrl(embed.target))
+            const encoded = encodePathToUrl(embed.target)
+            const rooted = backendUrl('/' + encoded)
+            const relative = resolveAssetUrl(opts.noteDocId, encoded)
+            const src = relative ? backendUrl(relative) : rooted
+            const fallback = relative ? rooted : null
             pushAtomic(
               Decoration.replace({
-                widget: new ImageWidget(embed.alias ?? embed.target, src, null),
+                widget: new ImageWidget(embed.alias ?? embed.target, src, null, fallback),
               }).range(node.from, node.to),
             )
             visited.add(node.from)

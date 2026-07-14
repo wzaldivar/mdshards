@@ -42,6 +42,10 @@ before ![](inline.png) after, in running text
 ![[attachments-e2e/obsidian.png]]
 
 ![[attachments-e2e/aliased.png|the alias]]
+
+![[near-note/relative.png]]
+
+![[shadow/adj.png]]
 """
 
 # vault file -> the path the browser must end up requesting (pre-prefix)
@@ -55,15 +59,27 @@ EXPECTED = {
     "embeds/empty-alt.png": "/embeds/empty-alt.png",
     # inline mid-sentence, also empty alt
     "embeds/inline.png": "/embeds/inline.png",
-    # Obsidian-style wikilink embeds — targets resolve VAULT-ROOTED, not
-    # note-relative (matches wikilink navigation semantics)
+    # Obsidian-style wikilink embeds — targets resolve VAULT-ROOTED first
+    # (matches wikilink navigation semantics)...
     "attachments-e2e/obsidian.png": "/attachments-e2e/obsidian.png",
     "attachments-e2e/aliased.png": "/attachments-e2e/aliased.png",
+    # Wikilink-embed resolution: NOTE-RELATIVE first (adjacent overshadows
+    # root — user decision), vault root as the on-error fallback.
+    # near-note/ exists only next to the note → adjacent hit, no fallback:
+    "embeds/near-note/relative.png": "/embeds/near-note/relative.png",
+    # shadow/adj.png exists BOTH next to the note and at the vault root —
+    # the adjacent copy must be the one that renders:
+    "embeds/shadow/adj.png": "/embeds/shadow/adj.png",
 }
+
+# Seeded but deliberately NOT expected to render: the root-level twin of
+# the shadow case. If root ever wins again, the expected row above fails
+# (its loaded src would be /shadow/adj.png, which doesn't carry /embeds/).
+EXTRA_FILES = ("shadow/adj.png",)
 
 
 def _seed(app) -> None:
-    for vault_path in EXPECTED:
+    for vault_path in (*EXPECTED, *EXTRA_FILES):
         seed_vault_file(app, vault_path, TINY_PNG)
     seed_vault_file(app, "embeds/note.md", NOTE)
 

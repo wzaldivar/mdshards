@@ -66,12 +66,12 @@ describe('markdown images with empty alt', () => {
 })
 
 describe('wikilink image embeds', () => {
-  it('renders `![[attachments/pic.png]]` as an image, vault-rooted', () => {
+  it('renders `![[attachments/pic.png]]` as an image, note-relative first', () => {
     const doc = 'intro\n\n![[attachments/pic.png]]\n'
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
-    // vault-rooted (NOT note-relative — matches wikilink navigation)
-    expect(imgs()[0].getAttribute('src')).toBe('/attachments/pic.png')
+    // adjacent-to-note resolution wins (note is notes/today)
+    expect(imgs()[0].getAttribute('src')).toBe('/notes/attachments/pic.png')
     // the raw markup (bang and brackets) is fully hidden
     expect(document.querySelector('.cm-content')!.textContent).not.toContain('![[')
   })
@@ -80,7 +80,7 @@ describe('wikilink image embeds', () => {
     const doc = 'intro\n\n![[my pics/my pic.png|the alt]]\n'
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
-    expect(imgs()[0].getAttribute('src')).toBe('/my%20pics/my%20pic.png')
+    expect(imgs()[0].getAttribute('src')).toBe('/notes/my%20pics/my%20pic.png')
     expect(imgs()[0].getAttribute('alt')).toBe('the alt')
   })
 
@@ -91,6 +91,21 @@ describe('wikilink image embeds', () => {
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(0)
     expect(document.querySelector('.cm-content')!.textContent).toContain('![[some/note]]')
+  })
+
+  it('falls back to the vault root when the adjacent src errors', () => {
+    // Note lives at notes/today; `![[attachments/pic.png]]` must find the
+    // file whether attachments/ sits next to the note OR at the vault
+    // root — adjacent overshadows root when both exist.
+    const doc = 'intro\n\n![[attachments/pic.png]]\n'
+    mountWith(doc, 0)
+    const img = imgs()[0]
+    expect(img.getAttribute('src')).toBe('/notes/attachments/pic.png')
+    img.dispatchEvent(new Event('error'))
+    expect(img.getAttribute('src')).toBe('/attachments/pic.png')
+    // one-shot: a second error must not loop the fallback
+    img.dispatchEvent(new Event('error'))
+    expect(img.getAttribute('src')).toBe('/attachments/pic.png')
   })
 
   it('cursor touching the bang reveals the raw embed', () => {
