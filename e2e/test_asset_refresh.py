@@ -11,36 +11,18 @@ mask the bug behind HTTP revalidation), so this journey hops away and back
 through the quick switcher, never reloading the document.
 """
 
-import struct
-import zlib
-
 from selenium.webdriver import ActionChains, Keys
 
-from conftest import ROOT_ALIAS, seed_vault_file, type_text, wait_for, wait_until
+from conftest import (
+    ROOT_ALIAS,
+    make_png,
+    seed_vault_file,
+    type_text,
+    wait_for,
+    wait_until,
+)
 
 BASE = f"http://{ROOT_ALIAS}:8000"
-
-
-def make_png(width: int, height: int) -> bytes:
-    """Minimal valid RGBA PNG of the given dimensions, stdlib only — the
-    test tells old from new pixels by naturalWidth, not color."""
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(data))
-            + tag
-            + data
-            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-        )
-
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    raw = b"".join(b"\x00" + b"\xff\x00\x00\xff" * width for _ in range(height))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", ihdr)
-        + chunk(b"IDAT", zlib.compress(raw))
-        + chunk(b"IEND", b"")
-    )
 
 
 def _img_state(driver) -> dict | None:

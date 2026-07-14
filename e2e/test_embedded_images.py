@@ -1,23 +1,31 @@
-"""Embedded-image matrix: every supported `![alt](url)` path shape must
-actually decode in the browser, at a root mount AND under BASE_URL=/wiki.
+"""Embedded-image matrix: every supported embed shape must actually decode
+in the browser, at a root mount AND under BASE_URL=/wiki.
 
-Shapes (resolved against the note `embeds/note.md`, per the vault-relative
-resolution rule):
+Markdown `![alt](url)` shapes (resolved against the note `embeds/note.md`,
+per the vault-relative resolution rule):
   - sibling            pic.png                  -> embeds/pic.png
   - subdirectory       sub/pic2.png             -> embeds/sub/pic2.png
   - parent traversal   ../shared/pic.png        -> shared/pic.png
   - root-absolute      /abs/pic3.png            -> abs/pic3.png
   - encoded spaces     ../my%20pics/my%20pic.png -> "my pics/my pic.png"
+  - empty alt, standalone and inline mid-sentence
+
+Wikilink `![[target]]` embeds fetch ONE `/api/embed` URL; the SERVER
+resolves adjacent-to-note first, vault root second. The shadow case seeds
+the same target at both locations with different dimensions and requires
+the adjacent one to render.
 """
 
+from urllib.parse import quote
+
 import pytest
-from selenium.webdriver.common.by import By
 
 from conftest import (
     ROOT_ALIAS,
     SUBPATH_ALIAS,
     SUBPATH_PREFIX,
     TINY_PNG,
+    make_png,
     seed_vault_file,
     wait_for,
     wait_until,
@@ -59,41 +67,41 @@ EXPECTED = {
     "embeds/empty-alt.png": "/embeds/empty-alt.png",
     # inline mid-sentence, also empty alt
     "embeds/inline.png": "/embeds/inline.png",
-    # Obsidian-style wikilink embeds — targets resolve VAULT-ROOTED first
-    # (matches wikilink navigation semantics)...
-    "attachments-e2e/obsidian.png": "/attachments-e2e/obsidian.png",
-    "attachments-e2e/aliased.png": "/attachments-e2e/aliased.png",
-    # Wikilink-embed resolution: NOTE-RELATIVE first (adjacent overshadows
-    # root — user decision), vault root as the on-error fallback.
-    # near-note/ exists only next to the note → adjacent hit, no fallback:
-    "embeds/near-note/relative.png": "/embeds/near-note/relative.png",
-    # shadow/adj.png exists BOTH next to the note and at the vault root —
-    # the adjacent copy must be the one that renders:
-    "embeds/shadow/adj.png": "/embeds/shadow/adj.png",
 }
 
-# Seeded but deliberately NOT expected to render: the root-level twin of
-# the shadow case. If root ever wins again, the expected row above fails
-# (its loaded src would be /shadow/adj.png, which doesn't carry /embeds/).
-EXTRA_FILES = ("shadow/adj.png",)
+# wikilink-embed target -> required decoded naturalWidth (None = any > 0).
+# All are 1x1 except the shadow proof: the adjacent copy is 1x1 while its
+# root twin is 2x2, so width==1 proves adjacent overshadowed root.
+WIKILINK_EMBEDS = {
+    "attachments-e2e/obsidian.png": None,  # root-only -> server fallback
+    "attachments-e2e/aliased.png": None,  # root-only, alias form
+    "near-note/relative.png": None,  # adjacent-only (embeds/near-note/)
+    "shadow/adj.png": 1,  # exists at BOTH; adjacent must win
+}
 
 
 def _seed(app) -> None:
-    for vault_path in (*EXPECTED, *EXTRA_FILES):
+    for vault_path in EXPECTED:
         seed_vault_file(app, vault_path, TINY_PNG)
+    seed_vault_file(app, "attachments-e2e/obsidian.png", TINY_PNG)
+    seed_vault_file(app, "attachments-e2e/aliased.png", TINY_PNG)
+    seed_vault_file(app, "embeds/near-note/relative.png", TINY_PNG)
+    seed_vault_file(app, "embeds/shadow/adj.png", TINY_PNG)  # adjacent: 1x1
+    seed_vault_file(app, "shadow/adj.png", make_png(2, 2))  # root twin: 2x2
     seed_vault_file(app, "embeds/note.md", NOTE)
 
 
-def _loaded_srcs(driver) -> dict[str, bool]:
-    out: dict[str, bool] = {}
-    for img in driver.find_elements(By.CSS_SELECTOR, "img"):
-        src = img.get_attribute("src")
-        if not src:
-            continue
-        out[src] = driver.execute_script(
-            "return arguments[0].complete && arguments[0].naturalWidth > 0", img
-        )
-    return out
+def _img_states(driver) -> list[dict]:
+    return driver.execute_script(
+        """
+        return [...document.querySelectorAll('img')]
+          .filter(i => i.getAttribute('src'))
+          .map(i => ({
+            src: i.getAttribute('src'),
+            width: i.complete ? i.naturalWidth : 0,
+          }))
+        """
+    )
 
 
 @pytest.mark.parametrize("mount", ["root", "subpath"])
@@ -107,22 +115,41 @@ def test_all_embed_shapes_decode(driver, request, mount):
         prefix = SUBPATH_PREFIX
     _seed(app)
 
+    total = len(EXPECTED) + len(WIKILINK_EMBEDS)
     driver.get(f"{base}/embeds/note")
     wait_for(driver, ".cm-content")
     wait_until(
         driver,
-        lambda: (
-            len([ok for ok in _loaded_srcs(driver).values() if ok]) >= len(EXPECTED)
-        ),
+        lambda: len([s for s in _img_states(driver) if s["width"] > 0]) >= total,
         timeout=25,
     )
 
-    srcs = _loaded_srcs(driver)
+    states = _img_states(driver)
     for expected in EXPECTED.values():
         want = prefix + expected
-        matching = [s for s, ok in srcs.items() if s.endswith(want) and ok]
-        assert matching, f"no decoded <img> for {want}; got {srcs}"
-    # Nothing may escape the prefix under the sub-path mount.
+        matching = [s for s in states if s["src"].endswith(want) and s["width"] > 0]
+        assert matching, f"no decoded <img> for {want}; got {states}"
+
+    for target, want_width in WIKILINK_EMBEDS.items():
+        marker = "target=" + quote(target, safe="")
+        matching = [s for s in states if marker in s["src"] and s["width"] > 0]
+        assert matching, f"no decoded /api/embed <img> for {target}; got {states}"
+        assert f"{prefix}/api/embed?" in matching[0]["src"], matching[0]
+        if want_width is not None:
+            assert matching[0]["width"] == want_width, (
+                f"{target}: expected the ADJACENT copy (width {want_width}), "
+                f"got width {matching[0]['width']} — root overshadowed adjacent"
+            )
+
+    # Nothing may escape the prefix under the sub-path mount. src attributes
+    # are relative (`/wiki/...`); absolute forms must carry host + prefix.
     if prefix:
-        escaped = [s for s in srcs if f"//{SUBPATH_ALIAS}:8000{prefix}" not in s]
+        escaped = [
+            s["src"]
+            for s in states
+            if not (
+                s["src"].startswith(f"{prefix}/")
+                or f"//{SUBPATH_ALIAS}:8000{prefix}" in s["src"]
+            )
+        ]
         assert not escaped, f"embeds escaped the prefix: {escaped}"

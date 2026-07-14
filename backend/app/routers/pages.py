@@ -39,6 +39,42 @@ _PLACEHOLDER_SHELL = (
 )
 
 
+def asset_response(asset_path: Path) -> FileResponse:
+    """Serve vault-asset bytes with the standard protection headers. Shared
+    by the catch-all's sub-resource branch and `/api/embed` (assets router).
+
+    `Content-Security-Policy: sandbox` neutralizes scripts/forms in the
+    response itself, so a vault `.html` (or `.svg` opened top-level on a
+    browser that doesn't send Sec-Fetch-Dest) can't run same-origin JS.
+    `nosniff` stops content-type sniffing from upgrading a misdeclared
+    asset back to text/html. The frontend's iframe also sets
+    `sandbox="allow-same-origin"` — these are belt-and-suspenders.
+
+    `Cache-Control: no-cache` forces the browser to revalidate before
+    reusing a cached copy. Vault assets are mutable — deleted, replaced
+    at the same path (upload overwrites), or rewritten by an external
+    tool (Syncthing/Obsidian) — and Starlette's FileResponse sets an
+    etag/last-modified but does no conditional-GET handling, so without
+    this the browser would heuristically cache and keep serving a stale
+    (or deleted) asset. "no-cache" still allows storage, just not reuse
+    without a round-trip, so the fetch after a delete correctly 404s.
+
+    `CSP: sandbox` only where it buys protection: types that can execute
+    script in the SPA's origin (the vault takes external writes, so a
+    synced .html/.svg is the XSS vector). Everything else gets
+    browser-default handling — a blanket sandbox would block the PDF
+    viewer plugin outright and silently swallow the download fallback for
+    non-renderable types (blank page instead of a save). Mirrors
+    SCRIPTABLE_EXTS in the frontend's lib/asset-kind.ts."""
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-cache",
+    }
+    if asset_path.suffix.lower() in _SCRIPTABLE_SUFFIXES:
+        headers["Content-Security-Policy"] = "sandbox"
+    return FileResponse(asset_path, headers=headers)
+
+
 def _prefix_shell(shell: str, base_url: str) -> str:
     """Sub-path containment, serve-time half. When BASE_URL is set, rewrite
     the shell's root-rooted `src`/`href` attributes (the hashed bundle files,
@@ -139,37 +175,7 @@ def page_or_asset(full_path: str, request: Request):
     if dest == "document":
         return _shell_response()
     if asset_exists:
-        # `Content-Security-Policy: sandbox` neutralizes scripts/forms in the
-        # response itself, so a vault `.html` (or `.svg` opened top-level on a
-        # browser that doesn't send Sec-Fetch-Dest) can't run same-origin JS.
-        # `nosniff` stops content-type sniffing from upgrading a misdeclared
-        # asset back to text/html. The frontend's iframe also sets
-        # `sandbox="allow-same-origin"` — these are belt-and-suspenders.
-        #
-        # `Cache-Control: no-cache` forces the browser to revalidate before
-        # reusing a cached copy. Vault assets are mutable — deleted, replaced
-        # at the same path (upload overwrites), or rewritten by an external
-        # tool (Syncthing/Obsidian) — and Starlette's FileResponse sets an
-        # etag/last-modified but does no conditional-GET handling, so without
-        # this the browser would heuristically cache and keep serving a stale
-        # (or deleted) asset. "no-cache" still allows storage, just not reuse
-        # without a round-trip, so the fetch after a delete correctly 404s.
-        headers = {
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-cache",
-        }
-        # `CSP: sandbox` only where it buys protection: types that can
-        # execute script in the SPA's origin (the vault takes external
-        # writes, so a synced .html/.svg is the XSS vector). Everything else
-        # gets browser-default handling — a blanket sandbox would block the
-        # PDF viewer plugin outright and silently swallow the download
-        # fallback for non-renderable types (blank page instead of a save).
-        # `nosniff` (always sent) pins the declared content-type, so a
-        # misnamed file can't be sniffed back up to text/html. Mirrors
-        # SCRIPTABLE_EXTS in the frontend's lib/asset-kind.ts.
-        if asset_path.suffix.lower() in _SCRIPTABLE_SUFFIXES:
-            headers["Content-Security-Policy"] = "sandbox"
-        return FileResponse(asset_path, headers=headers)
+        return asset_response(asset_path)
     # No Fetch Metadata at all — browsers only send `Sec-Fetch-*` to
     # potentially trustworthy origins (https / localhost), so a plain-HTTP
     # LAN browser lands here for every missing path. A top-level navigation

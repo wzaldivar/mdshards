@@ -56,6 +56,78 @@ def test_missing_path_doc_nav_serves_spa_shell(client) -> None:
     assert '<div id="app"></div>' in r.text
 
 
+# ---- /api/embed — wikilink image-embed resolution ----
+#
+# ONE request from the browser; the server resolves the `![[target]]`
+# against two candidate locations with fixed priority: adjacent to the
+# embedding note first, vault root second.
+
+
+def test_embed_adjacent_overshadows_root(client) -> None:
+    c, vault = client
+    (vault / "notes" / "attachments").mkdir(parents=True)
+    (vault / "attachments").mkdir()
+    (vault / "notes" / "attachments" / "pic.png").write_bytes(b"ADJACENT")
+    (vault / "attachments" / "pic.png").write_bytes(b"ROOT")
+    r = c.get("/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"})
+    assert r.status_code == 200
+    assert r.content == b"ADJACENT"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_embed_falls_back_to_vault_root(client) -> None:
+    c, vault = client
+    (vault / "attachments").mkdir()
+    (vault / "attachments" / "pic.png").write_bytes(b"ROOT")
+    r = c.get("/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"})
+    assert r.status_code == 200
+    assert r.content == b"ROOT"
+
+
+def test_embed_root_note_resolves_from_root(client) -> None:
+    c, vault = client
+    (vault / "pic.png").write_bytes(b"ROOT")
+    r = c.get("/api/embed", params={"note": "index", "target": "pic.png"})
+    assert r.status_code == 200
+    assert r.content == b"ROOT"
+
+
+def test_embed_missing_both_locations_404s(client) -> None:
+    c, _ = client
+    r = c.get("/api/embed", params={"note": "notes/today", "target": "nope.png"})
+    assert r.status_code == 404
+
+
+def test_embed_dotdot_stays_inside_vault(client) -> None:
+    """`..` inside a target is fine while the result stays in the vault
+    (Obsidian's relative link format writes them); escaping candidates are
+    skipped, and a fully-escaping target is refused outright."""
+    c, vault = client
+    (vault / "shared").mkdir()
+    (vault / "shared" / "pic.png").write_bytes(b"SHARED")
+    r = c.get("/api/embed", params={"note": "notes/today", "target": "../shared/pic.png"})
+    assert r.status_code == 200
+    assert r.content == b"SHARED"
+    r = c.get("/api/embed", params={"note": "index", "target": "../../etc/passwd"})
+    assert r.status_code == 400
+
+
+def test_embed_refuses_md_targets(client) -> None:
+    c, vault = client
+    (vault / "secret.md").write_text("note bytes")
+    r = c.get("/api/embed", params={"note": "index", "target": "secret.md"})
+    assert r.status_code == 400
+
+
+def test_embed_scriptable_suffix_gets_csp_sandbox(client) -> None:
+    c, vault = client
+    (vault / "img.svg").write_text("<svg/>")
+    r = c.get("/api/embed", params={"note": "index", "target": "img.svg"})
+    assert r.status_code == 200
+    assert r.headers["content-security-policy"] == "sandbox"
+
+
 # ---- sub-path containment (BASE_URL shell rewrite) ----
 #
 # With BASE_URL set the served shell must be fully self-contained under the
