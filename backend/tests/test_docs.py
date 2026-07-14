@@ -80,6 +80,67 @@ async def test_eviction_persists_and_drops(tmp_path: Path) -> None:
         await mgr.shutdown()
 
 
+# ---- external-writer + rename edges (the data-loss-adjacent paths) ----
+
+
+@pytest.mark.asyncio
+async def test_reconcile_external_noops_when_file_vanished(tmp_path: Path) -> None:
+    """A watcher event for a file deleted between event and handling must not
+    touch the live doc — the delete/rename flows own that transition."""
+    (tmp_path / "foo.md").write_text("alive")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        (tmp_path / "foo.md").unlink()
+        await mgr.reconcile_external(tmp_path / "foo.md")
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == "alive"
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_external_adopts_baseline_when_already_in_sync(tmp_path: Path) -> None:
+    """Disk content equal to the live text (a self-write whose baseline update
+    raced the watcher event) records the baseline and changes nothing."""
+    (tmp_path / "foo.md").write_text("same text")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        state.last_disk_content = "stale baseline"
+        await mgr.reconcile_external(tmp_path / "foo.md")
+        assert state.last_disk_content == "same text"
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == "same text"
+        assert not list(tmp_path.glob("*sync-conflict*"))
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_rename_moves_the_binary_cache(tmp_path: Path) -> None:
+    """rename() must carry the .yjs cache to the destination so re-acquires
+    preserve CRDT item IDs across the move."""
+    (tmp_path / "foo.md").write_text("content")
+    mgr = _mgr(tmp_path)
+    try:
+        a = await mgr.acquire("foo")
+        a.doc.get(TEXT_KEY, type=Text).__iadd__("!")
+        await mgr.release("foo")
+    finally:
+        await mgr.shutdown()
+
+    mgr2 = _mgr(tmp_path)
+    try:
+        cache_root = tmp_path / "_yjs_cache_"
+        assert list(cache_root.rglob("foo.md.yjs")), "precondition: cache exists"
+        await mgr2.rename("foo", "sub/bar")
+        assert not list(cache_root.rglob("foo.md.yjs"))
+        assert list(cache_root.rglob("bar.md.yjs"))
+        # a rename with no cache behind it is a clean no-op
+        await mgr2.rename("never-loaded", "elsewhere")
+    finally:
+        await mgr2.shutdown()
+
+
 # ---- flush resilience ----
 #
 # A permissions problem on a mount must never become SILENT write loss:
@@ -174,6 +235,33 @@ async def test_unreadable_cache_degrades_to_fresh_disk_load(tmp_path: Path, monk
     finally:
         monkeypatch.setattr(Path, "read_bytes", real_read_bytes)
         await mgr2.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_teardown_survives_a_failing_final_flush(tmp_path: Path, monkeypatch, caplog) -> None:
+    """The final flush at eviction/shutdown is best-effort: one bad doc must
+    not abort the shutdown loop (dropping OTHER docs' final flushes) — it
+    logs and moves on."""
+    from app import docs as docs_module
+
+    mgr = _mgr(tmp_path)
+    a = await mgr.acquire("doomed")
+    a.doc.get(TEXT_KEY, type=Text).__iadd__("unflushable")
+    b = await mgr.acquire("healthy")
+    b.doc.get(TEXT_KEY, type=Text).__iadd__("flushable")
+
+    real_write = docs_module.write_md_atomic
+
+    def _selective(path, *args, **kwargs):
+        if path.name == "doomed.md":
+            raise PermissionError("mount went read-only")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(docs_module, "write_md_atomic", _selective)
+    with caplog.at_level("ERROR", logger="mdshards.docs"):
+        await mgr.shutdown()  # must not raise
+    assert (tmp_path / "healthy.md").read_text() == "flushable"
+    assert any("final flush" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

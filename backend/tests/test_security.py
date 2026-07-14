@@ -266,6 +266,38 @@ def test_unprefixed_api_still_classified_under_base_url(prefixed_bare_client) ->
     assert c.get("/api/tree", headers={"sec-fetch-site": "same-origin"}).status_code == 200
 
 
+# ---- malformed / degenerate browser headers ----
+
+
+def test_malformed_origin_is_blocked(client) -> None:
+    """An Origin that urlparse can't digest must fail closed, not crash."""
+    c, vault = client
+    r = c.post(
+        "/api/files",
+        json={"path": "evil"},
+        headers={"origin": "http://["},
+    )
+    assert r.status_code == 403
+    assert not (vault / "evil.md").exists()
+
+
+def test_null_origin_is_blocked(client) -> None:
+    """`Origin: null` (sandboxed iframe / data: URL attacker) has no netloc
+    and never matches our Host."""
+    c, vault = client
+    r = c.post("/api/files", json={"path": "evil"}, headers={"origin": "null"})
+    assert r.status_code == 403
+    assert not (vault / "evil.md").exists()
+
+
+def test_cross_site_post_to_static_path_is_blocked(client) -> None:
+    """The loose static-path gate still rejects state-changing requests that
+    Sec-Fetch-Site explicitly tags as cross-site."""
+    c, _ = client
+    r = c.post("/whatever", headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+
+
 # ---- WebSocket ----
 
 
