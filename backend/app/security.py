@@ -59,6 +59,22 @@ def _is_api_or_ws(path: str) -> bool:
     return path in ("/api", "/ws") or path.startswith("/api/") or path.startswith("/ws/")
 
 
+def _route_path(scope: Scope) -> str:
+    """The request path with the ASGI `root_path` (BASE_URL) prefix removed.
+
+    Under a sub-path mount the ASGI spec says `path` INCLUDES `root_path` —
+    Starlette strips it during routing, so `/notes/api/tree` reaches the
+    `/api/tree` route when BASE_URL=/notes. The guard must classify on the
+    same stripped form or a prefixed API request would fall into the loose
+    static-path gate and bypass the /api fingerprint check. Origin-rooted
+    (unprefixed) paths pass through unchanged, so both proxy styles work."""
+    path = scope.get("path", "")
+    root_path = scope.get("root_path", "")
+    if root_path and (path == root_path or path.startswith(root_path + "/")):
+        return path[len(root_path) :] or "/"
+    return path
+
+
 def _header(headers: Iterable[tuple[bytes, bytes]], name: bytes) -> str | None:
     needle = name.lower()
     for k, v in headers:
@@ -189,7 +205,7 @@ class OriginGuard:
             await self.app(scope, receive, send)
 
     async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
-        path = scope.get("path", "")
+        path = _route_path(scope)
         method = scope.get("method", "GET").upper()
         # /api/* and /ws/* are the surfaces the bundle calls. Require a
         # browser fingerprint on every method, including GET — that's what

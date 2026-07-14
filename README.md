@@ -172,7 +172,32 @@ better one to have.
 Set `BASE_URL=/wiki` on the **backend** (env var). It's wired into FastAPI's
 `root_path` and surfaced to the bundle as `homePath` via `/api/config`, which the
 SPA uses as its React Router basename. The frontend never learns the prefix at
-build time. The origin guard accepts same-origin API/WS calls by matching the
+build time.
+
+The proxy contract is **forward prefixed, never strip**: per ASGI `root_path`
+semantics the backend expects `/wiki/...` paths and strips the prefix itself.
+The bundle's own fetches are origin-rooted (`/api/*`, `/ws/*`, `/assets/*`,
+`/favicon.svg`, vault assets) — the proxy must route those to the backend
+too, **adding** the prefix. Verified Traefik shape (single-container image):
+
+```yaml
+labels:
+  - traefik.http.services.mdshards.loadbalancer.server.port=8000
+  # pages — forwarded with the /wiki prefix intact
+  - traefik.http.routers.mdshards-pages.rule=PathPrefix(`/wiki`)
+  # origin-rooted bundle fetches — prefix ADDED before forwarding
+  - traefik.http.routers.mdshards-app.rule=PathPrefix(`/api`) || PathPrefix(`/ws`) || PathPrefix(`/assets`) || Path(`/favicon.svg`)
+  - traefik.http.routers.mdshards-app.middlewares=mdshards-addprefix
+  - traefik.http.middlewares.mdshards-addprefix.addprefix.prefix=/wiki
+  # vault assets embedded in notes are origin-rooted too — catch-all,
+  # lowest priority; omit if other services share this origin (in-note
+  # embeds then 404, the rest of the app is unaffected)
+  - traefik.http.routers.mdshards-root.rule=PathPrefix(`/`)
+  - traefik.http.routers.mdshards-root.priority=1
+  - traefik.http.routers.mdshards-root.middlewares=mdshards-addprefix
+```
+
+The origin guard accepts same-origin API/WS calls by matching the
 browser's `Origin` (or, on plain-HTTP LAN origins where browsers omit all
 `Sec-Fetch-*` headers, the `Referer`) against the request's `Host` header
 (scheme-agnostic, so a TLS-terminating proxy just works) — make sure the proxy

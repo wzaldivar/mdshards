@@ -203,6 +203,69 @@ def test_bare_get_on_static_path_still_works(bare_client) -> None:
     assert c.get("/").status_code == 200
 
 
+# ---- HTTP: sub-path mount (BASE_URL) ----
+#
+# Under a sub-path mount the ASGI spec says `path` INCLUDES `root_path`
+# (Starlette strips it during routing), so a proxy following that contract
+# forwards `/notes/api/tree` for BASE_URL=/notes. The guard must classify
+# that as an API path — matching on the raw path would drop it into the
+# loose static-path gate and let bare curl read (and mutate) the API.
+
+
+@pytest.fixture
+def prefixed_bare_client(vault, monkeypatch):
+    """bare_client variant with BASE_URL=/notes — requests arrive with the
+    sub-path prefix, per ASGI root_path semantics."""
+    monkeypatch.setenv("BASE_URL", "/notes")
+    from app import config
+
+    config.get_settings.cache_clear()
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    with TestClient(create_app()) as c:
+        yield c, vault
+    config.get_settings.cache_clear()
+
+
+def test_prefixed_bare_get_on_api_is_blocked(prefixed_bare_client) -> None:
+    """Regression: `/notes/api/tree` with no browser fingerprint must 403 —
+    the guard used to classify on the raw path, see the prefix, and wave the
+    request through the static-path gate."""
+    c, _ = prefixed_bare_client
+    assert c.get("/notes/api/tree").status_code == 403
+
+
+def test_prefixed_bare_post_on_api_is_blocked(prefixed_bare_client) -> None:
+    c, vault = prefixed_bare_client
+    r = c.post("/notes/api/files", json={"path": "curl_bypass"})
+    assert r.status_code == 403
+    assert not (vault / "curl_bypass.md").exists()
+
+
+def test_prefixed_browser_get_on_api_passes(prefixed_bare_client) -> None:
+    c, _ = prefixed_bare_client
+    r = c.get("/notes/api/tree", headers={"sec-fetch-site": "same-origin"})
+    assert r.status_code == 200
+
+
+def test_prefixed_lan_http_get_with_referer_passes(prefixed_bare_client) -> None:
+    """The two fallbacks compose: prefixed path + no Sec-Fetch-* (plain-HTTP
+    LAN behind a prefix-preserving proxy like Traefik) + matching Referer."""
+    c, _ = prefixed_bare_client
+    r = c.get("/notes/api/tree", headers={"referer": "http://testserver/notes/"})
+    assert r.status_code == 200
+
+
+def test_unprefixed_api_still_classified_under_base_url(prefixed_bare_client) -> None:
+    """A proxy that strips the prefix (or routes origin-rooted /api straight
+    through) sends unprefixed paths; those must keep the strict gate too."""
+    c, _ = prefixed_bare_client
+    assert c.get("/api/tree").status_code == 403
+    assert c.get("/api/tree", headers={"sec-fetch-site": "same-origin"}).status_code == 200
+
+
 # ---- WebSocket ----
 
 
