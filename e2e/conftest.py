@@ -207,16 +207,20 @@ def wait_vault_file(
 
 def seed_vault_file(container: DockerContainer, rel_path: str, content: bytes) -> None:
     """Write a file into the vault as an EXTERNAL writer (the Syncthing/
-    Obsidian role) — base64 through exec to survive arbitrary bytes."""
+    Obsidian role) — base64 through exec to survive arbitrary bytes, paths
+    shell-quoted so vault names with spaces work."""
     import base64
+    import shlex
 
     b64 = base64.b64encode(content).decode()
-    parent = f"/data/vault/{rel_path}".rsplit("/", 1)[0]
+    full = f"/data/vault/{rel_path}"
+    parent = full.rsplit("/", 1)[0]
     code, output = container.exec(
         [
             "sh",
             "-c",
-            f"mkdir -p {parent} && echo {b64} | base64 -d > /data/vault/{rel_path}",
+            f"mkdir -p {shlex.quote(parent)} && "
+            f"echo {b64} | base64 -d > {shlex.quote(full)}",
         ]
     )
     assert code == 0, output.decode()
