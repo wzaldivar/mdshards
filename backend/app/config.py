@@ -36,17 +36,15 @@ class Settings(BaseSettings):
     # sub-path of the public origin (e.g. `https://notes.example.com/wiki/`),
     # set `BASE_URL=/wiki`. Wired into FastAPI's `root_path`, which per the
     # ASGI spec means incoming `path`s INCLUDE the prefix and the app strips
-    # it itself — so the proxy must forward `/wiki/...` UNSTRIPPED. Routes
-    # tolerate the unprefixed form too, but the `/assets` static mount does
-    # not: the proxy must ADD the prefix to the origin-rooted URLs the
-    # bundle fetches (`/api/*`, `/ws/*`, `/assets/*`, `/favicon.svg`, vault
-    # assets) — e.g. Traefik's `addprefix` middleware; see README
-    # "Serving from a sub-path". Leading slash, no trailing slash. Empty
-    # string = mounted at root. Surfaced to the frontend bundle via
-    # `/api/config`'s `homePath` field — the frontend uses it solely as
-    # React Router's `basename` so internal pushState navigation lands at
-    # the right URL bar value; outgoing API/WS/asset URLs are NOT prefixed
-    # by the client (the proxy is responsible for routing those).
+    # it itself — the proxy forwards `/wiki/...` UNSTRIPPED, and that single
+    # rule is the whole proxy contract: the app is fully contained under the
+    # prefix. The served shell is rewritten at serve time (pages.py::
+    # _prefix_shell) so the bundle refs live under it, and an injected
+    # `mdshards-home-path` meta makes the bundle prefix every runtime URL
+    # (/api, /ws, vault assets) itself — see frontend lib/backend.ts.
+    # Leading slash, no trailing slash. Empty string = mounted at root.
+    # Also surfaced via `/api/config`'s `homePath` field, which the frontend
+    # uses as React Router's `basename` for pushState navigation.
     base_url: str = ""
 
     @property

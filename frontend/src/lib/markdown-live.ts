@@ -818,7 +818,11 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       if (!href) return false
       event.preventDefault()
       event.stopPropagation()
-      window.open(href, '_blank', 'noopener,noreferrer')
+      // Root-absolute hrefs address the vault origin — route them through
+      // backendUrl so a sub-path mount's prefix is applied. Relative hrefs
+      // resolve against the current note URL, which already carries it.
+      const openHref = href.startsWith('/') && !href.startsWith('//') ? backendUrl(href) : href
+      window.open(openHref, '_blank', 'noopener,noreferrer')
       return true
     },
   })
