@@ -34,6 +34,25 @@ function pressShortcut(opts: { key: string; code?: string; shift?: boolean }) {
   })
 }
 
+/** Fire a shortcut and wait for its modal, RE-pressing on each poll. The
+ *  handler bag is re-bound in an effect keyed on the resolve result
+ *  ([docId, exists, currentIsMd]); a single press right after resolve settles
+ *  can land on a briefly-stale binding and be dropped, so one press isn't
+ *  reliable under load. Retrying until the placeholder appears closes that
+ *  race (and the plain findBy-timeout flake). Reopening an already-open modal
+ *  is idempotent. Returns the input so callers can go on to type into it. */
+async function openWithShortcut(
+  opts: { key: string; code?: string; shift?: boolean },
+  placeholder: RegExp,
+): Promise<HTMLElement> {
+  let el: HTMLElement | null = null
+  await waitFor(() => {
+    pressShortcut(opts)
+    el = screen.getByPlaceholderText(placeholder)
+  })
+  return el as unknown as HTMLElement
+}
+
 /** Wait for the useResolve hook's fetch to settle. The shortcut handlers that
  *  guard on file existence (delete, rename) won't fire until this completes.
  *  Three "ready" signals cover the three branches: CodeMirror's own
@@ -90,22 +109,21 @@ describe('EditorView shortcuts on an asset URL', () => {
   it('Cmd-K opens the quick switcher', async () => {
     renderAt('/my/photo.jpeg')
     await waitForResolve()
-    pressShortcut({ key: 'k' })
-    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'k' }, /go to or create/i)).toBeDefined()
   })
 
   it('Cmd-Backspace opens the delete switcher', async () => {
     renderAt('/my/photo.jpeg')
     await waitForResolve()
-    pressShortcut({ key: 'Backspace', code: 'Backspace' })
-    expect(await screen.findByPlaceholderText(/pick a file to delete/i)).toBeDefined()
+    expect(
+      await openWithShortcut({ key: 'Backspace', code: 'Backspace' }, /pick a file to delete/i),
+    ).toBeDefined()
   })
 
   it('Cmd-Shift-K opens the rename switcher', async () => {
     renderAt('/my/photo.jpeg')
     await waitForResolve()
-    pressShortcut({ key: 'K', shift: true })
-    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'K', shift: true }, /rename to/i)).toBeDefined()
   })
 
   it('Cmd-U triggers the hidden file picker', async () => {
@@ -143,15 +161,13 @@ describe('EditorView shortcuts on a markdown URL', () => {
   it('Cmd-E opens the emoji picker', async () => {
     renderAt('/note')
     await waitForResolve()
-    pressShortcut({ key: 'e' })
-    expect(await screen.findByPlaceholderText(/insert emoji/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'e' }, /insert emoji/i)).toBeDefined()
   })
 
   it('Cmd-K opens the quick switcher', async () => {
     renderAt('/notes/today')
     await waitForResolve()
-    pressShortcut({ key: 'k' })
-    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'k' }, /go to or create/i)).toBeDefined()
   })
 
   it('Cmd-Shift-K does NOT open rename on the root index', async () => {
@@ -164,15 +180,13 @@ describe('EditorView shortcuts on a markdown URL', () => {
   it('Cmd-Shift-K opens rename on a non-root note', async () => {
     renderAt('/notes/today')
     await waitForResolve()
-    pressShortcut({ key: 'K', shift: true })
-    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'K', shift: true }, /rename to/i)).toBeDefined()
   })
 
   it('Cmd-Shift-K opens rename on a dotty md URL (no false-asset routing)', async () => {
     renderAt('/notes/my.weekly')
     await waitForResolve()
-    pressShortcut({ key: 'K', shift: true })
-    expect(await screen.findByPlaceholderText(/rename to/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'K', shift: true }, /rename to/i)).toBeDefined()
   })
 
   it('selecting a file on the hidden picker opens the modal with a prefilled path (spaces kept)', async () => {
@@ -247,8 +261,7 @@ describe('QuickSwitcher force-create', () => {
   async function openSwitcherAndType(text: string): Promise<HTMLInputElement> {
     renderAt('/notes/today')
     await waitForResolve()
-    pressShortcut({ key: 'k' })
-    const input = (await screen.findByPlaceholderText(/go to or create/i)) as HTMLInputElement
+    const input = (await openWithShortcut({ key: 'k' }, /go to or create/i)) as HTMLInputElement
     fireEvent.change(input, { target: { value: text } })
     // Wait for the tree fetch to settle so matches are populated.
     await waitFor(() => {
@@ -357,8 +370,7 @@ describe('EditorView shortcuts on a missing URL', () => {
   it('Cmd-K still opens the quick switcher (so the user can navigate away)', async () => {
     renderAt('/no/such/page')
     await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
-    pressShortcut({ key: 'k' })
-    expect(await screen.findByPlaceholderText(/go to or create/i)).toBeDefined()
+    expect(await openWithShortcut({ key: 'k' }, /go to or create/i)).toBeDefined()
   })
 
   it('Cmd-U still triggers the file picker', async () => {
