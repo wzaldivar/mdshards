@@ -34,11 +34,15 @@ class Settings(BaseSettings):
     port: int = 8000
     # Reverse-proxy / sub-path mount support. When the app is served from a
     # sub-path of the public origin (e.g. `https://notes.example.com/wiki/`),
-    # set `BASE_URL=/wiki`. Wired into FastAPI's `root_path` for OpenAPI doc
-    # URLs and `request.url_for(...)`. The proxy is still responsible for
-    # stripping the prefix before forwarding to this process (standard
-    # nginx/Caddy/Traefik behavior). Leading slash, no trailing slash.
-    # Empty string = mounted at root. Surfaced to the frontend bundle via
+    # set `BASE_URL=/wiki`. Wired into FastAPI's `root_path`, which per the
+    # ASGI spec means incoming `path`s INCLUDE the prefix and the app strips
+    # it itself — so the proxy must forward `/wiki/...` UNSTRIPPED. Routes
+    # tolerate the unprefixed form too, but the `/assets` static mount does
+    # not: the proxy must ADD the prefix to the origin-rooted URLs the
+    # bundle fetches (`/api/*`, `/ws/*`, `/assets/*`, `/favicon.svg`, vault
+    # assets) — e.g. Traefik's `addprefix` middleware; see README
+    # "Serving from a sub-path". Leading slash, no trailing slash. Empty
+    # string = mounted at root. Surfaced to the frontend bundle via
     # `/api/config`'s `homePath` field — the frontend uses it solely as
     # React Router's `basename` so internal pushState navigation lands at
     # the right URL bar value; outgoing API/WS/asset URLs are NOT prefixed
