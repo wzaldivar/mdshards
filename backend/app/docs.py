@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import hashlib
+import logging
 import os
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -20,6 +21,8 @@ from pycrdt import Doc, Subscription, Text, create_update_message
 
 from .files import read_md, write_bytes_atomic, write_md_atomic
 from .vault import VaultPathError, assert_inside, resolve_md
+
+logger = logging.getLogger("mdshards.docs")
 
 FLUSH_QUIET_SECONDS = 0.5
 TEXT_KEY = "content"
@@ -131,12 +134,26 @@ class DocumentManager:
 
         doc = Doc()
         authoritative: str
+        cached_update: bytes | None = None
         if cache_path.exists():
+            try:
+                cached_update = cache_path.read_bytes()
+            except OSError:
+                # Unreadable cache (mount permissions) — the cache is an
+                # optimization, so degrade to a fresh disk load instead of
+                # refusing to open the note at all.
+                logger.warning(
+                    "CRDT cache unreadable at %s — loading %s fresh from disk",
+                    cache_path,
+                    disk_path,
+                    exc_info=True,
+                )
+        if cached_update is not None:
             # Restore the prior CRDT state with all its original item IDs so
             # clients still holding a Y.Doc from before can sync against the
             # SAME items rather than getting "the same text again" as fresh
             # inserts (which would duplicate on merge).
-            doc.apply_update(cache_path.read_bytes())
+            doc.apply_update(cached_update)
             authoritative = str(doc.get(TEXT_KEY, type=Text))
             if disk_path.exists() and disk_content != authoritative:
                 # External writer touched the file while the cache was the
@@ -165,13 +182,26 @@ class DocumentManager:
 
     async def _flush_loop(self, state: _DocState) -> None:
         # Cancelled at teardown; CancelledError propagates on its own (no
-        # cleanup needed), so there's no try/except to wrap the loop in.
+        # cleanup needed). A failing flush (unwritable vault mount, disk
+        # full…) must NOT kill this task: an unretrieved task exception is
+        # never even logged while the task object stays referenced, which
+        # turns a permissions problem into silent, total write loss behind a
+        # healthy-looking editor. Log it loudly and keep the loop alive — the
+        # next edit re-arms flush_pending and retries.
         while True:
             await state.flush_pending.wait()
             while state.flush_pending.is_set():
                 state.flush_pending.clear()
                 await asyncio.sleep(FLUSH_QUIET_SECONDS)
-            self._flush(state)
+            try:
+                self._flush(state)
+            except Exception:
+                logger.exception(
+                    "flush of %s FAILED — the vault did not receive this "
+                    "change; will retry on the next edit. Check mount "
+                    "ownership/permissions (UID/GID envs).",
+                    state.disk_path,
+                )
 
     def _flush(self, state: _DocState) -> None:
         # Synchronous by design: it reads `state.doc` (pycrdt Docs are only
@@ -185,11 +215,23 @@ class DocumentManager:
         write_md_atomic(state.disk_path, content, self._vault_dir)
         # Persist the binary CRDT state so the next load can rehydrate items
         # with their original IDs instead of generating new ones from text.
-        write_bytes_atomic(
-            self._cache_path(state.disk_path),
-            state.doc.get_update(b"\x00"),
-            self._cache_root,
-        )
+        # The cache is an optimization, never load-bearing — a failure here
+        # (unwritable CACHE_DIR mount) must not undo the vault write above or
+        # poison the flush loop, so it degrades to a warning.
+        try:
+            write_bytes_atomic(
+                self._cache_path(state.disk_path),
+                state.doc.get_update(b"\x00"),
+                self._cache_root,
+            )
+        except OSError:
+            logger.warning(
+                "CRDT cache write failed under %s — the vault write "
+                "succeeded; reconnects fall back to fresh loads. Check the "
+                "cache mount's ownership/permissions.",
+                self._cache_root,
+                exc_info=True,
+            )
         state.last_disk_content = content
 
     async def reconcile_external(self, disk_path: Path) -> None:
@@ -397,7 +439,13 @@ class DocumentManager:
             state.flush_task.cancel()
             with suppress(asyncio.CancelledError):
                 await state.flush_task
-        self._flush(state)
+        try:
+            self._flush(state)
+        except Exception:
+            # The final flush is best-effort: raising here would abort
+            # eviction (leaking the doc) or cut a shutdown loop short,
+            # dropping OTHER docs' final flushes with it.
+            logger.exception("final flush of %s failed at teardown", state.disk_path)
 
     async def shutdown(self) -> None:
         async with self._lock:
