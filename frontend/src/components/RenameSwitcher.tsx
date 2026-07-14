@@ -1,9 +1,9 @@
 import { backendUrl } from '../lib/backend'
-import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { pendingRenames } from '../lib/pending-rename'
+import { SwitcherShell } from './SwitcherShell'
 import styles from './RenameSwitcher.module.css'
 
 interface Props {
@@ -100,32 +100,25 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
   if (!open) return null
 
   return (
-    <div className={styles.backdrop}>
-      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
-      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal}>
-        <input
-          ref={inputRef}
-          value={target}
-          onChange={(e) => {
-            setTarget(e.target.value)
-            // Editing the target withdraws a pending convert confirmation.
-            if (confirmingConvert) {
-              setConfirmingConvert(false)
-              setError(null)
-            }
-          }}
-          onKeyDown={onKeyDown}
-          type="text"
-          className={styles.input}
-          placeholder="Rename to…"
-          {...NO_AUTOFILL}
-        />
-        <div className={styles.hint}>
-          Renaming <code>{currentDocId}</code>
-        </div>
-        {error && <div className={styles.error}>{error}</div>}
+    <SwitcherShell
+      inputRef={inputRef}
+      value={target}
+      onChange={(e) => {
+        setTarget(e.target.value)
+        // Editing the target withdraws a pending convert confirmation.
+        if (confirmingConvert) {
+          setConfirmingConvert(false)
+          setError(null)
+        }
+      }}
+      onKeyDown={onKeyDown}
+      placeholder="Rename to…"
+      onClose={onClose}
+    >
+      <div className={styles.hint}>
+        Renaming <code>{currentDocId}</code>
       </div>
-    </div>
+      {error && <div className={styles.error}>{error}</div>}
+    </SwitcherShell>
   )
 }

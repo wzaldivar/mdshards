@@ -1,10 +1,10 @@
 import { backendUrl } from '../lib/backend'
-import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { isViewableAsset } from '../lib/asset-kind'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { finalizeUploadPath } from '../lib/upload-path'
+import { SwitcherShell } from './SwitcherShell'
 import styles from './UploadSwitcher.module.css'
 
 interface Props {
@@ -162,45 +162,42 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Rea
   if (!open) return null
 
   return (
-    <div className={styles.backdrop}>
-      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
-      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal}>
-        <button type="button" className={styles.fileButton} onClick={pickFile}>
-          {file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : 'Choose a file…'}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className={styles.fileInputHidden}
-          onChange={onFileChange}
-        />
-        <input
-          ref={inputRef}
-          value={target}
-          onChange={(e) => {
-            setTarget(e.target.value)
-            // Editing the path is the "rename" answer to a collision prompt;
-            // the overwrite offer applies only to the exact path it named.
-            if (collidingPath !== null) {
-              setCollidingPath(null)
-              setError(null)
-            }
-          }}
-          onKeyDown={onKeyDown}
-          type="text"
-          className={styles.input}
-          placeholder="Upload to vault path…"
-          {...NO_AUTOFILL}
-        />
-        {previewPath && (
-          <div className={styles.hint}>
-            Will save to <code>{previewPath}</code>
-          </div>
-        )}
-        {busy && <div className={styles.hint}>Uploading…</div>}
-        {error && <div className={styles.error}>{error}</div>}
-      </div>
-    </div>
+    <SwitcherShell
+      inputRef={inputRef}
+      value={target}
+      onChange={(e) => {
+        setTarget(e.target.value)
+        // Editing the path is the "rename" answer to a collision prompt;
+        // the overwrite offer applies only to the exact path it named.
+        if (collidingPath !== null) {
+          setCollidingPath(null)
+          setError(null)
+        }
+      }}
+      onKeyDown={onKeyDown}
+      placeholder="Upload to vault path…"
+      onClose={onClose}
+      beforeInput={
+        <>
+          <button type="button" className={styles.fileButton} onClick={pickFile}>
+            {file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : 'Choose a file…'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className={styles.fileInputHidden}
+            onChange={onFileChange}
+          />
+        </>
+      }
+    >
+      {previewPath && (
+        <div className={styles.hint}>
+          Will save to <code>{previewPath}</code>
+        </div>
+      )}
+      {busy && <div className={styles.hint}>Uploading…</div>}
+      {error && <div className={styles.error}>{error}</div>}
+    </SwitcherShell>
   )
 }

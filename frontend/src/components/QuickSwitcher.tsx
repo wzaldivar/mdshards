@@ -1,9 +1,10 @@
 import { backendUrl } from '../lib/backend'
-import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
+import { useListNavigation } from '../lib/use-list-navigation'
+import { SwitcherShell } from './SwitcherShell'
 import styles from './QuickSwitcher.module.css'
 
 interface Props {
@@ -28,7 +29,6 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
   const [query, setQuery] = useState('')
   const [allPaths, setAllPaths] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -82,24 +82,6 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
     return list
   }, [query, allPaths, currentDocId])
 
-  // Move the highlight to the first BEST match as the user types (exact
-  // beats prefix beats substring), so Enter confirms what they meant without
-  // arrowing past the pinned `/` row. With no match — or an empty query —
-  // fall back to the top row.
-  useEffect(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) {
-      setSelectedIndex(0)
-      return
-    }
-    const forms = (p: string) => [p.toLowerCase(), displayPath(p).toLowerCase()]
-    const byExact = matches.findIndex((p) => forms(p).includes(q))
-    const byPrefix = matches.findIndex((p) => forms(p).some((f) => f.startsWith(q)))
-    const bySubstring = matches.findIndex((p) => forms(p).some((f) => f.includes(q)))
-    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
-    setSelectedIndex(best ?? 0)
-  }, [query, matches])
-
   // Existence must be checked against EVERY vault file, not the displayed
   // list — `matches` hides the currently-open file, so a display-based check
   // would offer Shift-Enter "create" for paths that already exist and 409 on
@@ -150,23 +132,10 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
     onClose()
   }
 
-  function selectAndCommit(i: number): void {
-    setSelectedIndex(i)
-    const target = matches[i]
-    if (target) void commit(target)
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Escape') {
-      onClose()
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.min(matches.length - 1, i + 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.max(0, i - 1))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
+  const { selectedIndex, setSelectedIndex, onKeyDown } = useListNavigation({
+    count: matches.length,
+    onClose,
+    onEnter: (i, e) => {
       if (e.shiftKey) {
         // Shift-Enter is the ONLY way to create. Force-create at the typed
         // text, ignoring whichever existing match is currently highlighted.
@@ -178,63 +147,77 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
         // commit() dismisses in place for the current file. Otherwise it's a
         // no-op and the user must press Shift-Enter to create.
         const trimmedQuery = query.trim()
-        const target =
-          matches[selectedIndex] ?? (allUrls.includes(trimmedQuery) ? trimmedQuery : undefined)
+        const target = matches[i] ?? (allUrls.includes(trimmedQuery) ? trimmedQuery : undefined)
         if (target) void commit(target)
       }
-    }
+    },
+  })
+
+  function selectAndCommit(i: number): void {
+    setSelectedIndex(i)
+    const target = matches[i]
+    if (target) void commit(target)
   }
+
+  // Move the highlight to the first BEST match as the user types (exact
+  // beats prefix beats substring), so Enter confirms what they meant without
+  // arrowing past the pinned `/` row. With no match — or an empty query —
+  // fall back to the top row.
+  useEffect(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      setSelectedIndex(0)
+      return
+    }
+    const forms = (p: string) => [p.toLowerCase(), displayPath(p).toLowerCase()]
+    const byExact = matches.findIndex((p) => forms(p).includes(q))
+    const byPrefix = matches.findIndex((p) => forms(p).some((f) => f.startsWith(q)))
+    const bySubstring = matches.findIndex((p) => forms(p).some((f) => f.includes(q)))
+    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
+    setSelectedIndex(best ?? 0)
+  }, [query, matches, setSelectedIndex])
 
   if (!open) return null
 
   const trimmed = query.trim()
   return (
-    <div className={styles.backdrop}>
-      {/* Click-outside-to-close catcher. A native <button> (not a div with
-          onClick) keeps it accessible without per-element key handlers;
-          tabIndex=-1 keeps keyboard focus in the input. */}
-      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal}>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          type="text"
-          className={styles.input}
-          placeholder="Go to or create a note…"
-          {...NO_AUTOFILL}
-        />
-        <ul className={styles.list}>
-          {matches.map((p, i) => (
-            <li
-              key={p}
-              // Keep the keyboard selection visible when the list scrolls:
-              // the ref fires as the item becomes selected; 'nearest' makes
-              // it a no-op while it's already in view.
-              ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+    <SwitcherShell
+      inputRef={inputRef}
+      value={query}
+      onChange={(e) => setQuery(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder="Go to or create a note…"
+      onClose={onClose}
+    >
+      <ul className={styles.list}>
+        {matches.map((p, i) => (
+          <li
+            key={p}
+            // Keep the keyboard selection visible when the list scrolls:
+            // the ref fires as the item becomes selected; 'nearest' makes
+            // it a no-op while it's already in view.
+            ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+          >
+            {/* Native <button> so the clickable row needs no ARIA role or
+                key handler; arrow-key nav stays on the input (tabIndex=-1). */}
+            <button
+              type="button"
+              className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+              tabIndex={-1}
+              onClick={() => selectAndCommit(i)}
             >
-              {/* Native <button> so the clickable row needs no ARIA role or
-                  key handler; arrow-key nav stays on the input (tabIndex=-1). */}
-              <button
-                type="button"
-                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-                tabIndex={-1}
-                onClick={() => selectAndCommit(i)}
-              >
-                {displayPath(p)}
-              </button>
-            </li>
-          ))}
-          {trimmed && !hasExactMatch && (
-            <li className={`${styles.item} ${styles.createHint}`}>
-              Create &ldquo;{trimmed}&rdquo;
-              <span className={styles.kbd}> Shift-Enter</span>
-            </li>
-          )}
-        </ul>
-        {error && <div className={styles.error}>{error}</div>}
-      </div>
-    </div>
+              {displayPath(p)}
+            </button>
+          </li>
+        ))}
+        {trimmed && !hasExactMatch && (
+          <li className={`${styles.item} ${styles.createHint}`}>
+            Create &ldquo;{trimmed}&rdquo;
+            <span className={styles.kbd}> Shift-Enter</span>
+          </li>
+        )}
+      </ul>
+      {error && <div className={styles.error}>{error}</div>}
+    </SwitcherShell>
   )
 }

@@ -215,12 +215,19 @@ def seed_vault_file(container: DockerContainer, rel_path: str, content: bytes) -
     b64 = base64.b64encode(content).decode()
     full = f"/data/vault/{rel_path}"
     parent = full.rsplit("/", 1)[0]
+    # `exec` runs as root, so the bytes and any dirs `mkdir -p` creates land
+    # root-owned — but the app runs as the unprivileged `app` user and cannot
+    # then rename/delete/rewrite them (os.replace, unlink, and the atomic
+    # write's mkstemp all need write on the file's parent dir). Hand the whole
+    # vault back to `app` so a seeded file behaves like any real vault file the
+    # app itself would have written.
     code, output = container.exec(
         [
             "sh",
             "-c",
             f"mkdir -p {shlex.quote(parent)} && "
-            f"echo {b64} | base64 -d > {shlex.quote(full)}",
+            f"echo {b64} | base64 -d > {shlex.quote(full)} && "
+            f"chown -R app:app /data/vault",
         ]
     )
     assert code == 0, output.decode()

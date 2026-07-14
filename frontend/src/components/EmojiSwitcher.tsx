@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NO_AUTOFILL } from '../lib/no-autofill'
 import { getGemojiList, loadEmojiData, type GemojiEntry } from '../lib/emoji'
+import { useListNavigation } from '../lib/use-list-navigation'
+import { SwitcherShell } from './SwitcherShell'
 import styles from './QuickSwitcher.module.css'
 
 interface Props {
@@ -23,7 +24,6 @@ interface Props {
 export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<Props>) {
   const [query, setQuery] = useState('')
   const [entries, setEntries] = useState<GemojiEntry[] | null>(getGemojiList())
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   // Arms on open when there's a seed; the select must happen AFTER the
@@ -87,10 +87,6 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
     return [...exact, ...byPrefix, ...bySubstring, ...byDesc]
   }, [entries, query])
 
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query])
-
   function pick(i: number): void {
     const entry = matches[i]
     if (!entry) return
@@ -98,61 +94,49 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
     onClose()
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Escape') {
-      onClose()
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.min(matches.length - 1, i + 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.max(0, i - 1))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      pick(selectedIndex)
-    }
-  }
+  const { selectedIndex, setSelectedIndex, onKeyDown } = useListNavigation({
+    count: matches.length,
+    onClose,
+    onEnter: pick,
+  })
+
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [query, setSelectedIndex])
 
   if (!open) return null
 
   return (
-    <div className={styles.backdrop}>
-      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
-      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal}>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          type="text"
-          className={styles.input}
-          placeholder="Insert emoji…"
-          {...NO_AUTOFILL}
-        />
-        <ul className={styles.list}>
-          {entries === null ? (
-            <li className={styles.item}>Loading emoji…</li>
-          ) : (
-            matches.map((entry, i) => (
-              <li
-                key={entry.names[0]}
-                // Keep the keyboard selection visible when the list scrolls.
-                ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+    <SwitcherShell
+      inputRef={inputRef}
+      value={query}
+      onChange={(e) => setQuery(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder="Insert emoji…"
+      onClose={onClose}
+    >
+      <ul className={styles.list}>
+        {entries === null ? (
+          <li className={styles.item}>Loading emoji…</li>
+        ) : (
+          matches.map((entry, i) => (
+            <li
+              key={entry.names[0]}
+              // Keep the keyboard selection visible when the list scrolls.
+              ref={i === selectedIndex ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+            >
+              <button
+                type="button"
+                className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+                tabIndex={-1}
+                onClick={() => pick(i)}
               >
-                <button
-                  type="button"
-                  className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
-                  tabIndex={-1}
-                  onClick={() => pick(i)}
-                >
-                  {entry.emoji} :{entry.names[0]}:
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      </div>
-    </div>
+                {entry.emoji} :{entry.names[0]}:
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+    </SwitcherShell>
   )
 }

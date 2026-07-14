@@ -1,9 +1,10 @@
 import { backendUrl } from '../lib/backend'
-import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl } from '../lib/paths'
 import { fetchTree, flattenTree } from '../lib/tree'
+import { useListNavigation } from '../lib/use-list-navigation'
+import { SwitcherShell } from './SwitcherShell'
 import styles from './DeleteSwitcher.module.css'
 
 interface Props {
@@ -32,7 +33,6 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
   // form lets us derive isMd per entry; we strip the .md only for display.
   const [allFiles, setAllFiles] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const [confirming, setConfirming] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -90,25 +90,6 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
     setConfirming(null)
   }, [query])
 
-  // Move the highlight to the first BEST match as the user types (exact
-  // beats prefix beats substring — same ranking as the quick switcher),
-  // instead of leaving it parked on the "Delete this file" top entry while
-  // the user is clearly naming a different file. Falls back to the top row
-  // on an empty or unmatched query.
-  useEffect(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) {
-      setSelectedIndex(0)
-      return
-    }
-    const forms = (e: Entry) => [e.target.toLowerCase(), e.label.toLowerCase()]
-    const byExact = entries.findIndex((e) => forms(e).includes(q))
-    const byPrefix = entries.findIndex((e) => forms(e).some((f) => f.startsWith(q)))
-    const bySubstring = entries.findIndex((e) => forms(e).some((f) => f.includes(q)))
-    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
-    setSelectedIndex(best ?? 0)
-  }, [query, entries])
-
   async function doDelete(entry: Entry): Promise<void> {
     if (entry.target === '' || entry.target === 'index') {
       setError("index can't be deleted")
@@ -144,53 +125,53 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
     }
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Escape') {
-      onClose()
-      return
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.min(entries.length - 1, i + 1))
-      setConfirming(null)
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.max(0, i - 1))
-      setConfirming(null)
-      return
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const entry = entries[selectedIndex]
+  const { selectedIndex, setSelectedIndex, onKeyDown } = useListNavigation({
+    count: entries.length,
+    onClose,
+    onEnter: (i) => {
+      const entry = entries[i]
       if (!entry) return
       if (confirming === entry.target) {
         void doDelete(entry)
       } else {
         setConfirming(entry.target)
       }
+    },
+    // Moving the highlight withdraws an in-progress confirmation.
+    onMove: () => setConfirming(null),
+  })
+
+  // Move the highlight to the first BEST match as the user types (exact
+  // beats prefix beats substring — same ranking as the quick switcher),
+  // instead of leaving it parked on the "Delete this file" top entry while
+  // the user is clearly naming a different file. Falls back to the top row
+  // on an empty or unmatched query.
+  useEffect(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      setSelectedIndex(0)
+      return
     }
-  }
+    const forms = (e: Entry) => [e.target.toLowerCase(), e.label.toLowerCase()]
+    const byExact = entries.findIndex((e) => forms(e).includes(q))
+    const byPrefix = entries.findIndex((e) => forms(e).some((f) => f.startsWith(q)))
+    const bySubstring = entries.findIndex((e) => forms(e).some((f) => f.includes(q)))
+    const best = [byExact, byPrefix, bySubstring].find((i) => i !== -1)
+    setSelectedIndex(best ?? 0)
+  }, [query, entries, setSelectedIndex])
 
   if (!open) return null
 
   return (
-    <div className={styles.backdrop}>
-      {/* Native <button> close-catcher; see QuickSwitcher for the rationale. */}
-      <button type="button" className={styles.scrim} aria-label="Close" tabIndex={-1} onClick={onClose} />
-      <div className={styles.modal}>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          type="text"
-          className={styles.input}
-          placeholder="Pick a file to delete…"
-          {...NO_AUTOFILL}
-        />
-        <ul className={styles.list}>
+    <SwitcherShell
+      inputRef={inputRef}
+      value={query}
+      onChange={(e) => setQuery(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder="Pick a file to delete…"
+      onClose={onClose}
+    >
+      <ul className={styles.list}>
           {entries.map((entry, i) => {
             const classes = [styles.item]
             if (i === selectedIndex) classes.push(styles.itemSelected)
@@ -218,9 +199,8 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
               </li>
             )
           })}
-        </ul>
-        {error && <div className={styles.error}>{error}</div>}
-      </div>
-    </div>
+      </ul>
+      {error && <div className={styles.error}>{error}</div>}
+    </SwitcherShell>
   )
 }
