@@ -2,7 +2,6 @@ import { backendUrl } from '../lib/backend'
 import { NO_AUTOFILL } from '../lib/no-autofill'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { getHomePath } from '../lib/config'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import styles from './QuickSwitcher.module.css'
@@ -13,18 +12,15 @@ interface Props {
   onClose: () => void
 }
 
-/** How a doc-id is shown in the picker: the URL it actually lives at. The
- * home note (`index.md`, doc-id `index`) shows as the app root; others show
- * by doc-id. When the app is deployed at a sub-path (`homePath` e.g.
- * `/wiki`), every row is qualified with that prefix so the picker reflects
- * where navigation will land (`/wiki/`, `/wiki/foo`). At root `homePath` is
- * `''` and rows stay bare (`/`, `foo`). This is display only — navigation
- * still targets the bare vault path and lets React Router's basename apply
- * the prefix (double-prefixing would produce `/wiki/wiki/foo`). */
+/** How a doc-id is shown in the picker: the bare vault path. The home note
+ * (`index.md`, doc-id `index`) shows as `/`; others show by doc-id. The
+ * deployment sub-path (`homePath`) is deliberately NOT shown — the picker
+ * lists the vault, and the prefix is infrastructure, not vault structure
+ * (user decision 2026-07-14, reversing the earlier qualified-rows rule).
+ * Navigation targets the bare vault path and React Router's basename
+ * applies the prefix (manual prefixing would produce `/wiki/wiki/foo`). */
 function displayPath(p: string): string {
-  const base = getHomePath()
-  if (p === 'index') return base ? `${base}/` : '/'
-  return base ? `${base}/${p}` : p
+  return p === 'index' ? '/' : p
 }
 
 export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) {

@@ -4,10 +4,14 @@ import { MemoryRouter } from 'react-router'
 import { QuickSwitcher } from '../components/QuickSwitcher'
 
 /*
- * When the app is deployed at a sub-path (BASE_URL=/wiki → homePath), the
- * quick switcher must present each row as the URL it actually lives at —
- * `/wiki/`, `/wiki/foo`, `/wiki/my/note` — so the picker reflects where
- * navigation will land. Mock the config accessor to simulate that deploy.
+ * The quick switcher lists the VAULT, not the deployment: even at a
+ * sub-path mount (BASE_URL=/wiki → homePath) every row shows the bare
+ * vault path — `/`, `foo`, `my/note` — never `/wiki/foo`. The prefix is
+ * infrastructure; showing it would misrepresent the vault structure and
+ * bloat every row. (User decision 2026-07-14, reversing the earlier
+ * qualified-rows behavior.) Navigation still lands under the prefix via
+ * React Router's basename. Mock the config accessor to simulate the
+ * sub-path deploy and prove the rows ignore it.
  */
 vi.mock('../lib/config', () => ({ getHomePath: () => '/wiki' }))
 
@@ -44,8 +48,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('QuickSwitcher reflects the deployment sub-path', () => {
-  it('qualifies each displayed row with homePath (/wiki)', async () => {
+describe('QuickSwitcher lists bare vault paths under a sub-path deploy', () => {
+  it('never qualifies rows with homePath', async () => {
     stubTree()
     render(
       <MemoryRouter>
@@ -54,8 +58,9 @@ describe('QuickSwitcher reflects the deployment sub-path', () => {
     )
     await waitFor(() => expect(document.querySelectorAll('li').length).toBeGreaterThan(0))
     const rows = [...document.querySelectorAll('li')].map((li) => li.textContent)
-    expect(rows).toContain('/wiki/') // home (index.md)
-    expect(rows).toContain('/wiki/foo')
-    expect(rows).toContain('/wiki/my/note')
+    expect(rows).toContain('/') // home (index.md)
+    expect(rows).toContain('foo')
+    expect(rows).toContain('my/note')
+    for (const row of rows) expect(row).not.toMatch(/^\/wiki/)
   })
 })
