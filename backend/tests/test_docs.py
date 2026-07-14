@@ -80,6 +80,102 @@ async def test_eviction_persists_and_drops(tmp_path: Path) -> None:
         await mgr.shutdown()
 
 
+# ---- flush resilience ----
+#
+# A permissions problem on a mount must never become SILENT write loss:
+# the flush loop's task exception is never retrieved (the task object stays
+# referenced), so before these guards a single failed flush killed all
+# future flushes for the doc with zero log output.
+
+
+@pytest.mark.asyncio
+async def test_cache_write_failure_does_not_block_vault_flush(tmp_path: Path, monkeypatch) -> None:
+    """The .yjs cache is an optimization — an unwritable CACHE_DIR must not
+    stop the vault write or poison the flush loop."""
+    from app import docs as docs_module
+
+    def _boom(*args, **kwargs):
+        raise PermissionError("cache mount is read-only")
+
+    monkeypatch.setattr(docs_module, "write_bytes_atomic", _boom)
+    mgr = _mgr(tmp_path)
+    try:
+        a = await mgr.acquire("foo")
+        a.doc.get(TEXT_KEY, type=Text).__iadd__("survives cache failure")
+        await asyncio.sleep(1.0)
+        assert (tmp_path / "foo.md").read_text() == "survives cache failure"
+        # ...and the loop is still alive: a second edit flushes too.
+        a.doc.get(TEXT_KEY, type=Text).__iadd__(" twice")
+        await asyncio.sleep(1.0)
+        assert (tmp_path / "foo.md").read_text() == "survives cache failure twice"
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flush_loop_survives_vault_write_failure(tmp_path: Path, monkeypatch, caplog) -> None:
+    """A failing vault write is logged loudly and retried on the next edit
+    instead of killing the flush task forever."""
+    from app import docs as docs_module
+
+    real_write = docs_module.write_md_atomic
+    fail = {"active": True}
+
+    def _flaky(*args, **kwargs):
+        if fail["active"]:
+            raise PermissionError("vault mount owned by root")
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(docs_module, "write_md_atomic", _flaky)
+    mgr = _mgr(tmp_path)
+    try:
+        a = await mgr.acquire("foo")
+        with caplog.at_level("ERROR", logger="mdshards.docs"):
+            a.doc.get(TEXT_KEY, type=Text).__iadd__("lost edit")
+            await asyncio.sleep(1.0)
+        assert not (tmp_path / "foo.md").exists()
+        assert any("FAILED" in r.message for r in caplog.records), "failed flush must be logged"
+        # Mount fixed; the NEXT edit re-arms the loop and lands everything.
+        fail["active"] = False
+        a.doc.get(TEXT_KEY, type=Text).__iadd__(" recovered")
+        await asyncio.sleep(1.0)
+        assert (tmp_path / "foo.md").read_text() == "lost edit recovered"
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_cache_degrades_to_fresh_disk_load(tmp_path: Path, monkeypatch) -> None:
+    """An unreadable .yjs cache file must not make the note unopenable —
+    the load falls back to seeding from the on-disk markdown."""
+    (tmp_path / "foo.md").write_text("disk truth")
+    mgr = _mgr(tmp_path)
+    try:
+        a = await mgr.acquire("foo")
+        a.doc.get(TEXT_KEY, type=Text).__iadd__("!")
+        await mgr.release("foo")
+    finally:
+        await mgr.shutdown()  # writes the cache file
+
+    cache_files = list((tmp_path / "_yjs_cache_").rglob("*.yjs"))
+    assert cache_files, "precondition: shutdown persisted a cache file"
+    real_read_bytes = Path.read_bytes
+
+    def _unreadable(self: Path):
+        if self.suffix == ".yjs":
+            raise PermissionError("cache mount unreadable")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _unreadable)
+    mgr2 = _mgr(tmp_path)
+    try:
+        state = await mgr2.acquire("foo")
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == "disk truth!"
+    finally:
+        monkeypatch.setattr(Path, "read_bytes", real_read_bytes)
+        await mgr2.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_debounced_flush_writes_on_quiet(tmp_path: Path) -> None:
     mgr = _mgr(tmp_path)

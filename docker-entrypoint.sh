@@ -23,11 +23,18 @@ if [ "$(id -u app)" != "$UID" ]; then
   usermod -o -u "$UID" app
 fi
 
-# Make the volume writable by the (possibly reassigned) app user. Guard on the
-# top-level owner so we skip a potentially large recursive chown when it's
-# already correct.
-if [ "$(stat -c %u /data)" != "$UID" ] || [ "$(stat -c %g /data)" != "$GID" ]; then
-  chown -R app:app /data
-fi
+# Make the data dirs writable by the (possibly reassigned) app user. Check
+# /data AND the nested mount points individually: compose files commonly bind
+# the vault and cache separately (`/host/vault:/data/vault`,
+# `./cache:/data/cache`), and then /data itself is the image layer — already
+# owned by app — so a guard on /data alone skips the chown and leaves the
+# actual mounts host-owned and unwritable. Per-dir guards still skip the
+# potentially large recursive chown when ownership is already correct.
+for dir in /data /data/vault /data/cache; do
+  [ -d "$dir" ] || continue
+  if [ "$(stat -c %u "$dir")" != "$UID" ] || [ "$(stat -c %g "$dir")" != "$GID" ]; then
+    chown -R app:app "$dir"
+  fi
+done
 
 exec gosu app "$@"
