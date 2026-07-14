@@ -71,22 +71,23 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Real-browser end-to-end: builds the shipping image, runs it next to a
-  # selenium/standalone-chromium container via testcontainers, and drives
-  # actual user journeys (edit → disk flush, in-note images, quick-switcher
-  # create, sub-path containment). ubuntu-latest runners ship Docker.
+  # Real-browser end-to-end: docker compose builds the shipping image, runs it
+  # as app services, and runs the pytest suite inside the official Playwright
+  # image, driving Chromium + Firefox + WebKit against the apps by service name
+  # (edit → disk flush, in-note images, switcher journeys, sub-path
+  # containment, split-mount permissions). Fully containerized — no browser on
+  # the runner. ubuntu-latest ships Docker + compose.
   e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: e2e/requirements.txt
-      - run: pip install -r e2e/requirements.txt
-      - name: Browser tests
-        run: pytest e2e -v
+      - name: Build the shipping image
+        run: docker compose -f e2e/docker-compose.e2e.yml build
+      - name: Browser tests (Chromium + Firefox + WebKit)
+        run: docker compose -f e2e/docker-compose.e2e.yml run --rm tests
+      - name: Tear down
+        if: always()
+        run: docker compose -f e2e/docker-compose.e2e.yml down -v
 
   sonarcloud:
     needs: [backend, frontend]

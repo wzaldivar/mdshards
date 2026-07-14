@@ -1,0 +1,105 @@
+# Fully-containerized real-browser e2e. The shipping image runs as app
+# services; the Playwright image runs the pytest suite and drives
+# Chromium/WebKit/Firefox against the apps by service name over the compose
+# network. No host browser, no published ports.
+#
+#   docker compose -f e2e/docker-compose.e2e.yml build
+#   docker compose -f e2e/docker-compose.e2e.yml run --rm tests
+#   docker compose -f e2e/docker-compose.e2e.yml down -v   # always, to clean volumes
+#
+# `run --rm tests` returns pytest's exit code and starts every dependency
+# (apps + the one-shot perm-seed) itself.
+name: mdshards-e2e
+
+services:
+  # Built once here; the other app services reuse the tag (pull_policy: never
+  # so they never reach for a registry).
+  app-root:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: mdshards-e2e:compose
+    volumes:
+      - data-root:/data
+    expose:
+      - "8000"
+
+  app-wiki:
+    image: mdshards-e2e:compose
+    pull_policy: never
+    environment:
+      BASE_URL: /wiki
+    volumes:
+      - data-wiki:/data
+    expose:
+      - "8000"
+
+  # Seeds the split-mount permission scenario: make the nested vault/cache
+  # mounts root-owned (a NAS export / docker-created dir) with a preexisting
+  # note, BEFORE app-perms boots — so app-perms' entrypoint has to remap them.
+  perm-seed:
+    image: mdshards-e2e:compose
+    pull_policy: never
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        chown -R 0:0 /data/vault /data/cache &&
+        { [ -f /data/vault/index.md ] || echo '# seeded by host' > /data/vault/index.md; } &&
+        chown 0:0 /data/vault/index.md
+    volumes:
+      - perm-vault:/data/vault
+      - perm-cache:/data/cache
+
+  app-perms:
+    image: mdshards-e2e:compose
+    pull_policy: never
+    environment:
+      UID: "1000"
+      GID: "1000"
+    volumes:
+      - perm-vault:/data/vault
+      - perm-cache:/data/cache
+    expose:
+      - "8000"
+    depends_on:
+      perm-seed:
+        condition: service_completed_successfully
+
+  tests:
+    image: mcr.microsoft.com/playwright/python:v1.61.0-noble
+    user: root
+    working_dir: /work
+    environment:
+      ROOT_URL: http://app-root:8000
+      WIKI_URL: http://app-wiki:8000
+      WIKI_PREFIX: /wiki
+      PERMS_URL: http://app-perms:8000
+      ROOT_VAULT: /vaults/root/vault
+      WIKI_VAULT: /vaults/wiki/vault
+      PERMS_VAULT: /vaults/perms-vault
+      PERMS_CACHE: /vaults/perms-cache
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ..:/work:ro
+      - data-root:/vaults/root
+      - data-wiki:/vaults/wiki
+      - perm-vault:/vaults/perms-vault
+      - perm-cache:/vaults/perms-cache
+    depends_on:
+      - app-root
+      - app-wiki
+      - app-perms
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        pip install --no-cache-dir -q -r e2e/requirements.txt
+        python -m pytest e2e -v -p no:cacheprovider \
+          --browser chromium --browser firefox --browser webkit
+
+volumes:
+  data-root:
+  data-wiki:
+  perm-vault:
+  perm-cache:

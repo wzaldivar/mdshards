@@ -1,3 +1,9 @@
+# Real-browser e2e suite. Runs inside the official Playwright Python image
+# (mcr.microsoft.com/playwright/python), which already ships a matched
+# `playwright` plus the Chromium/WebKit/Firefox builds — so we pin `playwright`
+# to the image tag and add only the pytest glue on top. Orchestration is
+# docker compose (e2e/docker-compose.e2e.yml), not testcontainers. See
+# docs/ci-setup.md.
+playwright==1.61.0
 pytest>=8.0
-selenium>=4.23
-testcontainers>=4.8
+pytest-playwright>=0.7
