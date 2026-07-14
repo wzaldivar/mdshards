@@ -138,6 +138,12 @@ Frontend (`frontend/`, React 19 + Vite + Vitest):
 - Production build: `npm run build`
 - Tests: `npm run test`
 
+End-to-end (`e2e/`, pytest + testcontainers + Selenium — real browser against the shipping image):
+
+- Install: `pip install -r e2e/requirements.txt`
+- Run: `pytest e2e` from the repo root (needs a running Docker daemon — `colima start` locally; skips itself when none is reachable)
+- The suite builds the repo-root `Dockerfile`, starts root-mount and `BASE_URL=/wiki` app containers plus `selenium/standalone-chromium` on one Docker network, and drives real user journeys (typing → disk flush, in-note images decoding, Cmd/Ctrl-K create, sub-path containment). Prefer adding a journey here over trusting a unit-level fetch when a change touches deployment behavior (routing, prefixes, the shell, the origin guard).
+
 ## Conventions to preserve
 
 - Keep the vault as plain `.md`. No DB, no index files committed alongside notes.
