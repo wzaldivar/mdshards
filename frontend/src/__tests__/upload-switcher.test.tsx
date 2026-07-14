@@ -147,7 +147,7 @@ describe('UploadSwitcher', () => {
     renderUpload('index', new File(['x'], 'pic.png'))
     const el = await input()
     fireEvent.keyDown(el, { key: 'Enter' })
-    await screen.findByText(/upload failed: 500/i)
+    expect(await screen.findByText(/upload failed: 500/i)).toBeTruthy()
   })
 
   it('refuses to submit without a file or with an invalid target', async () => {

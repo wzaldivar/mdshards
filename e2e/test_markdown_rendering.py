@@ -34,8 +34,12 @@ def _lines(driver) -> list[str]:
 
 
 def _visible_text(driver) -> str:
+    # `.cm-content` is transiently absent while the editor unmounts/remounts
+    # (e.g. right after a wikilink click navigates to a new doc). Return "" in
+    # that window so a `wait_until` predicate retries instead of throwing a
+    # null-deref out of WebDriverWait as a hard failure.
     return driver.execute_script(
-        "return document.querySelector('.cm-content').innerText"
+        "return document.querySelector('.cm-content')?.innerText ?? ''"
     )
 
 
