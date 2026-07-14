@@ -546,34 +546,38 @@ function tableRowCellRuns(child: SyntaxNode, doc: Text): CellRun[][] | null {
  *  the source slice, so there's nothing for inline handlers to do inside — we
  *  stop iterate from descending. (Inline formatting inside rendered cells is
  *  therefore plain text — an explicit trade-off until the widget parses it.) */
+/** Decorate one direct child of a Table node: a header/data row becomes a
+ *  populated `TableRowWidget`, the top-level `|---|---|` becomes a separator
+ *  widget. Anything else (or a row under the cursor) is left raw. */
+function decorateTableChild(child: SyntaxNode, ctx: DecoContext): void {
+  const isRow = child.name === 'TableHeader' || child.name === 'TableRow'
+  if (!isRow && child.name !== 'TableDelimiter') return
+  const { doc } = ctx
+  const lineObj = doc.lineAt(child.from)
+  if (rangesOverlap(lineObj.from, lineObj.to, ctx.selFrom, ctx.selTo)) return
+  if (!isRow) {
+    // Top-level inside Table = the `|---|---|` separator row.
+    ctx.pushAtomic(
+      Decoration.replace({ widget: new TableRowWidget([], 'separator') }).range(
+        lineObj.from,
+        lineObj.to,
+      ),
+    )
+    return
+  }
+  const cellRuns = tableRowCellRuns(child, doc)
+  if (!cellRuns) return
+  ctx.pushAtomic(
+    Decoration.replace({
+      widget: new TableRowWidget(cellRuns, child.name === 'TableHeader' ? 'header' : 'data'),
+    }).range(lineObj.from, lineObj.to),
+  )
+}
+
 function decorateTable(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   if (node.name !== 'Table') return false
-  const { doc, selFrom, selTo } = ctx
   for (let child = node.node.firstChild; child; child = child.nextSibling) {
-    const isRow = child.name === 'TableHeader' || child.name === 'TableRow'
-    if (!isRow && child.name !== 'TableDelimiter') continue
-    const lineObj = doc.lineAt(child.from)
-    if (rangesOverlap(lineObj.from, lineObj.to, selFrom, selTo)) continue
-    if (isRow) {
-      const cellRuns = tableRowCellRuns(child, doc)
-      if (!cellRuns) continue
-      ctx.pushAtomic(
-        Decoration.replace({
-          widget: new TableRowWidget(
-            cellRuns,
-            child.name === 'TableHeader' ? 'header' : 'data',
-          ),
-        }).range(lineObj.from, lineObj.to),
-      )
-    } else {
-      // Top-level inside Table = the `|---|---|` separator row.
-      ctx.pushAtomic(
-        Decoration.replace({ widget: new TableRowWidget([], 'separator') }).range(
-          lineObj.from,
-          lineObj.to,
-        ),
-      )
-    }
+    decorateTableChild(child, ctx)
   }
   return true
 }
@@ -602,20 +606,26 @@ function decorateHorizontalRule(node: SyntaxNodeRef, ctx: DecoContext): boolean 
   return true
 }
 
-/** Inline link `[label](url "title")` AND reference/shortcut forms
- *  `[label][id]` / `[label]`. For inline, lezer emits URL (+ optional
- *  LinkTitle); reference forms have no URL and resolve against the
- *  pre-collected `LinkReference` definitions. Either way, hide brackets + URL
- *  and mark the visible label clickable, with an optional hover `title`. */
-function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
-  if (node.name !== 'Link') return false
-  const { doc, selFrom, selTo } = ctx
-  if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+interface ParsedLinkParts {
+  /** Offset of the first `]` LinkMark, or -1 if none. */
+  closeBracket: number
+  /** URL child text (empty for reference/shortcut forms). */
+  url: string
+  /** Unwrapped LinkTitle, or null. */
+  title: string | null
+  /** Lowercased bracket text of a LinkLabel child, or null. */
+  labelText: string | null
+}
+
+/** Walk a Link/Image node's children once, pulling out the pieces both the
+ *  link and image handlers need. Images never have a LinkLabel child, so
+ *  `labelText` stays null there — harmless. */
+function parseLinkChildren(node: SyntaxNode, doc: Text): ParsedLinkParts {
   let closeBracket = -1
   let url = ''
   let title: string | null = null
   let labelText: string | null = null
-  for (let child = node.node.firstChild; child; child = child.nextSibling) {
+  for (let child = node.firstChild; child; child = child.nextSibling) {
     if (
       child.name === 'LinkMark' &&
       doc.sliceString(child.from, child.to) === ']' &&
@@ -628,10 +638,27 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
       title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
     }
     if (child.name === 'LinkLabel') {
-      const raw = doc.sliceString(child.from, child.to)
-      labelText = raw.slice(1, -1).trim().toLowerCase()
+      labelText = doc.sliceString(child.from, child.to).slice(1, -1).trim().toLowerCase()
     }
   }
+  return { closeBracket, url, title, labelText }
+}
+
+/** Inline link `[label](url "title")` AND reference/shortcut forms
+ *  `[label][id]` / `[label]`. For inline, lezer emits URL (+ optional
+ *  LinkTitle); reference forms have no URL and resolve against the
+ *  pre-collected `LinkReference` definitions. Either way, hide brackets + URL
+ *  and mark the visible label clickable, with an optional hover `title`. */
+function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Link') return false
+  const { doc, selFrom, selTo } = ctx
+  if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+  const { closeBracket, url: parsedUrl, title: parsedTitle, labelText } = parseLinkChildren(
+    node.node,
+    doc,
+  )
+  let url = parsedUrl
+  let title = parsedTitle
   if (closeBracket <= node.from + 1) return false
   // Reference forms: no URL child — look up by explicit label or, for the
   // shortcut `[label]` form, by the bracketed text itself.
@@ -714,22 +741,7 @@ function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
     ctx.visited.add(node.from)
     return true
   }
-  let urlRaw = ''
-  let title: string | null = null
-  let closeBracket = -1
-  for (let child = node.node.firstChild; child; child = child.nextSibling) {
-    if (
-      child.name === 'LinkMark' &&
-      doc.sliceString(child.from, child.to) === ']' &&
-      closeBracket === -1
-    ) {
-      closeBracket = child.from
-    }
-    if (child.name === 'URL') urlRaw = doc.sliceString(child.from, child.to)
-    if (child.name === 'LinkTitle') {
-      title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
-    }
-  }
+  const { closeBracket, url: urlRaw, title } = parseLinkChildren(node.node, doc)
   // `>=` : empty alt (`![](pic.png)`) is valid and common — Obsidian and
   // paste-from-clipboard both write it.
   if (!urlRaw || closeBracket < node.from + 2) return false
