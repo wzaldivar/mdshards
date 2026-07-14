@@ -4,9 +4,3 @@ pycrdt
 pydantic-settings
 python-multipart
 watchdog
-
-pytest
-pytest-asyncio
-pytest-cov
-httpx
-ruff

@@ -125,7 +125,7 @@ Toolchain is pinned via `.mise.toml` (Python 3.13 + Node 22 LTS). `mise` auto-cr
 
 Backend (`backend/`, FastAPI + pytest + ruff):
 
-- Install: `pip install -r backend/requirements.txt`
+- Install: `pip install -r backend/requirements-dev.txt` (runtime + test/lint tooling; the prod image installs only `requirements.txt`)
 - Run dev server: `uvicorn app.main:app --reload` from `backend/` (requires `VAULT_DIR` env var)
 - Run all tests: `pytest` from `backend/`
 - Run a single test (from `backend/`): `pytest tests/test_vault.py::<test_name>`
