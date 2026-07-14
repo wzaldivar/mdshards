@@ -147,6 +147,6 @@ describe('DeleteSwitcher picker', () => {
       vi.fn(() => Promise.reject(new Error('network down'))),
     )
     renderDelete('alpha')
-    await screen.findByText(/network down/i)
+    expect(await screen.findByText(/network down/i)).toBeTruthy()
   })
 })

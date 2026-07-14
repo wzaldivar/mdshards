@@ -268,6 +268,19 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
       navigate('/' + encodePathToUrl(clean))
     }
 
+    // A reconnect past the grace window means the in-memory Doc we hold is
+    // stale (the server no longer has it), so rebuild from scratch. Deferred to
+    // a microtask so we're not tearing down the provider from inside its own
+    // 'status' event. Hoisted out of the status handler to keep that callback's
+    // nesting shallow.
+    const scheduleStaleRemount = (): void => {
+      remounting = true
+      queueMicrotask(() => {
+        teardown()
+        mount()
+        remounting = false
+      })
+    }
     const mount = (): void => {
       // A freshly-built view is editable and (re)connecting, so clear any
       // lingering read-only lock and its banner. This is the belt that stops a
@@ -333,12 +346,7 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
             setReadOnly(false)
             return
           }
-          remounting = true
-          queueMicrotask(() => {
-            teardown()
-            mount()
-            remounting = false
-          })
+          scheduleStaleRemount()
         } else if (event.status === 'disconnected' && disconnectedAt === null) {
           disconnectedAt = Date.now()
           // Keep editing during a blip, but once the outage outlasts the grace
