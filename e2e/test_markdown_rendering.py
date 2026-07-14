@@ -245,7 +245,13 @@ def test_wikilinks_render_and_navigate(driver, root_app):
     wait_until(driver, lambda: "wikilink landing pad" in _visible_text(driver))
 
 
-def test_asset_viewer_renders_direct_image_url(driver, root_app):
+def test_direct_image_url_renders_pixels(driver, root_app):
+    """A typed/bookmarked image URL must render the image. Over plain HTTP
+    (this suite's network — browsers withhold Fetch Metadata off https/
+    localhost) the backend serves raw bytes and Chrome shows its native
+    image document; over https/localhost the SPA AssetViewer mounts. Either
+    way the user sees pixels — the SPA-viewer path itself is pinned by
+    test_asset_refresh.py via in-app navigation."""
     from conftest import TINY_PNG
 
     seed_vault_file(root_app, "viewer/solo.png", TINY_PNG)
