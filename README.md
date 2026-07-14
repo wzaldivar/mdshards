@@ -169,33 +169,28 @@ better one to have.
 
 ### Serving from a sub-path (`https://host/wiki/`)
 
-Set `BASE_URL=/wiki` on the **backend** (env var). It's wired into FastAPI's
-`root_path` and surfaced to the bundle as `homePath` via `/api/config`, which the
-SPA uses as its React Router basename. The frontend never learns the prefix at
-build time.
-
-The proxy contract is **forward prefixed, never strip**: per ASGI `root_path`
-semantics the backend expects `/wiki/...` paths and strips the prefix itself.
-The bundle's own fetches are origin-rooted (`/api/*`, `/ws/*`, `/assets/*`,
-`/favicon.svg`, vault assets) — the proxy must route those to the backend
-too, **adding** the prefix. Verified Traefik shape (single-container image):
+Set `BASE_URL=/wiki` on the **backend** (env var). The app is then fully
+contained under the prefix — the proxy needs exactly one rule, forwarding
+`/wiki/*` to the backend **with the prefix intact** (never strip it; the
+backend strips it itself per ASGI `root_path` semantics). Verified Traefik
+shape (single-container image):
 
 ```yaml
 labels:
+  - traefik.http.routers.mdshards.rule=PathPrefix(`/wiki`)
   - traefik.http.services.mdshards.loadbalancer.server.port=8000
-  # pages — forwarded with the /wiki prefix intact
-  - traefik.http.routers.mdshards-pages.rule=PathPrefix(`/wiki`)
-  # origin-rooted bundle fetches — prefix ADDED before forwarding
-  - traefik.http.routers.mdshards-app.rule=PathPrefix(`/api`) || PathPrefix(`/ws`) || PathPrefix(`/assets`) || Path(`/favicon.svg`)
-  - traefik.http.routers.mdshards-app.middlewares=mdshards-addprefix
-  - traefik.http.middlewares.mdshards-addprefix.addprefix.prefix=/wiki
-  # vault assets embedded in notes are origin-rooted too — catch-all,
-  # lowest priority; omit if other services share this origin (in-note
-  # embeds then 404, the rest of the app is unaffected)
-  - traefik.http.routers.mdshards-root.rule=PathPrefix(`/`)
-  - traefik.http.routers.mdshards-root.priority=1
-  - traefik.http.routers.mdshards-root.middlewares=mdshards-addprefix
 ```
+
+How it stays rebuild-free: the prefix is applied at **serve time**, never at
+build time. The backend rewrites the shell's `src`/`href` bundle refs under
+the prefix and injects a `<meta name="mdshards-home-path">` tag; the bundle
+reads that meta before its first fetch and prefixes every runtime URL —
+`/api/*`, `/ws/*`, vault assets — itself (`lib/backend.ts`). `homePath` from
+`/api/config` still drives the React Router basename. The same `dist/`
+deploys at `/`, `/wiki`, or anywhere else.
+
+Other services can share the origin freely — mdshards claims nothing
+outside `/wiki/`.
 
 The origin guard accepts same-origin API/WS calls by matching the
 browser's `Origin` (or, on plain-HTTP LAN origins where browsers omit all

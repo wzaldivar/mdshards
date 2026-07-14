@@ -1,4 +1,7 @@
+import html
+import re
 from functools import lru_cache
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -8,6 +11,11 @@ from ..files import ensure_index_exists
 from ..vault import VaultPathError, resolve_asset, resolve_md
 
 router = APIRouter()
+
+# Root-rooted src/href attributes in the Vite shell (hashed bundle files,
+# favicon). `(?!/)` spares protocol-relative `//host` URLs; absolute
+# `https://` ones never match the leading `"/`.
+_SRC_HREF_RE = re.compile(r'\b(src|href)="/(?!/)')
 
 # Suffixes that can execute script when served same-origin — the only ones
 # that need `CSP: sandbox`. Keep in lockstep with SCRIPTABLE_EXTS in the
@@ -31,19 +39,42 @@ _PLACEHOLDER_SHELL = (
 )
 
 
-@lru_cache(maxsize=1)
-def _spa_shell() -> str:
+def _prefix_shell(shell: str, base_url: str) -> str:
+    """Sub-path containment, serve-time half. When BASE_URL is set, rewrite
+    the shell's root-rooted `src`/`href` attributes (the hashed bundle files,
+    favicon) to live under the prefix, and inject a
+    `<meta name="mdshards-home-path">` tag the bundle reads before its first
+    fetch (frontend `lib/backend.ts`) so every runtime URL — /api, /ws,
+    vault assets — is prefixed too. This is SERVE-time, not build-time: the
+    same `dist/` still deploys at any prefix without a rebuild."""
+    if not base_url:
+        return shell
+    prefix = html.escape(base_url, quote=True)
+    rewritten = _SRC_HREF_RE.sub(lambda m: f'{m.group(1)}="{prefix}/', shell)
+    meta = f'<meta name="mdshards-home-path" content="{prefix}">'
+    return rewritten.replace("<head>", "<head>" + meta, 1)
+
+
+@lru_cache(maxsize=4)
+def _spa_shell(static_dir: Path | None, base_url: str) -> str:
     """Return the SPA shell HTML. When the frontend bundle is present (the
     single-container image; `settings.static_dir` resolves), this is the real
     `index.html` Vite emits — the one with hashed `<script>` and `<link>` tags
     for the built bundle. In dev (no bundle), the bare placeholder is enough
-    because Vite injects its own dev bootstrap."""
-    static_dir = get_settings().static_dir
+    because Vite injects its own dev bootstrap. Cached per (static_dir,
+    base_url) — both are process-constant in production; the key matters for
+    the test suite, which builds apps with different settings."""
+    shell = _PLACEHOLDER_SHELL
     if static_dir is not None:
         index_html = static_dir / "index.html"
         if index_html.is_file():
-            return index_html.read_text(encoding="utf-8")
-    return _PLACEHOLDER_SHELL
+            shell = index_html.read_text(encoding="utf-8")
+    return _prefix_shell(shell, base_url)
+
+
+def _shell_response() -> HTMLResponse:
+    settings = get_settings()
+    return HTMLResponse(_spa_shell(settings.static_dir, settings.base_url))
 
 
 @router.get(
@@ -68,13 +99,14 @@ def page_or_asset(full_path: str, request: Request):
 
     stripped = full_path.strip("/")
 
-    # `/index` is the doc-id form of the home note; canonicalise to `/`.
+    # `/index` is the doc-id form of the home note; canonicalise to `/`
+    # (prefixed under a sub-path mount — a bare "/" would drop BASE_URL).
     if stripped == "index":
-        return RedirectResponse(url="/", status_code=302)
+        return RedirectResponse(url=f"{settings.base_url}/", status_code=302)
 
     if stripped == "":
         ensure_index_exists(settings.vault_dir)
-        return HTMLResponse(_spa_shell())
+        return _shell_response()
 
     try:
         md_path = resolve_md(stripped, settings.vault_dir)
@@ -82,7 +114,7 @@ def page_or_asset(full_path: str, request: Request):
         raise HTTPException(400, detail=str(e)) from e
 
     if md_path.exists():
-        return HTMLResponse(_spa_shell())
+        return _shell_response()
 
     # `.md` URL whose doc-id form has no `<vault>/X.md.md` on disk. Per the
     # md-wins rule, the literal `<vault>/X.md` (if it exists) is itself a
@@ -94,7 +126,7 @@ def page_or_asset(full_path: str, request: Request):
     # a `.md` URL never falls through to asset resolution below — that would
     # serve the raw bytes of a literal `X.md` note and violate md-wins.
     if stripped.endswith(".md"):
-        return HTMLResponse(_spa_shell())
+        return _shell_response()
 
     try:
         asset_path = resolve_asset(stripped, settings.vault_dir)
@@ -105,7 +137,7 @@ def page_or_asset(full_path: str, request: Request):
     asset_exists = asset_path is not None and asset_path.exists() and asset_path.is_file()
 
     if dest == "document":
-        return HTMLResponse(_spa_shell())
+        return _shell_response()
     if asset_exists:
         # `Content-Security-Policy: sandbox` neutralizes scripts/forms in the
         # response itself, so a vault `.html` (or `.svg` opened top-level on a
@@ -146,5 +178,5 @@ def page_or_asset(full_path: str, request: Request):
     # 404 body. Existing assets were already handled above, so iframe and
     # image fetches of real files still get bytes.
     if dest is None and "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(_spa_shell())
+        return _shell_response()
     raise HTTPException(404, detail="not found")

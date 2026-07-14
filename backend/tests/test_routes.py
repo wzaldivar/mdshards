@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_config_exposes_home_path_default_empty(client) -> None:
     c, _ = client
     body = c.get("/api/config").json()
@@ -51,6 +54,81 @@ def test_missing_path_doc_nav_serves_spa_shell(client) -> None:
     )
     assert r.status_code == 200
     assert '<div id="app"></div>' in r.text
+
+
+# ---- sub-path containment (BASE_URL shell rewrite) ----
+#
+# With BASE_URL set the served shell must be fully self-contained under the
+# prefix: root-rooted src/href attributes rewritten to live under it, and a
+# `mdshards-home-path` meta injected so the bundle prefixes its runtime
+# fetches (frontend lib/backend.ts). Serve-time only — dist/ stays unbaked.
+
+_FAKE_INDEX_HTML = (
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />'
+    '<script type="module" crossorigin src="/assets/index-abc.js"></script>'
+    '<link rel="stylesheet" crossorigin href="/assets/index-abc.css">'
+    '</head><body><div id="app"></div></body></html>'
+)
+
+
+@pytest.fixture
+def subpath_client(vault, tmp_path, monkeypatch):
+    """Client with BASE_URL=/notes and a fake prebuilt bundle (static/), to
+    exercise the serve-time shell rewrite and the prefixed /assets mount."""
+    static = tmp_path / "static"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text(_FAKE_INDEX_HTML)
+    (static / "assets" / "index-abc.js").write_text("console.log(1)")
+    (static / "favicon.svg").write_text("<svg></svg>")
+    monkeypatch.setenv("BASE_URL", "/notes")
+    from app import config
+
+    monkeypatch.setattr(config, "_BUNDLED_STATIC", static)
+    config.get_settings.cache_clear()
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    with TestClient(create_app(), headers={"sec-fetch-site": "same-origin"}) as c:
+        yield c, vault
+    config.get_settings.cache_clear()
+
+
+def test_subpath_shell_prefixes_bundle_refs_and_injects_home_path(subpath_client) -> None:
+    c, _ = subpath_client
+    r = c.get("/notes/", headers={"sec-fetch-dest": "document"})
+    assert r.status_code == 200
+    assert 'src="/notes/assets/index-abc.js"' in r.text
+    assert 'href="/notes/assets/index-abc.css"' in r.text
+    assert 'href="/notes/favicon.svg"' in r.text
+    assert '<meta name="mdshards-home-path" content="/notes">' in r.text
+    # External URLs are untouched.
+    assert 'href="https://fonts.gstatic.com"' in r.text
+
+
+def test_subpath_assets_served_under_prefix(subpath_client) -> None:
+    c, _ = subpath_client
+    r = c.get("/notes/assets/index-abc.js")
+    assert r.status_code == 200
+    assert r.text == "console.log(1)"
+
+
+def test_subpath_index_redirect_keeps_prefix(subpath_client) -> None:
+    c, _ = subpath_client
+    r = c.get("/notes/index", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/notes/"
+
+
+def test_root_mount_shell_is_untouched(client) -> None:
+    """Without BASE_URL the shell must be byte-identical to what's on disk —
+    no meta, no rewritten refs (the placeholder shell in dev/tests)."""
+    c, _ = client
+    r = c.get("/", headers={"sec-fetch-dest": "document"})
+    assert r.status_code == 200
+    assert "mdshards-home-path" not in r.text
 
 
 def test_missing_path_nav_without_fetch_metadata_serves_shell(bare_client) -> None:
