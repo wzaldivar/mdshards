@@ -34,6 +34,14 @@ NOTE = b"""# embeds
 ![absolute](/abs/pic3.png)
 
 ![spaces](../my%20pics/my%20pic.png)
+
+![](empty-alt.png)
+
+before ![](inline.png) after, in running text
+
+![[attachments-e2e/obsidian.png]]
+
+![[attachments-e2e/aliased.png|the alias]]
 """
 
 # vault file -> the path the browser must end up requesting (pre-prefix)
@@ -43,6 +51,14 @@ EXPECTED = {
     "shared/pic.png": "/shared/pic.png",
     "abs/pic3.png": "/abs/pic3.png",
     "my pics/my pic.png": "/my%20pics/my%20pic.png",
+    # empty alt (`![]`) — used to be silently skipped by the renderer
+    "embeds/empty-alt.png": "/embeds/empty-alt.png",
+    # inline mid-sentence, also empty alt
+    "embeds/inline.png": "/embeds/inline.png",
+    # Obsidian-style wikilink embeds — targets resolve VAULT-ROOTED, not
+    # note-relative (matches wikilink navigation semantics)
+    "attachments-e2e/obsidian.png": "/attachments-e2e/obsidian.png",
+    "attachments-e2e/aliased.png": "/attachments-e2e/aliased.png",
 }
 
 

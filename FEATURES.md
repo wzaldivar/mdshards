@@ -29,7 +29,7 @@ Reference: [markdownguide.org/basic-syntax](https://www.markdownguide.org/basic-
 - Autolinks for URLs and emails (`<https://...>`, `<a@b.c>`).
 - Bold/italic/code wrapping a link.
 - Reference-style links: full form `[text][label]` + `[label]: url "title"`, and the shortcut form `[label]` + `[label]: url`. Labels match case-insensitively, with whitespace trimmed.
-- Images `![alt](src)` — vault-relative paths resolve against the containing note's directory; absolute and external URLs pass through unchanged.
+- Images `![alt](src)` — vault-relative paths resolve against the containing note's directory; absolute and external URLs pass through unchanged. Empty alt (`![](src)`) is fully supported, standalone or inline mid-sentence.
 - Image titles `![alt](src "hover")` — `<img title="...">`.
 
 **Missing**
@@ -76,6 +76,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Wiki links — `[[target]]` and `[[target|alias]]`. Clickable; navigates intra-app via the SPA router (no full reload). Dashed-underline visual to distinguish from regular `[text](url)` links. The target is the doc-id form (no `.md` suffix, no leading `/`); resolution follows the backend's md-wins / asset-fallback rule.
+- Wiki-link image embeds — `![[pic.png]]` and `![[pic.png|alt]]` (Obsidian's default embed syntax). The target is the **vault-rooted** path, exactly like wikilink navigation — no shortest-unique-path search, so an Obsidian vault configured with "New link format: Absolute path in vault" round-trips perfectly, while Obsidian's default "shortest path" only resolves when the bare name happens to live at the vault root. Non-image targets (`![[note]]` transclusion) stay raw — out of scope.
 
 ## Editor
 

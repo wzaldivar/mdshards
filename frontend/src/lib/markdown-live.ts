@@ -25,9 +25,11 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view'
+import { kindFor } from './asset-kind'
 import { backendUrl } from './backend'
 import { getNameToEmoji, loadEmojiData } from './emoji'
-import { parseWikilinkBody } from './wikilink'
+import { encodePathToUrl } from './paths'
+import { parseWikilink, parseWikilinkBody } from './wikilink'
 
 // Inline emphasis / code marks are hidden by ixora's `hideMarks()` (its
 // list is hardcoded to Emphasis/InlineCode/Strikethrough). We own HeaderMark
@@ -674,7 +676,9 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       // Wiki link `[[target]]` / `[[target|alias]]`: hide the brackets (and
       // the separator + target when an alias is present) and decorate the
       // visible label as clickable. Intra-app navigation happens via the
-      // mousedown handler at the bottom of this file.
+      // mousedown handler at the bottom of this file. (`![[...]]` image
+      // embeds never reach this branch — the stock Image parser wins the
+      // `!` and wraps the run in an Image node; see the Image branch below.)
       if (node.name === 'Wikilink') {
         if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
           const inner = doc.sliceString(node.from + 2, node.to - 2)
@@ -703,6 +707,25 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       // closing `]`.
       if (node.name === 'Image') {
         if (!rangesOverlap(node.from, node.to, selFrom, selTo)) {
+          // Obsidian-style image embed `![[target]]` / `![[target|alt]]`.
+          // The stock Image parser wins the `!` and yields an Image node
+          // with no URL child whose text (past the bang) is `[[...]]` —
+          // detect it by shape. Resolution matches wikilink navigation:
+          // the target is the VAULT-ROOTED path, no shortest-unique-path
+          // search (an Obsidian vault set to "absolute path in vault" link
+          // format round-trips exactly). Non-image targets stay raw —
+          // transclusion is out of scope.
+          const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
+          if (embed && kindFor(embed.target) === 'image') {
+            const src = backendUrl('/' + encodePathToUrl(embed.target))
+            pushAtomic(
+              Decoration.replace({
+                widget: new ImageWidget(embed.alias ?? embed.target, src, null),
+              }).range(node.from, node.to),
+            )
+            visited.add(node.from)
+            return false
+          }
           let urlRaw = ''
           let title: string | null = null
           let closeBracket = -1
@@ -718,7 +741,10 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
             if (child.name === 'LinkTitle')
               title = unwrapLinkTitle(doc.sliceString(child.from, child.to))
           }
-          if (urlRaw && closeBracket > node.from + 2) {
+          // `>=` : empty alt (`![](pic.png)`) is valid and common — Obsidian
+          // and paste-from-clipboard both write it. Requiring alt characters
+          // silently left those images as raw text.
+          if (urlRaw && closeBracket >= node.from + 2) {
             const alt = doc.sliceString(node.from + 2, closeBracket)
             // In-vault refs resolve to origin-rooted paths; prefix the baked
             // backend origin when one is configured (deployment mode 3). The
