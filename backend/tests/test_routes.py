@@ -466,10 +466,10 @@ def test_move_rejects_existing_destination(client) -> None:
 
 
 def test_move_endpoints_have_no_overwrite_escape(client) -> None:
-    """INVARIANT: upload is the only operation that may overwrite — it asks
-    the user and carries a declared payload. The move endpoints must 409 on
-    an existing destination even if a caller smuggles an `overwrite` field
-    into the body; the flag exists only on POST /api/files and /api/assets."""
+    """INVARIANT: the move endpoints must 409 on an existing destination even
+    if a caller smuggles an `overwrite` field into the body. The overwrite flag
+    exists only on POST /api/files (the md-create/upload flow); the demo build
+    has no asset-upload endpoint at all."""
     c, vault = client
     (vault / "a.md").write_text("keep a")
     (vault / "b.md").write_text("keep b")
@@ -541,84 +541,6 @@ def test_md_create_collision_requires_explicit_overwrite(client) -> None:
     r = c.post("/api/files", json={"path": "note", "content": "replacement", "overwrite": True})
     assert r.status_code == 201
     assert (vault / "note.md").read_text() == "replacement"
-
-
-def test_asset_upload(client) -> None:
-    c, vault = client
-    r = c.post(
-        "/api/assets",
-        data={"path": "notes/diagram.png"},
-        files={"file": ("diagram.png", b"\x89PNG\r\n\x1a\n", "image/png")},
-    )
-    assert r.status_code == 201
-    assert (vault / "notes" / "diagram.png").read_bytes().startswith(b"\x89PNG")
-
-
-def test_asset_upload_collision_requires_explicit_overwrite(client) -> None:
-    """An existing target 409s unless `overwrite` is set — the accept half of
-    the frontend's accept-or-rename prompt. Nothing is silently replaced."""
-    c, vault = client
-    (vault / "pic.png").write_bytes(b"original")
-    r = c.post(
-        "/api/assets",
-        data={"path": "pic.png"},
-        files={"file": ("pic.png", b"replacement", "image/png")},
-    )
-    assert r.status_code == 409
-    assert (vault / "pic.png").read_bytes() == b"original"
-
-    r = c.post(
-        "/api/assets",
-        data={"path": "pic.png", "overwrite": "true"},
-        files={"file": ("pic.png", b"replacement", "image/png")},
-    )
-    assert r.status_code == 201
-    assert (vault / "pic.png").read_bytes() == b"replacement"
-
-
-def test_asset_upload_case_variant_is_not_a_collision(client) -> None:
-    """Collisions are full-filename matches with the filesystem's own
-    semantics. On a case-sensitive FS `pic.PNG` lands beside `pic.png`; on a
-    case-insensitive one (macOS APFS) the exists() check reports the clash
-    and the upload 409s instead of clobbering. Either outcome is correct —
-    the test asserts no silent overwrite ever happens."""
-    c, vault = client
-    (vault / "pic.png").write_bytes(b"lower")
-    r = c.post(
-        "/api/assets",
-        data={"path": "pic.PNG"},
-        files={"file": ("pic.PNG", b"upper", "image/png")},
-    )
-    if r.status_code == 201:  # case-sensitive filesystem: distinct files
-        assert (vault / "pic.PNG").read_bytes() == b"upper"
-    else:  # case-insensitive filesystem: surfaced as a collision
-        assert r.status_code == 409
-    assert (vault / "pic.png").read_bytes() == b"lower"
-
-
-def test_asset_upload_rejects_no_extension(client) -> None:
-    c, _ = client
-    r = c.post(
-        "/api/assets",
-        data={"path": "notes/diagram"},
-        files={"file": ("d", b"\x00", "application/octet-stream")},
-    )
-    assert r.status_code == 400
-
-
-def test_asset_upload_rejects_md_path(client) -> None:
-    """The asset endpoint must not write to `.md` paths — those belong to the
-    CRDT layer. Without this guard, a direct caller (or a cross-origin form
-    submission) could overwrite an actively-edited note out from under the
-    in-memory Doc."""
-    c, vault = client
-    r = c.post(
-        "/api/assets",
-        data={"path": "notes/shadow.md"},
-        files={"file": ("shadow.md", b"overwrite", "text/plain")},
-    )
-    assert r.status_code == 400
-    assert not (vault / "notes" / "shadow.md").exists()
 
 
 def test_asset_move_to_md_converts_into_note(client) -> None:

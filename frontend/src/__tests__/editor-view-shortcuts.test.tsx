@@ -189,30 +189,16 @@ describe('EditorView shortcuts on a markdown URL', () => {
     expect(await openWithShortcut({ key: 'K', shift: true }, /rename to/i)).toBeDefined()
   })
 
-  it('selecting a file on the hidden picker opens the modal with a prefilled path (spaces kept)', async () => {
+  it('selecting a file shows the disabled-in-demo notice and opens no upload modal', async () => {
     renderAt('/notes/today')
     await waitForResolve()
     const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
     const file = new File(['x'], 'My Photo.jpg', { type: 'image/jpeg' })
     Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
     fireEvent.change(hiddenInput)
-    const pathInput = (await screen.findByPlaceholderText(
-      /upload to vault path/i,
-    )) as HTMLInputElement
-    expect(pathInput.value).toBe('notes/My Photo.jpg')
-  })
-
-  it('selecting a file on the hidden picker opens the modal with the filename at root (spaces kept)', async () => {
-    renderAt('/')
-    await waitForResolve()
-    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    const file = new File(['x'], 'Some Doc.pdf', { type: 'application/pdf' })
-    Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
-    fireEvent.change(hiddenInput)
-    const pathInput = (await screen.findByPlaceholderText(
-      /upload to vault path/i,
-    )) as HTMLInputElement
-    expect(pathInput.value).toBe('Some Doc.pdf')
+    // Demo build: uploads are disabled — a notice appears and no modal opens.
+    expect(await screen.findByText(/uploads are disabled in this demo/i)).toBeDefined()
+    expect(screen.queryByPlaceholderText(/upload to vault path/i)).toBeNull()
   })
 })
 
@@ -304,55 +290,6 @@ describe('QuickSwitcher force-create', () => {
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].body).toMatchObject({ path: 'brand-new' })
-  })
-})
-
-describe('Upload dispatch is by source type, not target extension', () => {
-  beforeEach(() => stubBackend('md'))
-
-  async function submitWith(file: File): Promise<URL[]> {
-    const calls: URL[] = []
-    // Wrap the existing fetch stub so we can observe submissions.
-    const baseFetch = globalThis.fetch as (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => Promise<Response>
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? new URL(input, 'http://x') : new URL(String(input), 'http://x')
-        if (init?.method === 'POST') calls.push(url)
-        return baseFetch(input, init)
-      }),
-    )
-    renderAt('/notes/today')
-    await waitForResolve()
-    const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    Object.defineProperty(hiddenInput, 'files', { value: [file], configurable: true })
-    fireEvent.change(hiddenInput)
-    const pathInput = (await screen.findByPlaceholderText(
-      /upload to vault path/i,
-    )) as HTMLInputElement
-    fireEvent.keyDown(pathInput, { key: 'Enter' })
-    await waitFor(() => expect(calls.length).toBeGreaterThan(0))
-    return calls
-  }
-
-  it('md source typed as foo.jpeg POSTs /api/files with path=foo.jpeg', async () => {
-    const file = new File(['# note'], 'draft.md', { type: 'text/markdown' })
-    const calls = await submitWith(file)
-    const post = calls.find((u) => u.pathname.startsWith('/api/files'))
-    expect(post).toBeDefined()
-    expect(post!.pathname).toBe('/api/files')
-  })
-
-  it('non-md source POSTs /api/assets (no .md forcing)', async () => {
-    const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'cat.jpeg', {
-      type: 'image/jpeg',
-    })
-    const calls = await submitWith(file)
-    const post = calls.find((u) => u.pathname.startsWith('/api/assets'))
-    expect(post).toBeDefined()
   })
 })
 

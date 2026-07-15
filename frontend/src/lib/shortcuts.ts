@@ -3,7 +3,7 @@
  *   - Cmd/Ctrl-K          → quick switcher (go-to / create)
  *   - Cmd/Ctrl-Shift-K    → rename current file
  *   - Cmd/Ctrl-Backspace  → delete switcher
- *   - Cmd/Ctrl-U          → upload a file into the vault
+ *   - Cmd/Ctrl-U          → open the file picker (uploads disabled in demo)
  *   - Cmd/Ctrl-E          → emoji picker (inserts `:shortcode:` at cursor)
  *   - Cmd/Ctrl-Alt-O      → editor options panel (vim / line numbers)
  *

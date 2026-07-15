@@ -7,7 +7,6 @@ import { NotFound } from '../components/NotFound'
 import { QuickSwitcher } from '../components/QuickSwitcher'
 import { DeleteSwitcher } from '../components/DeleteSwitcher'
 import { RenameSwitcher } from '../components/RenameSwitcher'
-import { UploadSwitcher } from '../components/UploadSwitcher'
 import { OptionsPanel } from '../components/OptionsPanel'
 import { routeToDocId } from '../router'
 import { encodePathToUrl } from '../lib/paths'
@@ -31,7 +30,6 @@ export function EditorView() {
   const [quickOpen, setQuickOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
-  const [uploadOpen, setUploadOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   // Seed query for the emoji picker — the shortcode token the cursor was
   // touching when Cmd-E fired (see EditorApi.emojiQueryAtCursor).
@@ -40,16 +38,17 @@ export function EditorView() {
   // Imperative bridge into the live CodeMirror buffer (set while an md note
   // is mounted) — the emoji picker inserts through it.
   const editorApiRef = useRef<EditorApi | null>(null)
-  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
+  // Demo build: uploads are disabled. Cmd-U still opens the OS file picker,
+  // but nothing is sent — this flag drives a transient "disabled" notice.
+  const [uploadNotice, setUploadNotice] = useState(false)
   const [movedTo, setMovedTo] = useState<string | null>(null)
   // True while a lost server connection has outlasted the grace window and the
   // editor is locked read-only. Reset automatically when the Editor unmounts
   // (docId change) or reconnects.
   const [connectionLost, setConnectionLost] = useState(false)
-  // Hidden file input that Cmd-U triggers via .click(). Owning it here (not
-  // inside UploadSwitcher) lets the OS file dialog open BEFORE the modal —
-  // the user picks a file, then the modal shows with the path prefilled to
-  // `<current dir>/<normalized filename>`, ready to confirm with Enter.
+  // Hidden file input that Cmd-U triggers via .click() to open the OS file
+  // dialog. In this demo build uploads are disabled: picking a file just
+  // surfaces a notice (onUploadFileSelected) — nothing is sent.
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   function followMove(): void {
@@ -75,7 +74,6 @@ export function EditorView() {
       setQuickOpen(false)
       setDeleteOpen(false)
       setRenameOpen(false)
-      setUploadOpen(false)
       setEmojiOpen(false)
       setOptionsOpen(false)
     }
@@ -96,10 +94,10 @@ export function EditorView() {
         setRenameOpen(true)
       },
       openUploadSwitcher: () => {
-        // Trigger the OS file picker first; the modal opens from the input's
-        // onChange below once a file is actually selected. If the user
-        // cancels the OS dialog no `change` event fires, so nothing happens
-        // — which is the right outcome (no empty modal to dismiss).
+        // Demo build: uploads are disabled. We still open the OS file picker
+        // so the Cmd-U affordance behaves as expected, but the onChange below
+        // sends nothing and shows a notice instead. Cancelling the dialog
+        // fires no `change` event, so nothing happens — the right outcome.
         fileInputRef.current?.click()
       },
       openEmojiPicker: () => {
@@ -123,17 +121,22 @@ export function EditorView() {
     return bindGlobalShortcuts(shortcutHandlers)
   }, [shortcutHandlers])
 
+  // Auto-dismiss the "uploads disabled" demo notice after a few seconds.
+  useEffect(() => {
+    if (!uploadNotice) return
+    const t = setTimeout(() => setUploadNotice(false), 4000)
+    return () => clearTimeout(t)
+  }, [uploadNotice])
+
   function onUploadFileSelected(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0] ?? null
     // Reset the input so picking the same file twice in a row still fires
     // a change event the second time.
     e.target.value = ''
     if (!file) return
-    setQuickOpen(false)
-    setDeleteOpen(false)
-    setRenameOpen(false)
-    setPendingUploadFile(file)
-    setUploadOpen(true)
+    // Demo build: nothing is uploaded. The picker opened (Cmd-U affordance),
+    // but there is no upload endpoint — tell the user why nothing happened.
+    setUploadNotice(true)
   }
 
   // Chained ternary in JSX trips S3358; pick the content up front instead.
@@ -153,8 +156,8 @@ export function EditorView() {
       content = (
         <AssetViewer
           // Keyed by the navigation (location.key), not just the path: a push
-          // to the SAME path — e.g. the upload flow overwriting the asset the
-          // user is currently viewing — must remount so the <img>/iframe
+          // to the SAME path — e.g. an external writer overwriting the asset
+          // the user is currently viewing — must remount so the <img>/iframe
           // refetches. The backend serves assets with Cache-Control: no-cache,
           // so the refetch revalidates and picks up the new bytes; without the
           // remount no request happens at all and the stale render sticks.
@@ -194,6 +197,12 @@ export function EditorView() {
           <button onClick={dismissMove}>Dismiss</button>
         </div>
       )}
+      {uploadNotice && (
+        <output className={styles.banner}>
+          <span>Uploads are disabled in this demo.</span>
+          <button onClick={() => setUploadNotice(false)}>Dismiss</button>
+        </output>
+      )}
       <QuickSwitcher
         open={quickOpen}
         currentDocId={docId}
@@ -210,15 +219,6 @@ export function EditorView() {
         currentDocId={docId}
         currentIsMd={currentIsMd}
         onClose={() => setRenameOpen(false)}
-      />
-      <UploadSwitcher
-        open={uploadOpen}
-        currentDocId={docId}
-        initialFile={pendingUploadFile}
-        onClose={() => {
-          setUploadOpen(false)
-          setPendingUploadFile(null)
-        }}
       />
       <EmojiSwitcher
         open={emojiOpen}

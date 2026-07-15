@@ -1,7 +1,6 @@
 /** Classification of what the browser can meaningfully DISPLAY for a vault
- *  asset, shared by AssetViewer (to pick the element and sandboxing) and
- *  UploadSwitcher (to decide whether navigating to the asset after upload
- *  makes sense at all). The guiding rule: prefer the browser's DEFAULT
+ *  asset, used by AssetViewer to pick the element and sandboxing. The
+ *  guiding rule: prefer the browser's DEFAULT
  *  handling — an unsandboxed iframe renders whatever the browser can and
  *  natively downloads whatever it can't. Sandboxing is applied only where
  *  it buys real protection (script-capable types), because a sandbox also
@@ -32,18 +31,6 @@ export const ARCHIVE_EXTS = new Set([
   'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp',
 ])
 
-/** Text-ish extensions whose mime guess is text/* in practice — every
- *  browser renders them inline, so auto-navigating to them after upload is
- *  guaranteed to show something. Formats with browser-dependent handling
- *  (csv, yaml, toml → often application/octet-stream) are deliberately
- *  absent: explicit navigation still gives them browser-default treatment
- *  via the plain iframe, but upload doesn't auto-navigate into a possible
- *  surprise download. (No `ts` — mime-guessed as MPEG transport stream.) */
-const TEXT_EXTS = new Set([
-  'txt', 'text', 'log', 'json', 'js', 'mjs', 'cjs', 'css',
-  'py', 'sh', 'rb', 'pl', 'c', 'h', 'java', 'sql',
-])
-
 export type AssetKind = 'image' | 'video' | 'audio' | 'other'
 
 /** How the viewer should frame a non-media asset. */
@@ -67,17 +54,4 @@ export function frameModeFor(path: string): FrameMode {
   if (SCRIPTABLE_EXTS.has(ext)) return 'sandboxed'
   if (ARCHIVE_EXTS.has(ext)) return 'download'
   return 'plain'
-}
-
-/** Whether visiting the asset's URL is guaranteed to SHOW something (media,
- *  a rendered document, readable text) rather than kick off a download.
- *  Gates the post-upload auto-navigation. */
-export function isViewableAsset(path: string): boolean {
-  const ext = extOf(path)
-  return (
-    kindFor(path) !== 'other' ||
-    SCRIPTABLE_EXTS.has(ext) ||
-    TEXT_EXTS.has(ext) ||
-    ext === 'pdf'
-  )
 }

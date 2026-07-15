@@ -1,7 +1,4 @@
-import shutil
-from typing import Annotated
-
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -84,50 +81,11 @@ class MoveAssetRequest(BaseModel):
     dst: str
 
 
-# Sync `def` on purpose: the body does blocking file I/O
-# (`Path.open`/`copyfileobj`). FastAPI runs a sync path operation in its
-# threadpool, so the copy never blocks the event loop — the correct fix for
-# "sync I/O in an async function" here, rather than pulling in aiofiles.
-@router.post(
-    "/assets",
-    status_code=201,
-    responses={
-        400: {"description": "invalid vault path, or a .md target (use /api/files)"},
-        409: {"description": "asset already exists (and overwrite not set)"},
-    },
-)
-def upload_asset(
-    file: Annotated[UploadFile, File()],
-    path: Annotated[str, Form()],
-    overwrite: Annotated[bool, Form()] = False,
-) -> dict:
-    """Upload a non-md asset at the given vault-relative path.
-
-    Collisions are full-filename, filesystem-semantics matches: on a
-    case-sensitive filesystem `foo.jpg`, `Foo.jpg`, and `foo.JPG` are three
-    distinct files that never collide; on a case-insensitive one (macOS APFS)
-    the `exists()` check naturally catches case-variant clashes too. An
-    existing target is refused with 409 unless the caller explicitly sets
-    `overwrite` — the frontend turns the 409 into an accept-or-rename prompt;
-    nothing is silently replaced.
-    """
-    settings = get_settings()
-    try:
-        target = resolve_asset(path, settings.vault_dir)
-    except VaultPathError as e:
-        raise HTTPException(400, detail=str(e)) from e
-    # `.md` is the CRDT layer's territory; the frontend dispatches md
-    # uploads to `/api/files`. Refuse them here so a direct caller can't
-    # sidestep the in-memory Doc and corrupt a note that's actively being
-    # edited.
-    if target.suffix.lower() == ".md":
-        raise HTTPException(400, detail=".md paths are not assets; use /api/files")
-    if target.exists() and not overwrite:
-        raise HTTPException(409, detail="already exists")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
-    return {"path": path}
+# NOTE: the asset upload endpoint (POST /api/assets) is intentionally removed on
+# the demo branch — this is a public, no-auth deployment, so accepting arbitrary
+# uploaded bytes is an abuse vector. The frontend keeps the Cmd-U affordance
+# (it opens the OS file picker) but sends nothing. Asset move/delete/embed and
+# note creation (POST /api/files) remain.
 
 
 @router.post(

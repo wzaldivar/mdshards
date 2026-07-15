@@ -79,18 +79,20 @@ def test_delete_cross_origin_is_blocked(client) -> None:
     assert (vault / "x.md").exists()
 
 
-def test_asset_upload_cross_origin_is_blocked(client) -> None:
-    """The multipart simple-request CSRF vector that motivated this — proves
-    the middleware catches the form-style cross-origin upload."""
+def test_multipart_cross_origin_is_blocked(client) -> None:
+    """The multipart simple-request CSRF vector that motivated this — a
+    cross-origin HTML form can POST multipart/form-data with no preflight. The
+    demo build has no upload endpoint, but the guard must still reject the
+    multipart POST at the /api/* boundary, before routing."""
     c, vault = client
     r = c.post(
-        "/api/assets",
-        data={"path": "evil.png"},
+        "/api/files",
+        data={"path": "evil"},
         files={"file": ("evil.png", b"x", "image/png")},
         headers={"origin": "https://evil.example.com"},
     )
     assert r.status_code == 403
-    assert not (vault / "evil.png").exists()
+    assert not (vault / "evil.md").exists()
 
 
 # ---- HTTP: the curl-bypass block ----
@@ -121,15 +123,15 @@ def test_bare_delete_on_api_is_blocked(bare_client) -> None:
     assert (vault / "victim.md").exists()
 
 
-def test_bare_asset_upload_is_blocked(bare_client) -> None:
+def test_bare_multipart_post_is_blocked(bare_client) -> None:
     c, vault = bare_client
     r = c.post(
-        "/api/assets",
-        data={"path": "evil.png"},
+        "/api/files",
+        data={"path": "evil"},
         files={"file": ("evil.png", b"x", "image/png")},
     )
     assert r.status_code == 403
-    assert not (vault / "evil.png").exists()
+    assert not (vault / "evil.md").exists()
 
 
 # ---- HTTP: plain-HTTP LAN fallback (no Fetch Metadata at all) ----

@@ -9,9 +9,6 @@ interface Props {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   placeholder: string
   onClose: () => void
-  /** Extra modal content rendered BEFORE the text input — the upload
-   *  switcher's file-picker button. Omitted by the others. */
-  beforeInput?: ReactNode
   /** The result list, hints, and error surface — rendered after the input. */
   children: ReactNode
 }
@@ -27,7 +24,6 @@ export function SwitcherShell({
   onKeyDown,
   placeholder,
   onClose,
-  beforeInput,
   children,
 }: Readonly<Props>) {
   return (
@@ -43,7 +39,6 @@ export function SwitcherShell({
         onClick={onClose}
       />
       <div className={styles.modal}>
-        {beforeInput}
         <input
           ref={inputRef}
           value={value}
