@@ -23,20 +23,6 @@ if [ "$(id -u app)" != "$UID" ]; then
   usermod -o -u "$UID" app
 fi
 
-# DEMO: hard disk cap. When CAP_FS_MB is set, back /data with a fixed-size ext4
-# image in this container's own (ephemeral) layer and loop-mount it, so the
-# whole vault+cache footprint can never exceed the cap — a full vault just gets
-# ENOSPC. The image lives inside the container, so `docker compose down && up`
-# recreates it and resets to an empty cap; no host file to manage. Needs a
-# privileged container (loop mount). Skipped when CAP_FS_MB is unset, or when
-# something is already mounted at /data (an explicit -v volume wins — e.g. e2e).
-if [ -n "${CAP_FS_MB:-}" ] && ! mountpoint -q /data; then
-  img=/srv/mdshards-data.img
-  truncate -s "${CAP_FS_MB}M" "$img"
-  mkfs.ext4 -q -F -m 0 "$img"   # -m 0: no root-reserved blocks, use the full cap
-  mount -o loop "$img" /data
-fi
-
 # DEMO: (re)seed the read-only attachments/ directory from the baked sample
 # assets on every start, so the demo's landing image resolves even after the
 # 2h vault wipe. Done before the chown below so a freshly-created vault dir

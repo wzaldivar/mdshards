@@ -5,8 +5,10 @@
 #   docker compose -f deploy/demo-compose.yml up -d --build
 #   docker compose -f deploy/demo-compose.yml down
 #
-# `down && up` recreates the container, which re-creates the fixed-size vault
-# filesystem from scratch — so the scheduled "wipe every 2h" is just a
+# The vault + cache live on a size-capped tmpfs mounted at /data — a full vault
+# gets ENOSPC instead of eating host disk. tmpfs is set up by the Docker daemon
+# (no privileged container needed) and is per-container, so `down && up`
+# recreates it → a fresh empty cap. The scheduled "wipe every 2h" is just a
 # `down && up` on a timer. Nothing on the host to manage; no external volume.
 services:
   demo:
@@ -14,13 +16,10 @@ services:
       context: ..
       dockerfile: Dockerfile
     image: mdshards:demo
-    # Loop-mounting the capped vault fs (see docker-entrypoint.sh + CAP_FS_MB)
-    # needs mount/loop privileges. A demo behind a trusted proxy accepts this.
-    privileged: true
-    environment:
-      CAP_FS_MB: "20" # hard cap (MiB) on the whole /data filesystem: vault + cache
     ports:
       - "8000:8000"
     restart: unless-stopped
-    # NOTE: no volume for /data — the demo is deliberately ephemeral, so the
-    # vault lives on the in-container capped fs and resets on down/up.
+    # Hard 20 MiB cap on the whole /data filesystem (vault + CRDT cache),
+    # RAM-backed and ephemeral. No volume, no privileged — the daemon mounts it.
+    tmpfs:
+      - /data:size=20m
