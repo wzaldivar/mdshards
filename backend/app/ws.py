@@ -13,6 +13,7 @@ from contextlib import suppress
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pycrdt import (
     YMessageType,
+    YSyncMessageType,
     create_sync_message,
     create_update_message,
     handle_sync_message,
@@ -68,12 +69,23 @@ async def _writer(ws: WebSocket, queue: asyncio.Queue[bytes | KickSignal]) -> No
 
 
 async def _handle_frame(
-    ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal], data: bytes
+    ws: WebSocket,
+    state: _DocState,
+    queue: asyncio.Queue[bytes | KickSignal],
+    data: bytes,
+    read_only: bool = False,
 ) -> None:
     """Dispatch one inbound y-protocol frame: reply to SYNC, relay AWARENESS
-    to the other subscribers."""
+    to the other subscribers.
+
+    A `read_only` doc (the landing page) still answers SYNC_STEP1 — a pure
+    read request, "send me your state" — so the page loads, but every client
+    WRITE (SYNC_STEP2 / SYNC_UPDATE) is dropped, so nothing can mutate the doc
+    over the socket. Awareness (cursor presence) is unaffected."""
     msg_type = data[0]
     if msg_type == YMessageType.SYNC:
+        if read_only and len(data) > 1 and data[1] != YSyncMessageType.SYNC_STEP1:
+            return  # drop client writes to a read-only doc; reads still flow
         reply = handle_sync_message(data[1:], state.doc)
         if reply is not None:
             await ws.send_bytes(reply)
@@ -84,14 +96,17 @@ async def _handle_frame(
 
 
 async def _reader(
-    ws: WebSocket, state: _DocState, queue: asyncio.Queue[bytes | KickSignal]
+    ws: WebSocket,
+    state: _DocState,
+    queue: asyncio.Queue[bytes | KickSignal],
+    read_only: bool = False,
 ) -> None:
     """Pump inbound frames to `_handle_frame` until the client disconnects."""
     try:
         while True:
             data = await ws.receive_bytes()
             if data:
-                await _handle_frame(ws, state, queue, data)
+                await _handle_frame(ws, state, queue, data, read_only)
     except WebSocketDisconnect:
         pass
 
@@ -113,8 +128,12 @@ async def ws_endpoint(ws: WebSocket, doc_id: str) -> None:
     # The root index is the exception: it regenerates from its template
     # whenever it's missing — always, in every deployment mode — so a WS
     # for it materializes the file instead of kicking the client.
+    # The landing page (index) is read-only on the demo: reads flow, client
+    # writes are dropped (see `_handle_frame`).
+    index_path = (settings.vault_dir / "index.md").resolve()
+    is_index = disk_path == index_path
     if not disk_path.exists():
-        if disk_path == (settings.vault_dir / "index.md").resolve():
+        if is_index:
             ensure_index_exists(settings.vault_dir)
         else:
             await ws.close(code=DOC_DELETED_CODE, reason="deleted")
@@ -130,7 +149,7 @@ async def ws_endpoint(ws: WebSocket, doc_id: str) -> None:
 
     writer_task = asyncio.create_task(_writer(ws, queue))
     try:
-        await _reader(ws, state, queue)
+        await _reader(ws, state, queue, read_only=is_index)
     finally:
         writer_task.cancel()
         with suppress(asyncio.CancelledError):

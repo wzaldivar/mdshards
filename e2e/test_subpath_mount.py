@@ -49,11 +49,14 @@ def test_shell_is_contained_under_prefix(page: Page):
 
 
 def test_edits_persist_under_prefix(page: Page):
-    page.goto(f"{WIKI_URL}/")
+    # The home is read-only on the demo, so exercise the persist-under-prefix
+    # loop on a regular (writable) note.
+    seed_vault_file(WIKI_VAULT, "wp/note.md", b"seed \n")
+    page.goto(f"{WIKI_URL}/wp/note")
     click_editor(page)
     marker = "e2e-wiki-roundtrip"
     type_text(page, marker + " ")
-    wait_vault_file(WIKI_VAULT, "index.md", marker)
+    wait_vault_file(WIKI_VAULT, "wp/note.md", marker)
 
 
 def test_note_with_image_renders_under_prefix(page: Page):

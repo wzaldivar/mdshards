@@ -17,6 +17,7 @@ Pure infrastructure — engine-agnostic — so it runs on Chromium only.
 """
 
 import os
+import re
 
 import pytest
 from playwright.sync_api import Page
@@ -37,12 +38,21 @@ def test_edits_flush_despite_host_owned_mounts(page: Page, browser_name: str, pe
     if browser_name != "chromium":
         pytest.skip("infra/permissions test is engine-agnostic — Chromium only")
 
+    # The seeded index.md is read-only on the demo, so create a regular note via
+    # the quick switcher (a server-side write into the remapped root-owned mount)
+    # and edit that — the flush, cache write, and ownership remap are the point.
     page.goto(f"{PERMS_URL}/")
+    click_editor(page)  # ensure the editor (and its shortcut handler) is mounted
+    page.keyboard.press("Control+k")
+    switcher = page.get_by_placeholder(re.compile("go to or create", re.I))
+    switcher.fill("pm/note")
+    switcher.press("Shift+Enter")
+    page.wait_for_url(re.compile(r"/pm/note$"))
     click_editor(page)
     marker = "perm-mount-roundtrip"
     type_text(page, marker + " ")
     # the vault write must land...
-    wait_vault_file(PERMS_VAULT, "index.md", marker)
+    wait_vault_file(PERMS_VAULT, "pm/note.md", marker)
     # ...and the CRDT cache too (it was the first casualty of the root-owned
     # ./cache dir — and its failure used to take the vault flush down with it)
     poll_until(lambda: any(PERMS_CACHE.rglob("*.yjs")), timeout=20)

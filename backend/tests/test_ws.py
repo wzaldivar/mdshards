@@ -156,3 +156,27 @@ def test_ws_regenerates_missing_index(client) -> None:
         ws.receive_bytes()  # server's SYNC_STEP1 — connection accepted, not kicked
     assert index.exists()
     assert "Welcome to mdshards" in index.read_text()
+
+
+def test_index_is_read_only_over_ws(client) -> None:
+    """The landing page (index) drops client writes: reads still flow (the page
+    loads), but an update sent over its socket never mutates index.md."""
+    import time
+
+    c, vault = client
+    c.app.state.doc_manager._grace = 0.1
+
+    with c.websocket_connect("/ws/", headers={"origin": "http://testserver"}) as ws:
+        ws.receive_bytes()  # server SYNC_STEP1
+        client_doc = Doc()
+        client_doc.get("content", type=Text)
+        ws.send_bytes(create_sync_message(client_doc))
+        step2 = ws.receive_bytes()  # SYNC_STEP2 — server sent us the doc (read works)
+        assert step2[0] == YMessageType.SYNC
+        # An attempted write is silently dropped by the read-only index socket.
+        client_doc.get("content", type=Text).__iadd__("DEFACED")
+        ws.send_bytes(create_update_message(client_doc.get_update(b"\x00")))
+    time.sleep(0.6)  # WS closed; let the doc evict + flush
+    text = (vault / "index.md").read_text()
+    assert "DEFACED" not in text
+    assert "Welcome to mdshards" in text

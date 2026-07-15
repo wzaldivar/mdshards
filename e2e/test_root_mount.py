@@ -9,6 +9,7 @@ from conftest import (
     ROOT_VAULT,
     TINY_PNG,
     click_editor,
+    read_vault_file,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -23,14 +24,22 @@ def _loaded_img_srcs(page: Page) -> list[str]:
     )
 
 
-def test_home_loads_and_edits_persist_to_disk(page: Page):
-    """The core loop: browse /, the CRDT editor mounts, typed text lands in
-    the on-disk index.md — server-is-source-of-truth verified end to end."""
+def test_home_loads_but_is_read_only(page: Page):
+    """Demo: browse /, the CRDT editor mounts and the page loads (reads flow),
+    but the landing page is read-only — the server drops writes to index, so
+    typed text never lands in index.md. (The edit->persist loop is verified on a
+    created note in test_quick_switcher_creates_note.)"""
+    import time
+
     page.goto(f"{ROOT_URL}/")
     click_editor(page)
-    marker = "e2e-root-roundtrip"
+    expect(page.locator(".cm-content")).to_be_visible()
+    marker = "e2e-home-should-not-persist"
     type_text(page, marker + " ")
-    wait_vault_file(ROOT_VAULT, "index.md", marker)
+    # A writable note persists within a beat; the index write is dropped, so
+    # after a generous wait the marker must still be absent from disk.
+    time.sleep(2)
+    assert marker not in (read_vault_file(ROOT_VAULT, "index.md") or "")
 
 
 def test_note_with_image_renders(page: Page):
