@@ -63,7 +63,7 @@ async def _writer(ws: WebSocket, queue: asyncio.Queue[bytes | KickSignal]) -> No
                     await ws.close(code=msg.code, reason=msg.reason)
                 return
             await ws.send_bytes(msg)
-    except (WebSocketDisconnect, RuntimeError):
+    except WebSocketDisconnect, RuntimeError:
         return
 
 

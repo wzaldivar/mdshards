@@ -40,7 +40,7 @@ def _escapes_root(child: Path, root: Path) -> bool:
     safely classify."""
     try:
         resolved = child.resolve(strict=True)
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         # Broken symlink, resolution loop, or vanished entry — skip.
         return True
     return not resolved.is_relative_to(root)

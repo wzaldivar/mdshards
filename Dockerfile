@@ -4,7 +4,7 @@
 #
 # Layout:
 #   stage 1  build the React/Vite frontend with Node 22
-#   stage 2  Python 3.13 runtime, copies the prebuilt dist/ in and runs uvicorn
+#   stage 2  Python 3.14 runtime, copies the prebuilt dist/ in and runs uvicorn
 #
 # uvicorn is the only process. It serves /assets/* and the two top-level
 # bundle files (favicon.svg, icons.svg) straight from the copied dist/, and
@@ -28,7 +28,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------- stage 2: runtime ----------
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

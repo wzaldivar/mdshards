@@ -260,7 +260,7 @@ class DocumentManager:
                 return
             try:
                 disk_content = read_md(disk_path, self._vault_dir)
-            except (OSError, VaultPathError):
+            except OSError, VaultPathError:
                 return
             # Self-write filter: our own flush left `last_disk_content` equal to
             # what it wrote, so nothing external actually happened.
