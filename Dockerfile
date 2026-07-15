@@ -3,7 +3,7 @@
 # Single-container deployment for mdshards.
 #
 # Layout:
-#   stage 1  build the React/Vite frontend with Node 22
+#   stage 1  build the React/Vite frontend with Node 24
 #   stage 2  Python 3.14 runtime, copies the prebuilt dist/ in and runs uvicorn
 #
 # uvicorn is the only process. It serves /assets/* and the two top-level
@@ -16,7 +16,7 @@
 # uvicorn itself (no separately addressable backend port).
 
 # ---------- stage 1: build the frontend ----------
-FROM node:22-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 
 WORKDIR /build
 

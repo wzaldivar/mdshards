@@ -121,7 +121,7 @@ These are the choices a reader can't recover from the code alone — preserve th
 
 ## Commands
 
-Toolchain is pinned via `.mise.toml` (Python 3.14 + Node 22 LTS). `mise` auto-creates a `.venv/` at the repo root and activates it for `python` and `pip` — never install Python or npm packages globally (see [[feedback-local-envs]]).
+Toolchain is pinned via `.mise.toml` (Python 3.14 + Node 24 LTS). `mise` auto-creates a `.venv/` at the repo root and activates it for `python` and `pip` — never install Python or npm packages globally (see [[feedback-local-envs]]).
 
 Backend (`backend/`, FastAPI + pytest + ruff):
 
