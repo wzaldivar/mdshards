@@ -21,6 +21,19 @@ def test_leading_slash_stripped(tmp_path: Path) -> None:
     assert resolve_md("/foo/bar", tmp_path) == resolve_md("foo/bar", tmp_path)
 
 
+def test_allows_path_at_max_length(tmp_path: Path) -> None:
+    p = "x" * 30  # demo cap is 30 chars
+    assert resolve_md(p, tmp_path) == (tmp_path / (p + ".md")).resolve()
+
+
+def test_rejects_path_over_max_length(tmp_path: Path) -> None:
+    with pytest.raises(VaultPathError):
+        resolve_md("x" * 31, tmp_path)
+    # the cap covers assets (extension included) too
+    with pytest.raises(VaultPathError):
+        resolve_asset("x" * 27 + ".png", tmp_path)
+
+
 def test_rejects_traversal_leading(tmp_path: Path) -> None:
     with pytest.raises(VaultPathError):
         resolve_md("../etc/passwd", tmp_path)

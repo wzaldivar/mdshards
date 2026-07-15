@@ -5,6 +5,14 @@ class VaultPathError(ValueError):
     """A URL path that does not resolve safely into the vault."""
 
 
+# DEMO cap: the public demo bounds every vault path to this many characters.
+# It keeps anyone from accreting absurdly long or deeply nested paths, and 30
+# chars is ample for the curated demo content. Applies at the single validation
+# choke point below, so it covers create/move/resolve/asset and URL navigation
+# alike. (This is a demo-branch restriction, not a general mdshards rule.)
+_MAX_PATH_LEN = 30
+
+
 def _validate(url_path: str) -> str:
     if url_path is None:
         raise VaultPathError("missing path")
@@ -16,6 +24,8 @@ def _validate(url_path: str) -> str:
     stripped = url_path.lstrip("/")
     if not stripped:
         return ""
+    if len(stripped) > _MAX_PATH_LEN:
+        raise VaultPathError(f"path too long (max {_MAX_PATH_LEN} chars)")
     parts = PurePosixPath(stripped).parts
     for p in parts:
         if p in ("", ".", ".."):
