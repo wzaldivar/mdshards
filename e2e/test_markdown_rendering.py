@@ -14,6 +14,8 @@ Runs at the root mount; URL-shape independence across mounts is proven by
 the embedded-image matrix, and the rendering pipeline is mount-agnostic.
 """
 
+import re
+
 from playwright.sync_api import Page, expect
 
 from conftest import ROOT_URL, ROOT_VAULT, poll_until, read_vault_file, seed_vault_file
@@ -201,6 +203,20 @@ def test_emoji_shortcodes_render_glyphs(page: Page):
     # the FILE keeps the literal shortcodes — glyphs are render-time only
     raw = read_vault_file(ROOT_VAULT, "features/emoji.md")
     assert raw is not None and ":t-rex:" in raw and ":+1:" in raw
+
+
+def test_wikilinks_render_and_navigate(page: Page):
+    seed_vault_file(ROOT_VAULT, "features/target.md", b"wikilink landing pad\n")
+    _open(page, "wiki", "go to [[features/target]] or [[features/target|the alias]]\n")
+    expect(page.locator(".cm-md-wikilink")).to_have_count(2)
+    text = _visible_text(page)
+    assert "[[" not in text, "wikilink brackets still visible"
+    assert "the alias" in text
+    assert "|" not in text.split("or")[1], "alias form must hide the target"
+    # clicking navigates via the SPA router to the target note
+    page.locator(".cm-md-wikilink").first.click()
+    expect(page).to_have_url(re.compile(r"/features/target$"))
+    expect(page.locator(".cm-content")).to_contain_text("wikilink landing pad")
 
 
 def test_direct_image_url_renders_pixels(page: Page):
