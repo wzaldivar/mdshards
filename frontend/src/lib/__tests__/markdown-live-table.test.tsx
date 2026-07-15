@@ -86,6 +86,27 @@ describe('GFM table widget rendering', () => {
     expect(header!.getAttribute('style')).toContain('--cm-md-table-cols: repeat(3, 1fr)')
   })
 
+  it('every rendered row line carries cm-md-table-line (widgetBuffer-collapse hook)', () => {
+    // The gap-collapse CSS targets this class directly on the `.cm-line`
+    // (not via `:has()`, which goes stale on WebKit during row navigation).
+    mountWith(doc2x2, cursorBelow)
+    const rows = document.querySelectorAll('.cm-md-table-row, .cm-md-table-separator')
+    expect(rows.length).toBe(3) // header + separator + one data row
+    for (const row of rows) {
+      const line = row.closest('.cm-line')
+      expect(line).not.toBeNull()
+      expect(line!.classList.contains('cm-md-table-line')).toBe(true)
+    }
+  })
+
+  it('the raw row under the cursor does NOT get cm-md-table-line', () => {
+    mountWith('| h1 | h2 |\n|----|----|\n| a  | b  |\n', 26) // cursor inside `a`
+    const lines = [...document.querySelectorAll('.cm-line')]
+    const rawLine = lines.find((l) => (l.textContent ?? '').includes('| a'))
+    expect(rawLine).toBeDefined()
+    expect(rawLine!.classList.contains('cm-md-table-line')).toBe(false)
+  })
+
   it('cells of the header carry cm-md-table-cell + actual text (header)', () => {
     mountWith(doc2x2, cursorBelow)
     const headerCells = document.querySelectorAll(

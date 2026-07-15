@@ -555,6 +555,13 @@ function decorateTableChild(child: SyntaxNode, ctx: DecoContext): void {
   const { doc } = ctx
   const lineObj = doc.lineAt(child.from)
   if (rangesOverlap(lineObj.from, lineObj.to, ctx.selFrom, ctx.selTo)) return
+  // Tag the line so CSS can collapse CodeMirror's widgetBuffer via a class
+  // applied straight to the `.cm-line` element, NOT via `:has()`. WebKit's
+  // `:has()` invalidation goes stale as rows toggle widget↔raw on ArrowUp/Down,
+  // leaving a buffer visible and the rows drifting apart (the Safari bug this
+  // fixes). A line decoration is recomputed with the widget every update, so
+  // the class is present exactly when the row widget is.
+  ctx.ranges.push(Decoration.line({ class: 'cm-md-table-line' }).range(lineObj.from))
   if (!isRow) {
     // Top-level inside Table = the `|---|---|` separator row.
     ctx.pushAtomic(

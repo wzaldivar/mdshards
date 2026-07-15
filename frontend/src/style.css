@@ -409,10 +409,14 @@ body {
    injects next to inline widgets — they're `display: inline-block; height: 1em`,
    which adds ~1em of dead space above AND below each table row. We don't
    need them for cursor positioning at row boundaries (the cm-line itself
-   takes care of that). Scoped to lines that actually contain our widgets
-   so we don't break buffer behaviour elsewhere in the document. */
-.cm-line:has(> .cm-md-table-row) > .cm-widgetBuffer,
-.cm-line:has(> .cm-md-table-separator) > .cm-widgetBuffer {
+   takes care of that).
+
+   Scoped via `.cm-md-table-line` — a line decoration applied directly to the
+   `.cm-line` of every rendered table row (see decorateTableChild) — NOT via
+   `:has()`. WebKit's `:has()` invalidation goes stale when rows toggle
+   widget↔raw on ArrowUp/Down, leaving buffers visible and rows separated; a
+   class on the element itself is re-evaluated reliably on every engine. */
+.cm-md-table-line > .cm-widgetBuffer {
   display: none;
 }
 /* Inline formatting inside cells — the widget renders `<code>`, `<strong>`,
