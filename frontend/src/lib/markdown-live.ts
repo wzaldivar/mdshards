@@ -154,13 +154,14 @@ export function resolveAssetUrl(noteDocId: string, ref: string): string {
   return '/' + dirParts.join('/')
 }
 
-/** DEMO lockdown: a link href is "external" (leaves the vault) when it carries
- *  any URL scheme (`http:`, `https:`, `mailto:`, `javascript:`, …) or is
- *  protocol-relative (`//host`). Vault navigation — relative refs and
- *  root-absolute `/path` — is NOT external. Only navigation stays clickable;
- *  external links render inert (see decorateLink). */
-function isExternalHref(url: string): boolean {
-  return url.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(url)
+/** DEMO lockdown: a link/image ref is "external" (points outside the vault)
+ *  when it carries any URL scheme (`http:`, `https:`, `data:`, `mailto:`,
+ *  `file:`, `javascript:`, …) or is protocol-relative (`//host`). Vault refs —
+ *  relative paths and root-absolute `/path` — are NOT external. External links
+ *  render inert (decorateLink); external image refs render a Picsum placeholder
+ *  (decorateImage). */
+function isExternalRef(ref: string): boolean {
+  return ref.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(ref)
 }
 
 /** DEMO lockdown: map any caller-supplied image ref (external URL or inline
@@ -700,7 +701,7 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // DEMO lockdown: external links (anything that isn't in-vault navigation)
   // render as inert text — no `data-href`, a distinct class the click handler
   // never matches. Only vault navigation stays clickable.
-  const external = isExternalHref(url)
+  const external = isExternalRef(url)
   const attrs: Record<string, string> = external ? {} : { 'data-href': url }
   if (title !== null) attrs.title = title
   ctx.pushAtomic(Decoration.replace({}).range(node.from, node.from + 1))
@@ -776,19 +777,18 @@ function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // In-vault refs resolve to origin-rooted paths; prefix the baked backend
   // origin when configured (deployment mode 3). The FILE keeps its
   // vault-relative ref — this is render-time only.
-  const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
-  // DEMO lockdown: never render caller-supplied image content. External http(s)
-  // refs AND inline data: URIs are both swapped for a stable Lorem Picsum
-  // placeholder, so nobody can inject arbitrary/NSFW imagery. Only
-  // vault-relative paths render their real bytes, via backendUrl; an empty
-  // resolved ref (blocked scheme / vault escape) stays empty → missing widget.
+  // DEMO lockdown: render an image ONLY if it's a plain vault path we serve.
+  // Anything that looks like an external URL — ANY scheme (http:, https:,
+  // data:, file:, javascript:, …) or protocol-relative //host — is swapped for
+  // a stable Lorem Picsum placeholder, so the demo never displays an image it
+  // didn't serve. The raw URL text may stay visible in the source; this governs
+  // what the <img> loads, not whether someone copies the URL and opens it.
   let src: string
-  if (/^(https?:|data:)/i.test(resolved)) {
+  if (isExternalRef(urlRaw)) {
     src = externalImagePlaceholder(urlRaw)
-  } else if (resolved) {
-    src = backendUrl(resolved)
   } else {
-    src = resolved
+    const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
+    src = resolved ? backendUrl(resolved) : resolved
   }
   ctx.pushAtomic(
     Decoration.replace({ widget: new ImageWidget(alt, src, title) }).range(

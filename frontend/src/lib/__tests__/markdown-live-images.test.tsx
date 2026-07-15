@@ -98,6 +98,16 @@ describe('external images resolve to a Lorem Picsum placeholder (demo)', () => {
     expect(src).toMatch(/^https:\/\/picsum\.photos\/seed\/[a-z0-9]+\/400\/300$/)
     expect(src.startsWith('data:')).toBe(false)
   })
+
+  it('routes non-http external refs (any scheme / protocol-relative) to picsum', () => {
+    const doc = 'a ![p](//evil.example.com/x.png) b ![q](ftp://host/y.png)\n'
+    mountWith(doc, 0)
+    const srcs = imgs().map((i) => i.getAttribute('src'))
+    expect(srcs).toHaveLength(2)
+    for (const s of srcs) {
+      expect(s).toMatch(/^https:\/\/picsum\.photos\/seed\/[a-z0-9]+\/400\/300$/)
+    }
+  })
 })
 
 describe('wikilink image embeds', () => {
