@@ -342,16 +342,6 @@ def test_asset_response_is_not_cached(client) -> None:
     assert r.headers["cache-control"] == "no-cache"
 
 
-def test_deleted_asset_no_longer_serves(client) -> None:
-    """After an asset is deleted, re-fetching its URL 404s (nothing on disk to
-    revalidate against) instead of resurrecting stale bytes."""
-    c, vault = client
-    (vault / "gone.png").write_bytes(b"\x89PNG")
-    assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 200
-    assert c.delete("/api/assets/gone.png").status_code == 200
-    assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 404
-
-
 def test_existing_asset_serves(client) -> None:
     c, vault = client
     (vault / "a").mkdir()
@@ -466,22 +456,16 @@ def test_move_rejects_existing_destination(client) -> None:
 
 
 def test_move_endpoints_have_no_overwrite_escape(client) -> None:
-    """INVARIANT: the move endpoints must 409 on an existing destination even
-    if a caller smuggles an `overwrite` field into the body. The overwrite flag
-    exists only on POST /api/files (the md-create/upload flow); the demo build
-    has no asset-upload endpoint at all."""
+    """INVARIANT: /api/files/move must 409 on an existing destination even if a
+    caller smuggles an `overwrite` field into the body. The overwrite flag
+    exists only on POST /api/files (md create); the move endpoint never honors
+    it. (The demo build has no asset mutation endpoints at all.)"""
     c, vault = client
     (vault / "a.md").write_text("keep a")
     (vault / "b.md").write_text("keep b")
     r = c.post("/api/files/move", json={"src": "a", "dst": "b", "overwrite": True})
     assert r.status_code == 409
     assert (vault / "b.md").read_text() == "keep b"
-
-    (vault / "x.png").write_bytes(b"keep x")
-    (vault / "y.png").write_bytes(b"keep y")
-    r = c.post("/api/assets/move", json={"src": "x.png", "dst": "y.png", "overwrite": True})
-    assert r.status_code == 409
-    assert (vault / "y.png").read_bytes() == b"keep y"
 
 
 def test_move_rejects_index(client) -> None:
@@ -541,105 +525,6 @@ def test_md_create_collision_requires_explicit_overwrite(client) -> None:
     r = c.post("/api/files", json={"path": "note", "content": "replacement", "overwrite": True})
     assert r.status_code == 201
     assert (vault / "note.md").read_text() == "replacement"
-
-
-def test_asset_move_to_md_converts_into_note(client) -> None:
-    """An asset renamed to a `.md` target (any casing) becomes a note at the
-    canonical lowercase path. Whether the bytes are valid markdown is the
-    user's problem; the frontend confirms before sending. This is also the
-    escape hatch for stray `foo.MD` files created directly on disk."""
-    c, vault = client
-    (vault / "notes.MD").write_text("# stuck as asset")
-    r = c.post("/api/assets/move", json={"src": "notes.MD", "dst": "notes.md"})
-    assert r.status_code == 200
-    assert r.json() == {"from": "notes.MD", "to": "notes", "converted": True}
-    assert (vault / "notes.md").read_text() == "# stuck as asset"
-    assert c.get("/api/resolve/notes").json() == {"type": "md", "canonical": "notes"}
-
-    # Any casing of the target works and lands lowercase.
-    (vault / "img.png").write_bytes(b"x")
-    r = c.post("/api/assets/move", json={"src": "img.png", "dst": "img-note.MD"})
-    assert r.status_code == 200
-    assert r.json()["to"] == "img-note"
-    assert (vault / "img-note.md").exists()
-
-
-def test_asset_move_to_md_collides_with_existing_note(client) -> None:
-    c, vault = client
-    (vault / "taken.md").write_text("existing note")
-    (vault / "data.bin").write_bytes(b"x")
-    r = c.post("/api/assets/move", json={"src": "data.bin", "dst": "taken.md"})
-    assert r.status_code == 409
-    assert (vault / "taken.md").read_text() == "existing note"
-
-
-def test_asset_move_rejects_lowercase_md_source(client) -> None:
-    """A true lowercase `.md` source is a live note — it belongs to
-    /api/files/move, never the asset endpoint."""
-    c, vault = client
-    (vault / "note.md").write_text("note")
-    r = c.post("/api/assets/move", json={"src": "note.md", "dst": "note.txt"})
-    assert r.status_code == 400
-    assert not (vault / "shadow.md").exists()
-    (vault / "shadow.md").write_text("a real note")
-    r = c.post("/api/assets/move", json={"src": "shadow.md", "dst": "moved.png"})
-    assert r.status_code == 400
-    assert (vault / "shadow.md").exists()
-
-
-def test_asset_move_renames_and_prunes(client) -> None:
-    c, vault = client
-    (vault / "old" / "nested").mkdir(parents=True)
-    (vault / "old" / "nested" / "diagram.png").write_bytes(b"\x89PNG")
-    r = c.post(
-        "/api/assets/move",
-        json={"src": "old/nested/diagram.png", "dst": "new/place/diagram.png"},
-    )
-    assert r.status_code == 200
-    assert (vault / "new" / "place" / "diagram.png").read_bytes() == b"\x89PNG"
-    assert not (vault / "old").exists()
-
-
-def test_asset_move_rejects_existing_destination(client) -> None:
-    c, vault = client
-    (vault / "a.png").write_bytes(b"a")
-    (vault / "b.png").write_bytes(b"b")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "b.png"})
-    assert r.status_code == 409
-
-
-def test_asset_move_rejects_missing_source(client) -> None:
-    c, _ = client
-    r = c.post("/api/assets/move", json={"src": "missing.png", "dst": "new.png"})
-    assert r.status_code == 404
-
-
-def test_asset_move_rejects_extensionless_destination(client) -> None:
-    c, vault = client
-    (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "renamed"})
-    assert r.status_code == 400
-
-
-def test_asset_move_rejects_extensionless_source(client) -> None:
-    c, _ = client
-    r = c.post("/api/assets/move", json={"src": "no_ext", "dst": "a.png"})
-    assert r.status_code == 400
-
-
-def test_asset_move_allows_spaces(client) -> None:
-    c, vault = client
-    (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "with space.png"})
-    assert r.status_code == 200
-    assert (vault / "with space.png").exists()
-
-
-def test_asset_move_same_src_dst_rejected(client) -> None:
-    c, vault = client
-    (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "a.png"})
-    assert r.status_code == 400
 
 
 def test_resolve_root_is_md(client) -> None:
