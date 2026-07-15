@@ -53,8 +53,9 @@ on purpose, to keep the pipeline secret-light.)
 ## Docker Hub release (`.github/workflows/release.yml`)
 
 Tagging `v*` (or running the workflow manually) builds the single-container
-image multi-arch and pushes `wzaldivar/mdshards:<version>` + `:latest` to
-Docker Hub. Two secrets are required:
+image multi-arch and pushes four tags to Docker Hub: the rolling `X`, `X.Y`,
+and `latest` (overwritten each release to track the newest matching build) plus
+the immutable `X.Y.Z`. Two secrets are required:
 
 1. Create a Docker Hub **access token** (Docker Hub → Account Settings →
    Personal access tokens), read/write scope.
@@ -64,12 +65,13 @@ Docker Hub. Two secrets are required:
    *Actions → Release → Run workflow* with the version (e.g. `1.0.0`) — useful
    when the tag was pushed before the secrets were in place.
 
-**Immutability guardrail:** the workflow refuses to publish a `<version>` that
+**Immutability guardrail:** the workflow refuses to publish an `X.Y.Z` that
 already exists on Docker Hub (it queries the Hub tags API and fails the run),
-so a re-tag or re-run can't silently overwrite a released version. `:latest`
-always moves to the build, and a *deliberate* overwrite is possible via *Run
-workflow* with `allow_overwrite = true`. The check fails open if Hub's API is
-unreachable — it's a convenience rail, not a security control.
+so a re-tag or re-run can't silently overwrite a released version. Only `X.Y.Z`
+is guarded — the rolling `X`, `X.Y`, and `latest` tags are meant to move every
+release. A *deliberate* `X.Y.Z` overwrite is possible via *Run workflow* with
+`allow_overwrite = true`. The check fails open if Hub's API is unreachable — it's
+a convenience rail, not a security control.
 
 Local alternative (no CI):
 

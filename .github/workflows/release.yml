@@ -1,7 +1,9 @@
 name: Release
 
-# Publishes the single-container image (the repo-root Dockerfile) to Docker Hub
-# as wzaldivar/mdshards:<version> and :latest. Triggers on a v* tag, or run
+# Publishes the single-container image (the repo-root Dockerfile) to Docker Hub.
+# A release of X.Y.Z pushes four tags: the rolling `X`, `X.Y`, and `latest`
+# (overwritten every release so they track the newest matching build) plus the
+# immutable `X.Y.Z` (guarded against overwrite). Triggers on a v* tag, or run
 # manually with an explicit version. Multi-arch: linux/amd64 + linux/arm64.
 #
 # Requires two repo secrets (Settings -> Secrets and variables -> Actions):
@@ -41,15 +43,27 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"   # strip leading v from the tag
           fi
+          # The rolling major / minor tags only make sense for a plain X.Y.Z
+          # release, so reject anything else (a stray tag, a pre-release suffix).
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '$VERSION' is not X.Y.Z. Releases must be plain semver — the rolling X / X.Y tags have no meaning otherwise."
+            exit 1
+          fi
+          MAJOR="${VERSION%%.*}"   # X
+          MINOR="${VERSION%.*}"    # X.Y
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
           if [ -n "$TOKEN" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"
           else echo "enabled=false" >> "$GITHUB_OUTPUT"; echo "::notice::DOCKERHUB_TOKEN not set — skipping Docker Hub publish of $VERSION"; fi
 
-      # Immutability guard: refuse to overwrite a version already on Docker Hub.
-      # `:latest` and deliberate re-runs (Run workflow with allow_overwrite=true)
-      # are the only intended overwrites. Fail-OPEN if Hub's API is unreachable
-      # — this is a convenience rail, not a security control, so a metadata
-      # blip shouldn't block a release.
+      # Immutability guard: refuse to overwrite the exact X.Y.Z tag if it is
+      # already on Docker Hub. Only X.Y.Z is immutable — the rolling `X`, `X.Y`,
+      # and `latest` tags are MEANT to move every release, so they are never
+      # checked here. Deliberate re-runs (Run workflow with allow_overwrite=true)
+      # are the only intended X.Y.Z overwrite. Fail-OPEN if Hub's API is
+      # unreachable — this is a convenience rail, not a security control, so a
+      # metadata blip shouldn't block a release.
       - name: Refuse to overwrite an existing version
         if: steps.meta.outputs.enabled == 'true' && !inputs.allow_overwrite
         env:
@@ -79,6 +93,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
+            wzaldivar/mdshards:${{ steps.meta.outputs.major }}
+            wzaldivar/mdshards:${{ steps.meta.outputs.minor }}
             wzaldivar/mdshards:${{ steps.meta.outputs.version }}
             wzaldivar/mdshards:latest
           labels: |
