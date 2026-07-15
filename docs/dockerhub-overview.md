@@ -18,7 +18,10 @@ mode. **Run it on a trusted network only.**
 
 ## Supported tags
 
-- `1.0.0`, `latest`
+- `latest` — the most recent release.
+- `X.Y.Z` — every release is also published under its exact version. Browse all
+  tags on [Docker Hub](https://hub.docker.com/r/wzaldivar/mdshards/tags), or see
+  the [GitHub releases](https://github.com/wzaldivar/mdshards/releases).
 
 Multi-arch: `linux/amd64`, `linux/arm64`.
 
