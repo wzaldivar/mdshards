@@ -14,7 +14,7 @@ See **`FEATURES.md`** for the user-facing surface inventory — markdown syntax 
 
 ## Layout
 
-- `/backend` — FastAPI app (Python 3.13). Entry point `app.main:app`, which wires `app.security.OriginGuard` as the **outermost** middleware, then mounts the routers. CRDT state lives in `app.docs.DocumentManager`; WebSocket endpoint in `app.ws`.
+- `/backend` — FastAPI app (Python 3.14). Entry point `app.main:app`, which wires `app.security.OriginGuard` as the **outermost** middleware, then mounts the routers. CRDT state lives in `app.docs.DocumentManager`; WebSocket endpoint in `app.ws`.
   - **Routers are thin HTTP adapters; the load-bearing logic lives in top-level `app/` service modules:**
     - `vault.py` — URL → filesystem path resolution and `assert_inside` (the path-traversal boundary; raises `VaultPathError`). This is where the "path traversal is rejected" rule is enforced.
     - `files.py` — vault file read/write/rename/delete primitives, shared by the CRDT layer and the `files` router.
@@ -121,7 +121,7 @@ These are the choices a reader can't recover from the code alone — preserve th
 
 ## Commands
 
-Toolchain is pinned via `.mise.toml` (Python 3.13 + Node 22 LTS). `mise` auto-creates a `.venv/` at the repo root and activates it for `python` and `pip` — never install Python or npm packages globally (see [[feedback-local-envs]]).
+Toolchain is pinned via `.mise.toml` (Python 3.14 + Node 22 LTS). `mise` auto-creates a `.venv/` at the repo root and activates it for `python` and `pip` — never install Python or npm packages globally (see [[feedback-local-envs]]).
 
 Backend (`backend/`, FastAPI + pytest + ruff):
 
