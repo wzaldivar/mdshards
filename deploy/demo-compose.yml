@@ -1,0 +1,26 @@
+# Public demo of mdshards. Builds the demo image (read-only landing page,
+# uploads disabled, attachments/ locked, external links/images neutralized) and
+# runs it with a hard disk cap. This file IS the whole lifecycle:
+#
+#   docker compose -f deploy/demo-compose.yml up -d --build
+#   docker compose -f deploy/demo-compose.yml down
+#
+# `down && up` recreates the container, which re-creates the fixed-size vault
+# filesystem from scratch — so the scheduled "wipe every 2h" is just a
+# `down && up` on a timer. Nothing on the host to manage; no external volume.
+services:
+  demo:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: mdshards:demo
+    # Loop-mounting the capped vault fs (see docker-entrypoint.sh + CAP_FS_MB)
+    # needs mount/loop privileges. A demo behind a trusted proxy accepts this.
+    privileged: true
+    environment:
+      CAP_FS_MB: "20" # hard cap (MiB) on the whole /data filesystem: vault + cache
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    # NOTE: no volume for /data — the demo is deliberately ephemeral, so the
+    # vault lives on the in-container capped fs and resets on down/up.

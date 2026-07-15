@@ -39,8 +39,11 @@ WORKDIR /app
 
 # `gosu` lets the root entrypoint drop to the unprivileged app user after
 # reconciling its UID/GID with the host (see docker-entrypoint.sh).
+# `e2fsprogs` + `mount` (util-linux) let the entrypoint back /data with a
+# fixed-size loop-mounted ext4 image when CAP_FS_MB is set — the demo's hard
+# disk cap (needs a privileged container; a no-op otherwise).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu \
+    && apt-get install -y --no-install-recommends gosu e2fsprogs mount \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps first so source-only edits don't bust the wheel cache.
@@ -89,7 +92,13 @@ ENV HOME=/app
 # volume ownership, then execs the CMD as the unprivileged app user via gosu.
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-VOLUME ["/data"]
+# NOTE (demo branch): no `VOLUME ["/data"]`. The demo is deliberately ephemeral
+# — /data is backed either by a fixed-size loop-mounted ext4 image the
+# entrypoint creates in this (throwaway) writable layer when CAP_FS_MB is set,
+# or just the writable layer itself. Either way `docker compose down && up`
+# recreates the container and resets the vault. An auto anonymous volume here
+# would also make /data a mountpoint and defeat the loop-mount cap. Explicit
+# `-v` mounts (e.g. the e2e compose) still work regardless.
 
 EXPOSE 8000
 
