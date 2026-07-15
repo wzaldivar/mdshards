@@ -1,25 +1,39 @@
 name: Docker Hub description
 
 # Sync ONLY the Docker Hub repository page (short description + overview
-# markdown) — no image build/push. Run it manually to fix or refresh the page
-# without cutting a release:
+# markdown) — no image build/push. Two entry points:
 #
-#   Actions → Docker Hub description → Run workflow (pick any branch)
-#   or:  gh workflow run dockerhub-description.yml --ref <branch>
+#   * Manual (workflow_dispatch): run it to fix/refresh the page out of band,
+#     without cutting a release —
+#       Actions → Docker Hub description → Run workflow (any branch)
+#       or:  gh workflow run dockerhub-description.yml --ref <branch>
+#   * Reused by release.yml (workflow_call): synced on every publish.
 #
-# release.yml keeps its own sync step for publish time; this workflow is the
-# out-of-band path. The two short-description strings are kept identical by
-# .github/scripts/validate_dockerhub_description.py (a CI check), so this copy
-# can't silently drift from the release one.
+# This is the single source of the short-description string and the
+# readme-filepath — release.yml calls in here rather than carrying its own copy
+# (.github/scripts/validate_dockerhub_description.py enforces there's no
+# divergent copy elsewhere).
 #
-# Unlike release.yml's step, this run is FAIL-LOUD (no continue-on-error): a
-# manual sync should surface a bad credential rather than green-wash it. Docker
-# Hub's description API wants the account PASSWORD, not a PAT — set the
-# DOCKERHUB_DESCRIPTION_TOKEN secret to it if DOCKERHUB_TOKEN 401s (see
-# docs/ci-setup.md).
+# `fail_on_error` controls whether a sync failure fails the run. Manual runs
+# default to true (fail-loud — surface a bad credential instead of green-washing
+# it); release.yml passes false so a description hiccup never fails a publish
+# that already pushed the image. Docker Hub's description API wants the account
+# PASSWORD, not a PAT — set DOCKERHUB_DESCRIPTION_TOKEN to it if DOCKERHUB_TOKEN
+# 401s (see docs/ci-setup.md).
 
 on:
   workflow_dispatch:
+    inputs:
+      fail_on_error:
+        description: "Fail the run if the description sync fails."
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      fail_on_error:
+        description: "Fail the job if the sync fails. release.yml passes false to stay non-fatal."
+        type: boolean
+        default: true
 
 jobs:
   sync:
@@ -27,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Sync Docker Hub description
+        continue-on-error: ${{ !inputs.fail_on_error }}
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}

@@ -26,6 +26,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.meta.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
 
@@ -84,16 +86,15 @@ jobs:
             org.opencontainers.image.source=https://github.com/wzaldivar/mdshards
             org.opencontainers.image.licenses=MIT
 
-      # Sync the Docker Hub page from docs/dockerhub-overview.md so it never
-      # drifts. Non-fatal: Docker Hub's description endpoint historically
-      # wants the account PASSWORD rather than a PAT, so if the token 401s
-      # here the image publish above still succeeds — see docs/ci-setup.md.
-      - if: steps.meta.outputs.enabled == 'true'
-        continue-on-error: true
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKERHUB_TOKEN }}
-          repository: wzaldivar/mdshards
-          short-description: "Browser editor for a plain-markdown note vault on your LAN. FastAPI + CRDT sync, no database."
-          readme-filepath: ./docs/dockerhub-overview.md
+  # Sync the Docker Hub page after a successful publish. Delegated to the
+  # reusable dockerhub-description workflow (single source of the description
+  # inputs) with fail_on_error=false, so a description hiccup — e.g. Docker
+  # Hub's endpoint wanting the account PASSWORD over a PAT — never fails a
+  # publish that already pushed the image. See docs/ci-setup.md.
+  description:
+    needs: publish
+    if: needs.publish.outputs.enabled == 'true'
+    uses: ./.github/workflows/dockerhub-description.yml
+    with:
+      fail_on_error: false
+    secrets: inherit
