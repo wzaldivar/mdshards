@@ -89,6 +89,15 @@ describe('external images resolve to a Lorem Picsum placeholder (demo)', () => {
     mountWith(doc, 0)
     expect(imgs()[0].getAttribute('src')).toBe('/notes/pic.png')
   })
+
+  it('routes inline data: image URIs to picsum too (no injected bytes render)', () => {
+    const doc = 'intro\n\n![evil](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)\n'
+    mountWith(doc, 0)
+    expect(imgs()).toHaveLength(1)
+    const src = imgs()[0].getAttribute('src')!
+    expect(src).toMatch(/^https:\/\/picsum\.photos\/seed\/[a-z0-9]+\/400\/300$/)
+    expect(src.startsWith('data:')).toBe(false)
+  })
 })
 
 describe('wikilink image embeds', () => {

@@ -163,13 +163,17 @@ function isExternalHref(url: string): boolean {
   return url.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(url)
 }
 
-/** DEMO lockdown: map any external image ref to a stable Lorem Picsum
- *  placeholder so the page never fetches arbitrary third-party images. Seeded
- *  by the ref (deterministic FNV-ish hash) so the same URL always renders the
- *  same picture across reloads. */
+/** DEMO lockdown: map any caller-supplied image ref (external URL or inline
+ *  data: URI) to a stable Lorem Picsum placeholder, so no one can make the demo
+ *  render arbitrary/NSFW imagery. Seeded by the ref (deterministic FNV-ish
+ *  hash) so the same ref always renders the same picture across reloads. The
+ *  hash input is capped so a multi-megabyte pasted `data:` URI can't make every
+ *  re-render O(payload); collisions among the first 1 KB just share a picture,
+ *  which is harmless for placeholders. */
 function externalImagePlaceholder(ref: string): string {
   let h = 0
-  for (let i = 0; i < ref.length; i++) h = (Math.imul(h, 31) + ref.charCodeAt(i)) | 0
+  const n = Math.min(ref.length, 1024)
+  for (let i = 0; i < n; i++) h = (Math.imul(h, 31) + ref.charCodeAt(i)) | 0
   return `https://picsum.photos/seed/${(h >>> 0).toString(36)}/400/300`
 }
 
@@ -773,13 +777,15 @@ function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // origin when configured (deployment mode 3). The FILE keeps its
   // vault-relative ref — this is render-time only.
   const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
-  // DEMO lockdown: never fetch arbitrary external images — an http(s) ref is
-  // swapped for a stable Lorem Picsum placeholder. Vault paths go through
-  // backendUrl; data: URIs (inline, no network) pass through untouched.
+  // DEMO lockdown: never render caller-supplied image content. External http(s)
+  // refs AND inline data: URIs are both swapped for a stable Lorem Picsum
+  // placeholder, so nobody can inject arbitrary/NSFW imagery. Only
+  // vault-relative paths render their real bytes, via backendUrl; an empty
+  // resolved ref (blocked scheme / vault escape) stays empty → missing widget.
   let src: string
-  if (/^https?:\/\//i.test(resolved)) {
+  if (/^(https?:|data:)/i.test(resolved)) {
     src = externalImagePlaceholder(urlRaw)
-  } else if (resolved && !/^data:/i.test(resolved)) {
+  } else if (resolved) {
     src = backendUrl(resolved)
   } else {
     src = resolved
