@@ -16,19 +16,22 @@ the same target at both locations with different dimensions and requires
 the adjacent one to render.
 """
 
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
+from playwright.sync_api import Page, expect
 
 from conftest import (
-    ROOT_ALIAS,
-    SUBPATH_ALIAS,
-    SUBPATH_PREFIX,
+    ROOT_URL,
+    ROOT_VAULT,
     TINY_PNG,
+    WIKI_HOST,
+    WIKI_PREFIX,
+    WIKI_URL,
+    WIKI_VAULT,
     make_png,
     seed_vault_file,
-    wait_for,
-    wait_until,
 )
 
 NOTE = b"""# embeds
@@ -80,51 +83,48 @@ WIKILINK_EMBEDS = {
 }
 
 
-def _seed(app) -> None:
+def _seed(vault: Path) -> None:
     for vault_path in EXPECTED:
-        seed_vault_file(app, vault_path, TINY_PNG)
-    seed_vault_file(app, "attachments-e2e/obsidian.png", TINY_PNG)
-    seed_vault_file(app, "attachments-e2e/aliased.png", TINY_PNG)
-    seed_vault_file(app, "embeds/near-note/relative.png", TINY_PNG)
-    seed_vault_file(app, "embeds/shadow/adj.png", TINY_PNG)  # adjacent: 1x1
-    seed_vault_file(app, "shadow/adj.png", make_png(2, 2))  # root twin: 2x2
-    seed_vault_file(app, "embeds/note.md", NOTE)
+        seed_vault_file(vault, vault_path, TINY_PNG)
+    seed_vault_file(vault, "attachments-e2e/obsidian.png", TINY_PNG)
+    seed_vault_file(vault, "attachments-e2e/aliased.png", TINY_PNG)
+    seed_vault_file(vault, "embeds/near-note/relative.png", TINY_PNG)
+    seed_vault_file(vault, "embeds/shadow/adj.png", TINY_PNG)  # adjacent: 1x1
+    seed_vault_file(vault, "shadow/adj.png", make_png(2, 2))  # root twin: 2x2
+    seed_vault_file(vault, "embeds/note.md", NOTE)
 
 
-def _img_states(driver) -> list[dict]:
-    return driver.execute_script(
+def _img_states(page: Page) -> list[dict]:
+    return page.eval_on_selector_all(
+        "img",
         """
-        return [...document.querySelectorAll('img')]
-          .filter(i => i.getAttribute('src'))
-          .map(i => ({
-            src: i.getAttribute('src'),
-            width: i.complete ? i.naturalWidth : 0,
-          }))
-        """
+        els => els.filter(i => i.getAttribute('src')).map(i => ({
+          src: i.getAttribute('src'),
+          width: i.complete ? i.naturalWidth : 0,
+        }))
+        """,
     )
 
 
 @pytest.mark.parametrize("mount", ["root", "subpath"])
-def test_all_embed_shapes_decode(driver, request, mount):
+def test_all_embed_shapes_decode(page: Page, mount):
     if mount == "root":
-        app = request.getfixturevalue("root_app")
-        base, prefix = f"http://{ROOT_ALIAS}:8000", ""
+        base, prefix, vault = ROOT_URL, "", ROOT_VAULT
     else:
-        app = request.getfixturevalue("subpath_app")
-        base = f"http://{SUBPATH_ALIAS}:8000{SUBPATH_PREFIX}"
-        prefix = SUBPATH_PREFIX
-    _seed(app)
+        base, prefix, vault = WIKI_URL, WIKI_PREFIX, WIKI_VAULT
+    _seed(vault)
 
     total = len(EXPECTED) + len(WIKILINK_EMBEDS)
-    driver.get(f"{base}/embeds/note")
-    wait_for(driver, ".cm-content")
-    wait_until(
-        driver,
-        lambda: len([s for s in _img_states(driver) if s["width"] > 0]) >= total,
-        timeout=25,
+    page.goto(f"{base}/embeds/note")
+    expect(page.locator(".cm-content")).to_be_visible()
+    page.wait_for_function(
+        "total => [...document.querySelectorAll('img')]"
+        ".filter(i => i.complete && i.naturalWidth > 0).length >= total",
+        arg=total,
+        timeout=25_000,
     )
 
-    states = _img_states(driver)
+    states = _img_states(page)
     for expected in EXPECTED.values():
         want = prefix + expected
         matching = [s for s in states if s["src"].endswith(want) and s["width"] > 0]
@@ -149,7 +149,7 @@ def test_all_embed_shapes_decode(driver, request, mount):
             for s in states
             if not (
                 s["src"].startswith(f"{prefix}/")
-                or f"//{SUBPATH_ALIAS}:8000{prefix}" in s["src"]
+                or f"//{WIKI_HOST}{prefix}" in s["src"]
             )
         ]
         assert not escaped, f"embeds escaped the prefix: {escaped}"

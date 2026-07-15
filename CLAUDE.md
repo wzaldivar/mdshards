@@ -138,11 +138,15 @@ Frontend (`frontend/`, React 19 + Vite + Vitest):
 - Production build: `npm run build`
 - Tests: `npm run test`
 
-End-to-end (`e2e/`, pytest + testcontainers + Selenium — real browser against the shipping image):
+End-to-end (`e2e/`, Playwright + docker compose — real browsers against the shipping image, fully containerized):
 
-- Install: `pip install -r e2e/requirements.txt`
-- Run: `pytest e2e` from the repo root (needs a running Docker daemon — `colima start` locally; skips itself when none is reachable)
-- The suite builds the repo-root `Dockerfile`, starts root-mount and `BASE_URL=/wiki` app containers plus `selenium/standalone-chromium` on one Docker network, and drives real user journeys (typing → disk flush, in-note images decoding, Cmd/Ctrl-K create, sub-path containment). Prefer adding a journey here over trusting a unit-level fetch when a change touches deployment behavior (routing, prefixes, the shell, the origin guard).
+- Run (needs a running Docker daemon — `colima start` locally):
+  - `docker compose -f e2e/docker-compose.e2e.yml build`
+  - `docker compose -f e2e/docker-compose.e2e.yml run --rm tests` (pytest's exit code; starts every dependency itself)
+  - `docker compose -f e2e/docker-compose.e2e.yml down -v` (always, to drop the vault volumes — creates/renames use fixed engine-unique paths and won't overwrite, so a stale volume 409s on re-run)
+- Orchestration is **docker compose, not testcontainers**: the shipping image runs as `app-root` / `app-wiki` (`BASE_URL=/wiki`) / `app-perms` (root-owned split mounts) services; the suite runs inside the official `mcr.microsoft.com/playwright/python` image as the `tests` service and drives **Chromium + Firefox + WebKit** against the apps by service name over the compose network. No host browser. The vault is a named volume shared into the tests container, so the external-writer role (`seed_vault_file` / `read_vault_file` / `wait_vault_file` in `conftest.py`) is a direct filesystem write on the shared mount.
+- Multi-engine matrix runs every journey per engine (`--browser chromium --browser firefox --browser webkit`); mutated paths are engine-unique so the shared vault doesn't collide across engines. WebKit is the point — it exercises the Safari-specific paths (WS close codes, blank-nav) the Chromium-only suite couldn't. The permissions infra test is Chromium-only (engine-agnostic). Firefox's PNG decoder is stricter than Blink/WebKit — image fixtures must be byte-valid (use `make_png`, not a hand-rolled blob).
+- Prefer adding a journey here over trusting a unit-level fetch when a change touches deployment behavior (routing, prefixes, the shell, the origin guard).
 
 ## Conventions to preserve
 

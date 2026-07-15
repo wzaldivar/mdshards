@@ -1,82 +1,76 @@
 """Root-mount (no BASE_URL) journeys — deployment mode 1 as shipped."""
 
-from selenium.webdriver import ActionChains, Keys
-from selenium.webdriver.common.by import By
+import re
+
+from playwright.sync_api import Page, expect
 
 from conftest import (
-    ROOT_ALIAS,
+    ROOT_URL,
+    ROOT_VAULT,
     TINY_PNG,
     click_editor,
     seed_vault_file,
     type_text,
-    wait_for,
-    wait_until,
     wait_vault_file,
 )
 
-BASE = f"http://{ROOT_ALIAS}:8000"
+
+def _loaded_img_srcs(page: Page) -> list[str]:
+    """Absolute srcs of every <img> that actually decoded (naturalWidth > 0)."""
+    return page.eval_on_selector_all(
+        "img",
+        "els => els.filter(i => i.src && i.complete && i.naturalWidth > 0).map(i => i.src)",
+    )
 
 
-def test_home_loads_and_edits_persist_to_disk(driver, root_app):
+def test_home_loads_and_edits_persist_to_disk(page: Page):
     """The core loop: browse /, the CRDT editor mounts, typed text lands in
     the on-disk index.md — server-is-source-of-truth verified end to end."""
-    driver.get(f"{BASE}/")
-    click_editor(driver)
+    page.goto(f"{ROOT_URL}/")
+    click_editor(page)
     marker = "e2e-root-roundtrip"
-    type_text(driver, marker + " ")
-    wait_vault_file(root_app, "index.md", marker)
+    type_text(page, marker + " ")
+    wait_vault_file(ROOT_VAULT, "index.md", marker)
 
 
-def test_note_with_image_renders(driver, root_app):
+def test_note_with_image_renders(page: Page):
     """An externally-written note embedding an externally-written image —
     the image must actually decode in the browser (naturalWidth > 0), not
     merely produce an <img> tag."""
-    seed_vault_file(root_app, "gallery/pic.png", TINY_PNG)
-    seed_vault_file(root_app, "gallery/note.md", b"# gallery\n\n![p](pic.png)\n")
-    driver.get(f"{BASE}/gallery/note")
-    wait_for(driver, ".cm-content")
-    wait_until(
-        driver,
-        lambda: any(
-            img.get_attribute("src")
-            and driver.execute_script(
-                "return arguments[0].complete && arguments[0].naturalWidth > 0", img
-            )
-            for img in driver.find_elements(By.CSS_SELECTOR, "img")
-        ),
+    seed_vault_file(ROOT_VAULT, "gallery/pic.png", TINY_PNG)
+    seed_vault_file(ROOT_VAULT, "gallery/note.md", b"# gallery\n\n![p](pic.png)\n")
+    page.goto(f"{ROOT_URL}/gallery/note")
+    expect(page.locator(".cm-content")).to_be_visible()
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('img')]"
+        ".some(i => i.src && i.complete && i.naturalWidth > 0)"
     )
-    loaded = [
-        img.get_attribute("src")
-        for img in driver.find_elements(By.CSS_SELECTOR, "img")
-        if img.get_attribute("src")
-    ]
+    loaded = _loaded_img_srcs(page)
     assert any(src.endswith("/gallery/pic.png") for src in loaded), loaded
 
 
-def test_quick_switcher_creates_note(driver, root_app):
+def test_quick_switcher_creates_note(page: Page, browser_name: str):
     """Cmd/Ctrl-K, type a fresh path, Shift-Enter: the ONLY UI surface that
     creates files implicitly — must create parents and navigate there."""
-    driver.get(f"{BASE}/")
-    click_editor(driver)
-    ActionChains(driver).key_down(Keys.CONTROL).send_keys("k").key_up(
-        Keys.CONTROL
-    ).perform()
-    type_text(driver, "created/by-e2e")
-    ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(
-        Keys.SHIFT
-    ).perform()
-    wait_until(driver, lambda: driver.current_url.endswith("/created/by-e2e"))
-    click_editor(driver)
+    # Engine-unique target: the vault is shared across the multi-engine matrix,
+    # and create refuses an existing path — so a fixed name would 409 on the
+    # second engine.
+    target = f"created/by-e2e-{browser_name}"
+    page.goto(f"{ROOT_URL}/")
+    click_editor(page)
+    page.keyboard.press("Control+k")
+    switcher = page.get_by_placeholder(re.compile("go to or create", re.I))
+    switcher.fill(target)
+    switcher.press("Shift+Enter")
+    expect(page).to_have_url(re.compile(rf"/{re.escape(target)}$"))
+    click_editor(page)
     marker = "created-note-content"
-    type_text(driver, marker)
-    wait_vault_file(root_app, "created/by-e2e.md", marker)
+    type_text(page, marker)
+    wait_vault_file(ROOT_VAULT, f"{target}.md", marker)
 
 
-def test_missing_path_renders_notfound_view(driver, root_app):
+def test_missing_path_renders_notfound_view(page: Page):
     """A typo'd URL serves the SPA shell and the React NotFound view — the
     'missing paths serve the shell' rule, browser-observed."""
-    driver.get(f"{BASE}/no/such/note")
-    wait_until(
-        driver,
-        lambda: "not found" in driver.find_element(By.TAG_NAME, "body").text.lower(),
-    )
+    page.goto(f"{ROOT_URL}/no/such/note")
+    expect(page.get_by_text(re.compile("not found", re.I))).to_be_visible()

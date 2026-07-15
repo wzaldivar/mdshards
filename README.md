@@ -205,15 +205,20 @@ forwards the browser's `Host` header, as nginx/Caddy/Traefik do by default.
 (cd backend && pytest --cov=app)          # …with coverage
 npm --prefix frontend run test            # frontend (Vitest)
 npm --prefix frontend run test:coverage   # …with coverage
-pip install -r e2e/requirements.txt
-pytest e2e                                # real-browser e2e (needs Docker)
+
+# real-browser e2e (needs Docker) — fully containerized:
+docker compose -f e2e/docker-compose.e2e.yml build
+docker compose -f e2e/docker-compose.e2e.yml run --rm tests
+docker compose -f e2e/docker-compose.e2e.yml down -v
 ```
 
-The e2e suite builds the shipping Docker image and drives a real Chromium
-(`selenium/standalone-chromium` via testcontainers) through actual user
-journeys — editing with disk-flush verification, in-note images, the
-quick-switcher create flow, and sub-path (`BASE_URL`) containment. It skips
-itself when no Docker daemon is reachable.
+The e2e suite runs Playwright inside the official Playwright image and drives
+**Chromium, Firefox, and WebKit** — all in containers — against the shipping
+Docker image (run as compose services), through actual user journeys: editing
+with disk-flush verification, in-note images, the switcher shortcuts
+(go-to/create, rename, delete, emoji), sub-path (`BASE_URL`) containment, and
+split-mount permissions. WebKit gives real Safari-engine coverage. Nothing runs
+on a host browser.
 
 CI (GitHub Actions) runs both suites with coverage on every push and PR and
 reports to Codecov, SonarCloud, and Snyk. Linking those services is a one-time
