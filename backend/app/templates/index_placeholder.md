@@ -33,7 +33,7 @@ links use `[[wikilinks]]`; external links are shown but not clickable.
 
 ### An image from the vault
 
-![A sample image](sample01.jpg)
+![A sample image](attachments/sample01.jpg)
 
 ### A table
 

@@ -427,6 +427,41 @@ def test_create_file_rejects_traversal(client) -> None:
     assert r.status_code == 400
 
 
+def test_create_under_attachments_forbidden(client) -> None:
+    """DEMO: the attachments/ directory is seeded-only — creating a note under
+    it is refused (403), so users can't pollute the asset namespace."""
+    c, vault = client
+    r = c.post("/api/files", json={"path": "attachments/foo"})
+    assert r.status_code == 403
+    assert not (vault / "attachments" / "foo.md").exists()
+
+
+def test_move_into_attachments_forbidden(client) -> None:
+    c, vault = client
+    (vault / "note.md").write_text("keep")
+    r = c.post("/api/files/move", json={"src": "note", "dst": "attachments/note"})
+    assert r.status_code == 403
+    assert (vault / "note.md").exists()
+
+
+def test_root_note_named_attachments_allowed(client) -> None:
+    """A root note `attachments.md` is NOT inside the attachments/ directory, so
+    it stays creatable — only paths UNDER attachments/ are reserved."""
+    c, vault = client
+    r = c.post("/api/files", json={"path": "attachments"})
+    assert r.status_code == 201
+    assert (vault / "attachments.md").exists()
+
+
+def test_attachments_asset_still_serves(client) -> None:
+    """Reads from attachments/ stay open — the seeded demo assets render."""
+    c, vault = client
+    (vault / "attachments").mkdir()
+    (vault / "attachments" / "pic.png").write_bytes(b"\x89PNG")
+    r = c.get("/attachments/pic.png", headers={"sec-fetch-dest": "image"})
+    assert r.status_code == 200
+
+
 def test_delete_file_and_prune(client) -> None:
     c, vault = client
     (vault / "a").mkdir()

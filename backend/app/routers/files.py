@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
@@ -6,6 +8,16 @@ from ..files import delete_with_prune, move_with_prune, write_md_atomic
 from ..vault import VaultPathError, resolve_md
 
 router = APIRouter(prefix="/api")
+
+
+def _reject_attachments_write(target: Path, vault_dir: Path) -> None:
+    """DEMO: the `attachments/` directory holds ONLY the seeded demo assets.
+    Users may not create or move notes into it — reads/serving stay open, so
+    the seeded assets still render. (Serving lives under the catch-all, not
+    here.) Raises 403 when `target` resolves inside `<vault>/attachments/`."""
+    attachments = (vault_dir / "attachments").resolve()
+    if target == attachments or target.is_relative_to(attachments):
+        raise HTTPException(403, detail="the attachments/ directory is read-only")
 
 
 class CreateFileRequest(BaseModel):
@@ -40,6 +52,7 @@ def create_file(req: CreateFileRequest) -> dict:
         target = resolve_md(req.path, settings.vault_dir)
     except VaultPathError as e:
         raise HTTPException(400, detail=str(e)) from e
+    _reject_attachments_write(target, settings.vault_dir)
     if target.exists() and not req.overwrite:
         raise HTTPException(409, detail="file already exists")
     # An overwrite of a note that's actively open rides the same path as any
@@ -70,6 +83,7 @@ async def move_file(req: MoveFileRequest, request: Request) -> dict:
         raise HTTPException(400, detail=str(e)) from e
     if src_path == dst_path:
         raise HTTPException(400, detail="source and destination are the same")
+    _reject_attachments_write(dst_path, settings.vault_dir)
     index_md = (settings.vault_dir / "index.md").resolve()
     if src_path == index_md:
         raise HTTPException(403, detail="index.md cannot be renamed")
