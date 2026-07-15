@@ -1,9 +1,7 @@
 # Welcome to mdshards
 
-You're looking at a live, public **demo** of [mdshards] — a browser editor for a
-vault of plain markdown notes, synced live between everyone connected.
-
-[mdshards]: https://github.com/wzaldivar/mdshards
+You're looking at a live, public **demo** of **mdshards** — a browser editor for
+a vault of plain markdown notes, synced live between everyone connected.
 
 > ### 🚧 Please read — this is a shared public demo
 >
