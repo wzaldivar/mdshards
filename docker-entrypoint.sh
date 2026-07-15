@@ -23,6 +23,15 @@ if [ "$(id -u app)" != "$UID" ]; then
   usermod -o -u "$UID" app
 fi
 
+# DEMO: (re)seed the read-only attachments/ directory from the baked sample
+# assets on every start, so the demo's landing image resolves even after the
+# 2h vault wipe. Done before the chown below so a freshly-created vault dir
+# gets its ownership fixed too. No-op when the seed dir isn't in the image.
+if [ -d /app/demo-assets ]; then
+  mkdir -p /data/vault/attachments
+  cp -R /app/demo-assets/. /data/vault/attachments/
+fi
+
 # Make the data dirs writable by the (possibly reassigned) app user. Check
 # /data AND the nested mount points individually: compose files commonly bind
 # the vault and cache separately (`/host/vault:/data/vault`,

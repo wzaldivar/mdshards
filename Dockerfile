@@ -54,6 +54,11 @@ COPY backend/app ./app
 # dir next to the app package — it's a fixed convention, no env var needed.
 COPY --from=frontend-builder /build/dist ./static
 
+# DEMO: read-only sample assets. The entrypoint seeds these into the vault's
+# `attachments/` directory on every start (the demo vault is wiped every 2h),
+# so the landing page's `attachments/sample01.jpg` always resolves.
+COPY demo-assets/ ./demo-assets/
+
 # Runtime config. Vault and CRDT cache live on a single mounted volume so a
 # `docker run -v <host-dir>:/data ...` keeps both portable.
 ENV VAULT_DIR=/data/vault \
