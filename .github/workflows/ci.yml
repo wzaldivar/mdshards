@@ -89,6 +89,17 @@ jobs:
         if: always()
         run: docker compose -f e2e/docker-compose.e2e.yml down -v
 
+  # Validate the Docker Hub page artifacts (short-description + overview md)
+  # that release.yml syncs, so an over-limit / stale / relative-link value is
+  # caught here instead of silently producing a wrong Docker Hub page on the
+  # next release. Stdlib-only script; no setup beyond the default Python.
+  dockerhub-description:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Hub description
+        run: python3 .github/scripts/validate_dockerhub_description.py
+
   sonarcloud:
     needs: [backend, frontend]
     runs-on: ubuntu-latest
