@@ -1,7 +1,7 @@
 import { backendUrl } from '../lib/backend'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { encodePathToUrl, validateVaultPath } from '../lib/paths'
+import { encodePathToUrl, MAX_VAULT_PATH_LEN, validateVaultPath } from '../lib/paths'
 import { pendingRenames } from '../lib/pending-rename'
 import { SwitcherShell } from './SwitcherShell'
 import styles from './RenameSwitcher.module.css'
@@ -114,6 +114,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
       onKeyDown={onKeyDown}
       placeholder="Rename to…"
       onClose={onClose}
+      maxLength={MAX_VAULT_PATH_LEN}
     >
       <div className={styles.hint}>
         Renaming <code>{currentDocId}</code>

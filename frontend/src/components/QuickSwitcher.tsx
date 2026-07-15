@@ -2,7 +2,7 @@ import { backendUrl } from '../lib/backend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
-import { encodePathToUrl, validateVaultPath } from '../lib/paths'
+import { encodePathToUrl, MAX_VAULT_PATH_LEN, validateVaultPath } from '../lib/paths'
 import { useListNavigation } from '../lib/use-list-navigation'
 import { SwitcherShell } from './SwitcherShell'
 import styles from './QuickSwitcher.module.css'
@@ -188,6 +188,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
       onKeyDown={onKeyDown}
       placeholder="Go to or create a note…"
       onClose={onClose}
+      maxLength={MAX_VAULT_PATH_LEN}
     >
       <ul className={styles.list}>
         {matches.map((p, i) => (

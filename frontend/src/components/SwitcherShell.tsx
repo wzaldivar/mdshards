@@ -9,6 +9,9 @@ interface Props {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   placeholder: string
   onClose: () => void
+  /** Optional native `maxLength` for the text input — path-entry switchers pass
+   *  the vault path cap so the field can't exceed what the backend accepts. */
+  maxLength?: number
   /** The result list, hints, and error surface — rendered after the input. */
   children: ReactNode
 }
@@ -24,6 +27,7 @@ export function SwitcherShell({
   onKeyDown,
   placeholder,
   onClose,
+  maxLength,
   children,
 }: Readonly<Props>) {
   return (
@@ -47,6 +51,7 @@ export function SwitcherShell({
           type="text"
           className={styles.input}
           placeholder={placeholder}
+          maxLength={maxLength}
           {...NO_AUTOFILL}
         />
         {children}

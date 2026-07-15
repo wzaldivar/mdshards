@@ -4,6 +4,10 @@
  * `backend/app/vault.py`.
  */
 
+/** DEMO cap: max length of a vault-relative path. Mirrors `_MAX_PATH_LEN` in
+ *  `backend/app/vault.py`; also fed to the switcher inputs' `maxLength`. */
+export const MAX_VAULT_PATH_LEN = 30
+
 export function validateVaultPath(path: string): string | null {
   if (path === '') return null
   if (path.includes('\0')) return 'null byte in path'
@@ -11,6 +15,9 @@ export function validateVaultPath(path: string): string | null {
   // a path is placed into a URL (see `encodePathToUrl`).
   const trimmed = path.replace(/^\/+/, '')
   if (trimmed === '') return null
+  if (trimmed.length > MAX_VAULT_PATH_LEN) {
+    return `path too long (max ${MAX_VAULT_PATH_LEN} chars)`
+  }
   const segments = trimmed.split('/')
   for (const segment of segments) {
     if (segment === '' || segment === '.' || segment === '..') {

@@ -31,6 +31,11 @@ describe('validateVaultPath', () => {
     expect(validateVaultPath('foo\\bar')).toBe('backslash in path segment')
   })
 
+  it('accepts a path at the 30-char cap, rejects over it', () => {
+    expect(validateVaultPath('x'.repeat(30))).toBeNull()
+    expect(validateVaultPath('x'.repeat(31))).toContain('too long')
+  })
+
   it('strips a leading slash', () => {
     expect(validateVaultPath('/foo')).toBeNull()
   })

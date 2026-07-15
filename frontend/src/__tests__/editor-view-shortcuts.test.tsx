@@ -170,6 +170,13 @@ describe('EditorView shortcuts on a markdown URL', () => {
     expect(await openWithShortcut({ key: 'k' }, /go to or create/i)).toBeDefined()
   })
 
+  it('caps the quick-switcher input at the 30-char vault path limit', async () => {
+    renderAt('/notes/today')
+    await waitForResolve()
+    const input = (await openWithShortcut({ key: 'k' }, /go to or create/i)) as HTMLInputElement
+    expect(input.maxLength).toBe(30)
+  })
+
   it('Cmd-Shift-K does NOT open rename on the root index', async () => {
     renderAt('/')
     await waitForResolve()
