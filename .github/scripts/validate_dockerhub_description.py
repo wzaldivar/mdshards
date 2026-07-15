@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Validate the Docker Hub repository description artifacts before they ship.
 
-Two workflows sync the Docker Hub page via peter-evans/dockerhub-description:
-release.yml (at publish time) and dockerhub-description.yml (manual, out of
-band). Each carries an inline `short-description` plus the overview markdown at
-`readme-filepath`. Docker Hub silently rejects/truncates a short description
-over 100 chars and a full description over 25000, so a broken value only shows
-up as a wrong page after a sync. This guard catches it in CI on the PR that
-introduces it instead.
+The Docker Hub page is synced via peter-evans/dockerhub-description: an inline
+`short-description` plus the overview markdown at `readme-filepath`. That lives
+in the reusable dockerhub-description workflow (release.yml calls into it, so
+there's a single copy). Docker Hub silently rejects/truncates a short
+description over 100 chars and a full description over 25000, so a broken value
+only shows up as a wrong page after a sync. This guard catches it in CI on the
+PR that introduces it instead.
 
 Checks (stdlib only, no external deps):
-  1. short-description present and <= 100 chars in every syncing workflow
-  2. the short-description is identical across those workflows (they each need
-     their own inline copy — this keeps the copies from drifting)
+  1. exactly one source of the short-description; it is <= 100 chars. Any
+     workflow carrying an inline `short-description:` counts as a source, so a
+     re-introduced duplicate is caught...
+  2. ...and if more than one source exists, they must be byte-identical (no
+     drift between copies).
   3. overview file (readme-filepath) exists and is <= 25000 chars
   4. no hardcoded `X.Y.Z` version tags in the overview (they go stale — the
      "Supported tags" section must describe the scheme, not pin a version)
@@ -30,47 +32,48 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
-# Every workflow that syncs the Docker Hub description carries its own inline
-# short-description; check 2 keeps them identical.
-SYNC_WORKFLOWS = ["release.yml", "dockerhub-description.yml"]
-RELEASE_YML = WORKFLOWS / "release.yml"
 
 SHORT_MAX = 100
 FULL_MAX = 25000
 
 
 def main() -> int:
-    release = RELEASE_YML.read_text()
-
-    readme_m = re.search(r"readme-filepath:\s*\./(\S+)", release)
-
     failures: list[str] = []
 
-    # 1. short description present and within limit in every syncing workflow
+    # Discover every workflow that carries an inline Docker Hub short-description
+    # — the syncing source(s). Normally one (dockerhub-description.yml); more
+    # than one means a copy was re-introduced and must be kept identical.
     shorts: dict[str, str] = {}
-    for name in SYNC_WORKFLOWS:
-        path = WORKFLOWS / name
-        if not path.exists():
-            failures.append(f"syncing workflow missing: {name}")
+    readmes: dict[str, str] = {}
+    for wf in sorted(WORKFLOWS.glob("*.yml")):
+        text = wf.read_text()
+        sm = re.search(r'short-description:\s*"([^"]*)"', text)
+        if not sm:
             continue
-        m = re.search(r'short-description:\s*"([^"]*)"', path.read_text())
-        if not m:
-            failures.append(f"no short-description found in {name}")
-            continue
-        shorts[name] = m.group(1)
-        if len(m.group(1)) > SHORT_MAX:
-            failures.append(f"{name}: short-description is {len(m.group(1))} chars (max {SHORT_MAX})")
+        shorts[wf.name] = sm.group(1)
+        rm = re.search(r"readme-filepath:\s*\./(\S+)", text)
+        if rm:
+            readmes[wf.name] = rm.group(1)
 
-    # 2. short-description identical across the syncing workflows
+    # 1. a source exists and each is within the length limit
+    if not shorts:
+        failures.append("no workflow carries a short-description — nothing syncs the Docker Hub page")
+    for name, short in shorts.items():
+        if len(short) > SHORT_MAX:
+            failures.append(f"{name}: short-description is {len(short)} chars (max {SHORT_MAX})")
+
+    # 2. all copies identical
     if len(set(shorts.values())) > 1:
         failures.append(f"short-description differs across workflows: {shorts}")
 
     # 3. overview file exists and within the full-description limit
-    if not readme_m:
-        failures.append("no readme-filepath found in release.yml")
-        overview = None
+    overview = None
+    if not readmes:
+        failures.append("no readme-filepath found in any syncing workflow")
+    elif len(set(readmes.values())) > 1:
+        failures.append(f"readme-filepath differs across workflows: {readmes}")
     else:
-        overview = REPO_ROOT / readme_m.group(1)
+        overview = REPO_ROOT / next(iter(readmes.values()))
         if not overview.exists():
             failures.append(f"readme-filepath does not exist: {overview}")
             overview = None
@@ -100,7 +103,8 @@ def main() -> int:
             print(f"  - {f}")
         return 1
 
-    print("Docker Hub description validation passed.")
+    src = ", ".join(sorted(shorts))
+    print(f"Docker Hub description validation passed (source: {src}).")
     return 0
 
 
