@@ -57,17 +57,19 @@ describe('live-preview click handling', () => {
     expect(onNavigate).toHaveBeenCalledWith('notes/target')
   })
 
-  it('clicking an external link opens a new tab with noopener', () => {
+  it('external links are inert (demo): not clickable, no new tab', () => {
     const open = vi.fn()
     vi.stubGlobal('open', open)
     mountWith('intro\n\n[docs](https://example.com/docs)\n')
-    const link = document.querySelector('.cm-md-link')!
-    mousedown(link)
-    expect(open).toHaveBeenCalledWith(
-      'https://example.com/docs',
-      '_blank',
-      'noopener,noreferrer',
-    )
+    // No clickable link mark; the label renders as a distinct inert class
+    // carrying no data-href, so the click handler never opens anything.
+    expect(document.querySelector('.cm-md-link')).toBeNull()
+    const ext = document.querySelector('.cm-md-link-external') as HTMLElement
+    expect(ext).not.toBeNull()
+    expect(ext.getAttribute('data-href')).toBeNull()
+    expect(ext.textContent).toBe('docs')
+    mousedown(ext)
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('routes root-absolute link hrefs through backendUrl (sub-path prefix)', () => {

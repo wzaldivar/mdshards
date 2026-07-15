@@ -217,11 +217,12 @@ describe('GFM table widget rendering', () => {
   })
 
   it('inline link with title attaches it to the rendered .cm-md-link mark', () => {
-    const doc = '[click here](https://example.com "open the site")\n'
+    // Internal (vault) target — external links render inert (no .cm-md-link).
+    const doc = '[click here](guides/intro "open the site")\n'
     mountWith(doc, doc.length)
     const link = document.querySelector('.cm-md-link') as HTMLElement | null
     expect(link).not.toBeNull()
-    expect(link!.getAttribute('data-href')).toBe('https://example.com')
+    expect(link!.getAttribute('data-href')).toBe('guides/intro')
     expect(link!.getAttribute('title')).toBe('open the site')
   })
 
@@ -277,20 +278,20 @@ describe('GFM table widget rendering', () => {
 
   it('reference-style link `[t][1]` resolves URL + title from its definition', () => {
     const doc =
-      '[See the docs][docs]\n\n[docs]: https://docs.example.com "Project docs"\n'
+      '[See the docs][docs]\n\n[docs]: guides/docs "Project docs"\n'
     mountWith(doc, doc.length)
     const link = document.querySelector('.cm-md-link') as HTMLElement | null
     expect(link).not.toBeNull()
-    expect(link!.getAttribute('data-href')).toBe('https://docs.example.com')
+    expect(link!.getAttribute('data-href')).toBe('guides/docs')
     expect(link!.getAttribute('title')).toBe('Project docs')
   })
 
   it('shortcut reference link `[label]` resolves against a matching definition', () => {
-    const doc = '[homepage]\n\n[homepage]: https://example.com\n'
+    const doc = '[homepage]\n\n[homepage]: home\n'
     mountWith(doc, doc.length)
     const link = document.querySelector('.cm-md-link') as HTMLElement | null
     expect(link).not.toBeNull()
-    expect(link!.getAttribute('data-href')).toBe('https://example.com')
+    expect(link!.getAttribute('data-href')).toBe('home')
   })
 
   it('unresolved reference link stays as raw markdown (no .cm-md-link)', () => {
@@ -300,11 +301,11 @@ describe('GFM table widget rendering', () => {
   })
 
   it('reference labels match case-insensitively', () => {
-    const doc = '[See][DOCS]\n\n[docs]: https://docs.example.com\n'
+    const doc = '[See][DOCS]\n\n[docs]: guides/docs\n'
     mountWith(doc, doc.length)
     const link = document.querySelector('.cm-md-link') as HTMLElement | null
     expect(link).not.toBeNull()
-    expect(link!.getAttribute('data-href')).toBe('https://docs.example.com')
+    expect(link!.getAttribute('data-href')).toBe('guides/docs')
   })
 
   it('setext H2 (`text\\n---`) styles the text line with cm-md-h2 (not as HR)', () => {

@@ -199,6 +199,12 @@ body {
   text-decoration: underline;
   cursor: pointer;
 }
+/* DEMO: external links are inert — shown as muted, non-clickable text. */
+.cm-md-link-external {
+  color: var(--muted-color, #888);
+  text-decoration: underline dotted;
+  cursor: default;
+}
 .cm-md-wikilink {
   color: var(--link-color);
   text-decoration: underline;

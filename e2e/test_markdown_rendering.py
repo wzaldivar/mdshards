@@ -153,28 +153,41 @@ def test_task_lists_render_checkboxes(page: Page):
 
 
 def test_links_autolinks_and_reference_links(page: Page):
+    # Demo lockdown: only in-vault navigation is clickable. External links
+    # (inline + reference) render inert; autolinks stay as plain text.
     _open(
         page,
         "links",
-        '[titled link](https://example.com "hover text")\n\n'
-        "<https://autolink.example.com>\n\n"
+        '[titled link](guides/intro "hover text")\n\n'  # internal → clickable
+        "[external site](https://example.com)\n\n"  # external → inert
+        "<https://autolink.example.com>\n\n"  # autolink → plain text
         "[ref style][lbl]\n\n"
-        "[lbl]: https://ref.example.com\n",
+        "[lbl]: https://ref.example.com\n",  # external reference → inert
     )
     _wait_text(page, "titled link")
     text = _visible_text(page)
-    # inline link URL is hidden; the label is decorated and titled
+    # inline URLs are hidden; the labels show
     assert "(https://example.com" not in text
-    link_els = page.locator(".cm-md-link")
-    links = {
-        link_els.nth(i).get_attribute("data-href"): link_els.nth(i)
-        for i in range(link_els.count())
-    }
-    assert "https://example.com" in links
-    assert links["https://example.com"].get_attribute("title") == "hover text"
-    # reference form resolves through its label definition
-    assert "https://ref.example.com" in links
-    # autolink text stays visible (clickable URL)
+    assert "titled link" in text and "external site" in text and "ref style" in text
+
+    # internal link is clickable: a real .cm-md-link with data-href + title
+    clickable = page.locator(".cm-md-link")
+    hrefs = {clickable.nth(i).get_attribute("data-href") for i in range(clickable.count())}
+    assert "guides/intro" in hrefs
+    titled = page.locator('.cm-md-link[data-href="guides/intro"]')
+    assert titled.get_attribute("title") == "hover text"
+
+    # external links (inline + reference) are INERT — rendered as
+    # .cm-md-link-external carrying no data-href, so nothing is clickable and no
+    # external URL ever becomes a live link.
+    ext = page.locator(".cm-md-link-external")
+    assert ext.count() >= 2
+    for i in range(ext.count()):
+        assert ext.nth(i).get_attribute("data-href") is None
+    assert "https://example.com" not in hrefs
+    assert "https://ref.example.com" not in hrefs
+
+    # autolink text stays visible (as plain text, not a decorated link)
     assert "https://autolink.example.com" in text
 
 

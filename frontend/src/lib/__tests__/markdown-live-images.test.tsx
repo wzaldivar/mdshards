@@ -65,6 +65,32 @@ describe('markdown images with empty alt', () => {
   })
 })
 
+describe('external images resolve to a Lorem Picsum placeholder (demo)', () => {
+  it('rewrites an http(s) image ref to a stable picsum URL', () => {
+    const doc = 'intro\n\n![shot](https://evil.example.com/tracker.png)\n'
+    mountWith(doc, 0)
+    expect(imgs()).toHaveLength(1)
+    const src = imgs()[0].getAttribute('src')!
+    expect(src).toMatch(/^https:\/\/picsum\.photos\/seed\/[a-z0-9]+\/400\/300$/)
+    // the arbitrary third-party host is never fetched
+    expect(src).not.toContain('evil.example.com')
+  })
+
+  it('is deterministic — the same ref yields the same placeholder', () => {
+    const doc = 'a ![x](https://a.test/one.png) b ![y](https://a.test/one.png)\n'
+    mountWith(doc, 0)
+    const srcs = imgs().map((i) => i.getAttribute('src'))
+    expect(srcs).toHaveLength(2)
+    expect(srcs[0]).toBe(srcs[1])
+  })
+
+  it('leaves vault-relative image refs untouched', () => {
+    const doc = 'intro\n\n![local](pic.png)\n'
+    mountWith(doc, 0)
+    expect(imgs()[0].getAttribute('src')).toBe('/notes/pic.png')
+  })
+})
+
 describe('wikilink image embeds', () => {
   it('renders `![[attachments/pic.png]]` via the server-side embed resolver', () => {
     const doc = 'intro\n\n![[attachments/pic.png]]\n'

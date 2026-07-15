@@ -154,6 +154,25 @@ export function resolveAssetUrl(noteDocId: string, ref: string): string {
   return '/' + dirParts.join('/')
 }
 
+/** DEMO lockdown: a link href is "external" (leaves the vault) when it carries
+ *  any URL scheme (`http:`, `https:`, `mailto:`, `javascript:`, …) or is
+ *  protocol-relative (`//host`). Vault navigation — relative refs and
+ *  root-absolute `/path` — is NOT external. Only navigation stays clickable;
+ *  external links render inert (see decorateLink). */
+function isExternalHref(url: string): boolean {
+  return url.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(url)
+}
+
+/** DEMO lockdown: map any external image ref to a stable Lorem Picsum
+ *  placeholder so the page never fetches arbitrary third-party images. Seeded
+ *  by the ref (deterministic FNV-ish hash) so the same URL always renders the
+ *  same picture across reloads. */
+function externalImagePlaceholder(ref: string): string {
+  let h = 0
+  for (let i = 0; i < ref.length; i++) h = (Math.imul(h, 31) + ref.charCodeAt(i)) | 0
+  return `https://picsum.photos/seed/${(h >>> 0).toString(36)}/400/300`
+}
+
 class ImageWidget extends WidgetType {
   readonly alt: string
   readonly src: string
@@ -674,14 +693,18 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // Unresolved reference (no matching definition) — leave the raw markup
   // visible so the user sees something's wrong.
   if (!url) return false
-  const attrs: Record<string, string> = { 'data-href': url }
+  // DEMO lockdown: external links (anything that isn't in-vault navigation)
+  // render as inert text — no `data-href`, a distinct class the click handler
+  // never matches. Only vault navigation stays clickable.
+  const external = isExternalHref(url)
+  const attrs: Record<string, string> = external ? {} : { 'data-href': url }
   if (title !== null) attrs.title = title
   ctx.pushAtomic(Decoration.replace({}).range(node.from, node.from + 1))
   ctx.ranges.push(
-    Decoration.mark({ class: 'cm-md-link', attributes: attrs }).range(
-      node.from + 1,
-      closeBracket,
-    ),
+    Decoration.mark({
+      class: external ? 'cm-md-link-external' : 'cm-md-link',
+      attributes: attrs,
+    }).range(node.from + 1, closeBracket),
   )
   ctx.pushAtomic(Decoration.replace({}).range(closeBracket, node.to))
   ctx.visited.add(node.from)
@@ -750,8 +773,17 @@ function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // origin when configured (deployment mode 3). The FILE keeps its
   // vault-relative ref — this is render-time only.
   const resolved = resolveAssetUrl(opts.noteDocId, urlRaw)
-  const src =
-    resolved && !/^(https?:|data:)/i.test(resolved) ? backendUrl(resolved) : resolved
+  // DEMO lockdown: never fetch arbitrary external images — an http(s) ref is
+  // swapped for a stable Lorem Picsum placeholder. Vault paths go through
+  // backendUrl; data: URIs (inline, no network) pass through untouched.
+  let src: string
+  if (/^https?:\/\//i.test(resolved)) {
+    src = externalImagePlaceholder(urlRaw)
+  } else if (resolved && !/^data:/i.test(resolved)) {
+    src = backendUrl(resolved)
+  } else {
+    src = resolved
+  }
   ctx.pushAtomic(
     Decoration.replace({ widget: new ImageWidget(alt, src, title) }).range(
       node.from,
