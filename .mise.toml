@@ -1,6 +1,6 @@
 [tools]
 python = "3.14"
-node = "22"
+node = "24"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
