@@ -7,6 +7,8 @@ editing the notes on your LAN server straight from the browser.
 
 **Source & full docs:** https://github.com/wzaldivar/mdshards
 
+**Live demo:** https://mdshards-demo.wzaldivar.me — a locked-down, ephemeral public instance (read-only home, uploads disabled, resets periodically). Not for real use.
+
 ---
 
 ## ⚠️ Know what you're running

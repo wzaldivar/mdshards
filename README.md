@@ -7,6 +7,8 @@
 
 A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket.
 
+**Live demo:** <https://mdshards-demo.wzaldivar.me> — a locked-down, ephemeral public instance (read-only home page, uploads disabled, resets periodically). It's for a quick look, not real use; for that, run the image below.
+
 See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory (supported, missing, out of scope) and **[CLAUDE.md](./CLAUDE.md)** for the full architectural spec and load-bearing decisions.
 
 > **Disclaimer — vibe-coded, maintained accordingly.** The overall design is a

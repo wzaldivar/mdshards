@@ -1,0 +1,47 @@
+name: Publish demo image
+
+# MANUAL ONLY — never runs automatically (no push/tag triggers). Builds the
+# demo branch and pushes it to Docker Hub as wzaldivar/mdshards-demo:latest.
+#
+# The demo image is a SEPARATE Docker Hub repo from the versioned
+# wzaldivar/mdshards — it carries the demo lockdown (read-only landing page,
+# uploads disabled, attachments/ locked, external links/images neutralized) and
+# is only ever tagged `latest`. Lives on the default branch (main) because a
+# workflow_dispatch workflow must, but it checks out `demo` to build.
+#
+# Requires the repo secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN (the token must
+# have write access to the mdshards-demo repo; Docker Hub creates it on first
+# push).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/ref to build the demo image from"
+        required: false
+        default: demo
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: wzaldivar/mdshards-demo:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/wzaldivar/mdshards
+            org.opencontainers.image.licenses=MIT
+      # The Docker Hub PAGE for this repo is synced separately by the
+      # `demo-description` workflow, so it can be updated without a rebuild.
