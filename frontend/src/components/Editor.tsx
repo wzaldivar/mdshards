@@ -340,6 +340,17 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
           }
           const downFor = disconnectedAt === null ? 0 : Date.now() - disconnectedAt
           disconnectedAt = null
+          // DEMO: the read-only home (index) is re-materialized from its
+          // template — with fresh CRDT item IDs — on every server restart (the
+          // demo vault + .yjs cache are ephemeral and reset periodically). A
+          // within-grace reconnect would union our stale copy into the server's
+          // new one and DUPLICATE the whole page. The home carries no local
+          // edits worth keeping, so always resync from scratch rather than
+          // resume. (A remount already in flight is left to finish.)
+          if (docId === '' && !remounting) {
+            scheduleStaleRemount()
+            return
+          }
           if (downFor <= staleAfterMs || remounting) {
             // Blip within grace: the server still holds our Doc and y-websocket
             // resynced it cleanly. Unlock editing if the timer had fired.
