@@ -85,13 +85,13 @@ describe('RenameSwitcher', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('renames an md note via /api/files/move, tracks pendingRenames, and navigates', async () => {
+  it('renames an md note via /_mdshards/api/files/move, tracks pendingRenames, and navigates', async () => {
     const calls = stubFetch(200, { from: 'notes/today', to: 'notes/tomorrow' })
     renderRename('notes/today', true)
     const input = await typeTarget('notes/tomorrow')
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/notes/tomorrow'))
-    expect(calls[0].url).toContain('/api/files/move')
+    expect(calls[0].url).toContain('/_mdshards/api/files/move')
     expect(calls[0].body).toEqual({ src: 'notes/today', dst: 'notes/tomorrow' })
     // The initiator marked the destination BEFORE the request so the WS
     // close handler stays silent instead of offering a "follow?" banner.
@@ -108,13 +108,13 @@ describe('RenameSwitcher', () => {
     expect(screen.getByTestId('loc').textContent).toBe('/notes/today')
   })
 
-  it('renames an asset via /api/assets/move without touching pendingRenames', async () => {
+  it('renames an asset via /_mdshards/api/assets/move without touching pendingRenames', async () => {
     const calls = stubFetch(200, { from: 'pic.png', to: 'art/pic.png', converted: false })
     renderRename('pic.png', false)
     const input = await typeTarget('art/pic.png')
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/art/pic.png'))
-    expect(calls[0].url).toContain('/api/assets/move')
+    expect(calls[0].url).toContain('/_mdshards/api/assets/move')
     expect(pendingRenames.size).toBe(0)
   })
 
@@ -141,7 +141,7 @@ describe('RenameSwitcher', () => {
     // Second Enter on the unchanged target commits the conversion.
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/notes%202'))
-    expect(calls[0].url).toContain('/api/assets/move')
+    expect(calls[0].url).toContain('/_mdshards/api/assets/move')
   })
 
   it('editing the target withdraws a pending convert confirmation', async () => {

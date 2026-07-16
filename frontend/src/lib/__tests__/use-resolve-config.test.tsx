@@ -55,10 +55,10 @@ describe('useResolve', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('md'))
-    expect(urls[0]).toContain('/api/resolve/notes/today')
+    expect(urls[0]).toContain('/_mdshards/api/resolve/notes/today')
   })
 
-  it('resolves the root through the bare /api/resolve form', async () => {
+  it('resolves the root through the bare /_mdshards/api/resolve form', async () => {
     const urls = stubResolve({ type: 'md', canonical: '' })
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -66,7 +66,7 @@ describe('useResolve', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('md'))
-    expect(urls[0].endsWith('/api/resolve')).toBe(true)
+    expect(urls[0].endsWith('/_mdshards/api/resolve')).toBe(true)
   })
 
   it('replace-navigates to the canonical form (.md URL → extensionless)', async () => {
@@ -100,7 +100,7 @@ describe('useResolve', () => {
     )
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('md'))
     // encoded on the wire, raw in the comparison — no redirect ping-pong
-    expect(urls[0]).toContain('/api/resolve/my%20note')
+    expect(urls[0]).toContain('/_mdshards/api/resolve/my%20note')
     expect(screen.getByTestId('loc').textContent).toBe('/my note')
   })
 

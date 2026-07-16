@@ -70,14 +70,14 @@ describe('UploadSwitcher', () => {
     await screen.findByText(/will save to/i)
   })
 
-  it('md source uploads via /api/files with the doc-id path and navigates there', async () => {
+  it('md source uploads via /_mdshards/api/files with the doc-id path and navigates there', async () => {
     const calls = stubFetch([201])
     renderUpload('index', new File(['# hi'], 'note.MD'))
     const el = await input()
     fireEvent.change(el, { target: { value: 'imported/note.md' } })
     fireEvent.keyDown(el, { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/imported/note'))
-    expect(calls[0].url).toContain('/api/files')
+    expect(calls[0].url).toContain('/_mdshards/api/files')
     expect(calls[0].json).toMatchObject({
       path: 'imported/note',
       content: '# hi',
@@ -111,13 +111,13 @@ describe('UploadSwitcher', () => {
     expect(calls[1].form?.get('overwrite')).toBeNull()
   })
 
-  it('asset source uploads via /api/assets and navigates to viewable assets', async () => {
+  it('asset source uploads via /_mdshards/api/assets and navigates to viewable assets', async () => {
     const calls = stubFetch([201])
     renderUpload('index', new File(['x'], 'pic.png'))
     const el = await input()
     fireEvent.keyDown(el, { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/pic.png'))
-    expect(calls[0].url).toContain('/api/assets')
+    expect(calls[0].url).toContain('/_mdshards/api/assets')
     expect(calls[0].form?.get('path')).toBe('pic.png')
   })
 

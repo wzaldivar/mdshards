@@ -1,4 +1,4 @@
-import { backendUrl } from './backend'
+import { apiUrl } from './backend'
 
 export interface TreeNode {
   name: string
@@ -13,7 +13,7 @@ export async function fetchTree(): Promise<TreeNode> {
   // relative `api/tree` would resolve against the current document path, so
   // from a nested doc like `/foo/bar` it hit `/foo/api/tree` → SPA shell →
   // "Unexpected token '<'" JSON parse error.
-  const r = await fetch(backendUrl('/api/tree'))
+  const r = await fetch(apiUrl('/api/tree'))
   if (!r.ok) throw new Error(`tree fetch failed: ${r.status}`)
   return (await r.json()) as TreeNode
 }

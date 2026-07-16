@@ -31,7 +31,7 @@ function stubFetch(deleteStatus = 200) {
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : String(input)
-      if (url.endsWith('/api/tree')) {
+      if (url.endsWith('/_mdshards/api/tree')) {
         return Promise.resolve(
           new Response(JSON.stringify({ name: '', path: '', type: 'dir', children: [] }), {
             status: 200,

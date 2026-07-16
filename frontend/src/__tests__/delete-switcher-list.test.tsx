@@ -40,7 +40,7 @@ function stubFetch(treeStatus = 200, deleteStatus = 200) {
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.endsWith('/api/tree')) {
+      if (url.endsWith('/_mdshards/api/tree')) {
         return Promise.resolve(
           new Response(JSON.stringify(TREE), {
             status: treeStatus,
@@ -90,7 +90,7 @@ describe('DeleteSwitcher picker', () => {
     expect(screen.queryByText(/^alpha$/)).toBeNull()
   })
 
-  it('filters by query and deletes the best match — an asset via /api/assets/', async () => {
+  it('filters by query and deletes the best match — an asset via /_mdshards/api/assets/', async () => {
     const deletes = stubFetch()
     renderDelete('alpha')
     const input = await pickerInput()
@@ -100,12 +100,12 @@ describe('DeleteSwitcher picker', () => {
     await screen.findByText(/confirm delete/i)
     fireEvent.keyDown(input, { key: 'Enter' }) // commit
     await waitFor(() => expect(deletes).toHaveLength(1))
-    expect(deletes[0]).toContain('/api/assets/pic.png')
+    expect(deletes[0]).toContain('/_mdshards/api/assets/pic.png')
     // Deleting an unrelated file leaves the current view in place.
     expect(screen.getByTestId('loc').textContent).toBe('/alpha')
   })
 
-  it('deletes a note via /api/files/ with the doc-id form', async () => {
+  it('deletes a note via /_mdshards/api/files/ with the doc-id form', async () => {
     const deletes = stubFetch()
     renderDelete('alpha')
     const input = await pickerInput()
@@ -115,7 +115,7 @@ describe('DeleteSwitcher picker', () => {
     await screen.findByText(/confirm delete/i)
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(deletes).toHaveLength(1))
-    expect(deletes[0]).toContain('/api/files/notes/today')
+    expect(deletes[0]).toContain('/_mdshards/api/files/notes/today')
   })
 
   it('arrow keys move the highlight and withdraw an armed confirmation', async () => {

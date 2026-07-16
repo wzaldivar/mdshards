@@ -43,19 +43,37 @@ function homePathPrefix(): string {
   return meta?.getAttribute('content') ?? ''
 }
 
-/** Prefix an origin-rooted backend path (`/api/...`, `/pic.png`) with the
- *  configured backend origin and the sub-path mount prefix. Pass-through
- *  when neither is configured. */
+/** The one reserved app-surface segment. Every mdshards-owned URL (REST API,
+ *  WebSocket, Vite bundle, favicon) lives under it so the whole top-level
+ *  namespace belongs to the vault — a note or folder may be named `assets`,
+ *  `api`, `ws`, anything. Keep in lockstep with APP_PREFIX in the backend's
+ *  security.py and the reserved segment in vault.py. */
+export const APP_PREFIX = '/_mdshards'
+
+/** Prefix a vault-content path (`/pic.png`, `/dir/note`) with the configured
+ *  backend origin and sub-path mount prefix. Pass-through when neither is set.
+ *  This is for VAULT content only — a vault asset in an `api/` folder is a
+ *  legitimate `/api/pic.png` and must NOT be treated as an app URL. App calls
+ *  go through `apiUrl` instead, which adds APP_PREFIX. */
 export function backendUrl(path: string): string {
   return BACKEND_HOST + homePathPrefix() + path
 }
 
+/** Prefix an app-surface path (`/api/...`) with the backend origin, sub-path
+ *  mount, and the reserved APP_PREFIX — so `/api/tree` becomes
+ *  `/_mdshards/api/tree` (or `/notes/_mdshards/api/tree` under a sub-path).
+ *  The app surface is namespaced so vault names never collide with it. */
+export function apiUrl(path: string): string {
+  return BACKEND_HOST + homePathPrefix() + APP_PREFIX + path
+}
+
 /** WebSocket server URL (no room suffix). Derived from BACKEND_HOST when
- *  baked, else from the page's own origin, carrying the sub-path prefix
- *  either way; the server/proxy in front forwards `<prefix>/ws/...` to the
- *  backend. */
+ *  baked, else from the page's own origin, carrying the sub-path prefix and
+ *  APP_PREFIX either way; the server/proxy forwards `<prefix>/_mdshards/ws/...`
+ *  to the backend. */
 export function backendWsUrl(): string {
-  if (BACKEND_HOST) return BACKEND_HOST.replace(/^http/, 'ws') + homePathPrefix() + '/ws'
+  if (BACKEND_HOST)
+    return BACKEND_HOST.replace(/^http/, 'ws') + homePathPrefix() + APP_PREFIX + '/ws'
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}${homePathPrefix()}/ws`
+  return `${proto}//${window.location.host}${homePathPrefix()}${APP_PREFIX}/ws`
 }

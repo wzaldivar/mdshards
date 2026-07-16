@@ -1,4 +1,4 @@
-import { backendUrl } from '../lib/backend'
+import { apiUrl } from '../lib/backend'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
@@ -68,7 +68,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
       // response) recognises us as the initiator and skips the "follow?" banner.
       pendingRenames.add(dst)
     }
-    const r = await fetch(backendUrl(endpoint), {
+    const r = await fetch(apiUrl(endpoint), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ src: currentDocId, dst }),
