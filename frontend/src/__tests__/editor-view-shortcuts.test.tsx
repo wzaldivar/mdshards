@@ -236,7 +236,7 @@ describe('QuickSwitcher force-create', () => {
             new Response(JSON.stringify({ type: 'md', canonical }), { status: 200 }),
           )
         }
-        if (url.endsWith('/api/files') && init?.method === 'POST') {
+        if (url.endsWith('/_mdshards/api/files') && init?.method === 'POST') {
           posts.push({
             url: new URL(url, 'http://x'),
             body: JSON.parse(String(init.body)),
@@ -277,7 +277,7 @@ describe('QuickSwitcher force-create', () => {
     const input = await openSwitcherAndType('my')
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0].url.pathname).toBe('/api/files')
+    expect(posts[0].url.pathname).toBe('/_mdshards/api/files')
     expect(posts[0].body).toMatchObject({ path: 'my' })
   })
 

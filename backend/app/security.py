@@ -51,12 +51,27 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # a foreign origin. `none` covers direct navigation (typed URL, bookmark).
 SAFE_SEC_FETCH_SITE = {"same-origin", "same-site", "none"}
 
+# App-surface namespace. Every mdshards-owned URL (REST API, WebSocket, Vite
+# bundle, favicon) lives under this single reserved segment so the entire
+# top-level namespace belongs to the vault — a note or folder can be named
+# `assets`, `api`, `ws`, anything. See CLAUDE.md "App-surface namespace".
+# Keep in lockstep with APP_PREFIX in the frontend's lib/backend.ts.
+APP_PREFIX = "/_mdshards"
+_API_PREFIX = APP_PREFIX + "/api"
+_WS_PREFIX = APP_PREFIX + "/ws"
+
 
 def _is_api_or_ws(path: str) -> bool:
     """True if `path` targets the REST API or WebSocket endpoints — the
     surfaces the prebuilt frontend bundle is the only legitimate client of.
-    Used to apply the stricter Sec-Fetch-Site presence rule."""
-    return path in ("/api", "/ws") or path.startswith("/api/") or path.startswith("/ws/")
+    Used to apply the stricter Sec-Fetch-Site presence rule. `path` is the
+    BASE_URL-stripped route path, so it carries the APP_PREFIX but not the
+    sub-path mount."""
+    return (
+        path in (_API_PREFIX, _WS_PREFIX)
+        or path.startswith(_API_PREFIX + "/")
+        or path.startswith(_WS_PREFIX + "/")
+    )
 
 
 def _route_path(scope: Scope) -> str:

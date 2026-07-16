@@ -62,6 +62,35 @@ def test_case_sensitive(tmp_path: Path) -> None:
     assert resolve_md("Foo", tmp_path) != resolve_md("foo", tmp_path)
 
 
+def test_reserved_segment_rejected(tmp_path: Path) -> None:
+    # `_mdshards` is the app-surface namespace; a vault path whose first
+    # segment is it would collide, so it's rejected loudly (not a silent 404).
+    with pytest.raises(VaultPathError):
+        resolve_md("_mdshards", tmp_path)
+    with pytest.raises(VaultPathError):
+        resolve_md("_mdshards/api", tmp_path)
+    with pytest.raises(VaultPathError):
+        resolve_asset("_mdshards/pic.png", tmp_path)
+
+
+def test_reserved_segment_only_top_level(tmp_path: Path) -> None:
+    # Only the FIRST segment is reserved — a nested `_mdshards` never collides.
+    assert (
+        resolve_md("notes/_mdshards", tmp_path) == (tmp_path / "notes" / "_mdshards.md").resolve()
+    )
+
+
+def test_formerly_reserved_names_now_free(tmp_path: Path) -> None:
+    # The whole point of the app-surface namespace: `assets`, `api`, `ws` are
+    # ordinary vault names now — no silent shadowing by the bundle/API mounts.
+    assert resolve_md("assets", tmp_path) == (tmp_path / "assets.md").resolve()
+    assert resolve_md("api/notes", tmp_path) == (tmp_path / "api" / "notes.md").resolve()
+    assert (
+        resolve_asset("assets/diagram.png", tmp_path)
+        == (tmp_path / "assets" / "diagram.png").resolve()
+    )
+
+
 def test_asset_keeps_extension(tmp_path: Path) -> None:
     assert (
         resolve_asset("foo/diagram.png", tmp_path) == (tmp_path / "foo" / "diagram.png").resolve()

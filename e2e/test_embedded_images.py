@@ -133,8 +133,8 @@ def test_all_embed_shapes_decode(page: Page, mount):
     for target, want_width in WIKILINK_EMBEDS.items():
         marker = "target=" + quote(target, safe="")
         matching = [s for s in states if marker in s["src"] and s["width"] > 0]
-        assert matching, f"no decoded /api/embed <img> for {target}; got {states}"
-        assert f"{prefix}/api/embed?" in matching[0]["src"], matching[0]
+        assert matching, f"no decoded /_mdshards/api/embed <img> for {target}; got {states}"
+        assert f"{prefix}/_mdshards/api/embed?" in matching[0]["src"], matching[0]
         if want_width is not None:
             assert matching[0]["width"] == want_width, (
                 f"{target}: expected the ADJACENT copy (width {want_width}), "

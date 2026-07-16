@@ -15,7 +15,7 @@ from pycrdt import (
 def test_server_sends_sync_step1_on_connect(client) -> None:
     c, vault = client
     (vault / "foo.md").write_text("")
-    with c.websocket_connect("/ws/foo", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect("/_mdshards/ws/foo", headers={"origin": "http://testserver"}) as ws:
         msg = ws.receive_bytes()
         assert msg[0] == YMessageType.SYNC
         assert msg[1] == YSyncMessageType.SYNC_STEP1
@@ -33,7 +33,9 @@ def test_reconnect_to_deleted_file_is_refused(client) -> None:
 
     c, _ = client
     with pytest.raises(WebSocketDisconnect) as exc_info:
-        with c.websocket_connect("/ws/never_existed", headers={"origin": "http://testserver"}):
+        with c.websocket_connect(
+            "/_mdshards/ws/never_existed", headers={"origin": "http://testserver"}
+        ):
             pass
     assert exc_info.value.code == DOC_DELETED_CODE
 
@@ -49,9 +51,9 @@ def test_delete_kicks_attached_clients(client) -> None:
 
     c, vault = client
     (vault / "x.md").write_text("hi")
-    with c.websocket_connect("/ws/x", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect("/_mdshards/ws/x", headers={"origin": "http://testserver"}) as ws:
         ws.receive_bytes()  # drain initial SYNC_STEP1
-        r = c.delete("/api/files/x")
+        r = c.delete("/_mdshards/api/files/x")
         assert r.status_code == 200
         with pytest.raises(WebSocketDisconnect) as exc_info:
             # Any further receive on the ws should observe the server-side close.
@@ -66,7 +68,9 @@ def test_invalid_path_closes_with_policy_violation(client) -> None:
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
         # Spaces are valid now; use a null byte to hit VaultPathError.
-        with c.websocket_connect("/ws/foo%00bar", headers={"origin": "http://testserver"}):
+        with c.websocket_connect(
+            "/_mdshards/ws/foo%00bar", headers={"origin": "http://testserver"}
+        ):
             pass
     assert exc_info.value.code == 1008
 
@@ -76,7 +80,9 @@ def test_spaced_doc_id_connects(client) -> None:
     the client percent-encodes the room, Starlette decodes the path param."""
     c, vault = client
     (vault / "my note.md").write_text("hi")
-    with c.websocket_connect("/ws/my%20note", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect(
+        "/_mdshards/ws/my%20note", headers={"origin": "http://testserver"}
+    ) as ws:
         assert ws.receive_bytes()  # initial SYNC_STEP1 from the server
 
 
@@ -86,8 +92,8 @@ def test_two_clients_converge(client) -> None:
     c, vault = client
     (vault / "note.md").write_text("")
     with (
-        c.websocket_connect("/ws/note", headers={"origin": "http://testserver"}) as ws1,
-        c.websocket_connect("/ws/note", headers={"origin": "http://testserver"}) as ws2,
+        c.websocket_connect("/_mdshards/ws/note", headers={"origin": "http://testserver"}) as ws1,
+        c.websocket_connect("/_mdshards/ws/note", headers={"origin": "http://testserver"}) as ws2,
     ):
         # Drain server's SYNC_STEP1 on both
         ws1.receive_bytes()
@@ -130,7 +136,7 @@ def test_disk_persisted_after_ws_disconnect(client) -> None:
     # Force a short grace period for the test
     c.app.state.doc_manager._grace = 0.1
 
-    with c.websocket_connect("/ws/note", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect("/_mdshards/ws/note", headers={"origin": "http://testserver"}) as ws:
         ws.receive_bytes()  # SYNC_STEP1
         client_doc = Doc()
         client_doc.get("content", type=Text)
@@ -152,7 +158,7 @@ def test_ws_regenerates_missing_index(client) -> None:
     index = vault / "index.md"
     if index.exists():
         index.unlink()
-    with c.websocket_connect("/ws/", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect("/_mdshards/ws/", headers={"origin": "http://testserver"}) as ws:
         ws.receive_bytes()  # server's SYNC_STEP1 — connection accepted, not kicked
     assert index.exists()
     assert "Welcome to mdshards" in index.read_text()
@@ -166,7 +172,7 @@ def test_index_is_read_only_over_ws(client) -> None:
     c, vault = client
     c.app.state.doc_manager._grace = 0.1
 
-    with c.websocket_connect("/ws/", headers={"origin": "http://testserver"}) as ws:
+    with c.websocket_connect("/_mdshards/ws/", headers={"origin": "http://testserver"}) as ws:
         ws.receive_bytes()  # server SYNC_STEP1
         client_doc = Doc()
         client_doc.get("content", type=Text)

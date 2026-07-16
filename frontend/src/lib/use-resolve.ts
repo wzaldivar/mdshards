@@ -1,4 +1,4 @@
-import { backendUrl } from './backend'
+import { apiUrl } from './backend'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl } from './paths'
@@ -49,7 +49,7 @@ export function useResolve(docId: string): ResolveState {
     let cancelled = false
     setState({ for: docId, res: { status: 'loading' } })
     const stripped = docId.replace(/^\/+/, '')
-    const url = backendUrl(
+    const url = apiUrl(
       stripped === '' ? '/api/resolve' : `/api/resolve/${encodePathToUrl(stripped)}`,
     )
     void (async () => {

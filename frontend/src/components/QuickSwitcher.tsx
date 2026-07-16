@@ -1,4 +1,4 @@
-import { backendUrl } from '../lib/backend'
+import { apiUrl } from '../lib/backend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
@@ -117,7 +117,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
       setError(reason)
       return
     }
-    const r = await fetch(backendUrl('/api/files'), {
+    const r = await fetch(apiUrl('/api/files'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: target }),

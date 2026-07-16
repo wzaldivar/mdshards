@@ -44,6 +44,19 @@ describe('validateVaultPath', () => {
     expect(validateVaultPath('notes/my.weekly')).toBeNull()
     expect(validateVaultPath('foo/my.dog.jpg')).toBeNull()
   })
+
+  it('rejects a top-level _mdshards segment (reserved app namespace)', () => {
+    expect(validateVaultPath('_mdshards')).toContain('reserved')
+    expect(validateVaultPath('_mdshards/api')).toContain('reserved')
+    expect(validateVaultPath('/_mdshards/foo')).toContain('reserved')
+  })
+
+  it('accepts _mdshards below the top level and the formerly reserved names', () => {
+    expect(validateVaultPath('notes/_mdshards')).toBeNull()
+    expect(validateVaultPath('assets')).toBeNull()
+    expect(validateVaultPath('api/notes')).toBeNull()
+    expect(validateVaultPath('ws')).toBeNull()
+  })
 })
 
 describe('encodePathToUrl', () => {

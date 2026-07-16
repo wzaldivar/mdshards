@@ -1,5 +1,14 @@
 from pathlib import Path, PurePosixPath
 
+# The one reserved top-level name. Every mdshards-owned URL (REST API,
+# WebSocket, Vite bundle, favicon) is served under `/_mdshards/*` so the rest
+# of the top-level namespace is the vault's — a note or folder may be named
+# `assets`, `api`, `ws`, anything else. The single cost is this name: a vault
+# path whose FIRST segment is `_mdshards` would collide with the app subtree,
+# so it is rejected loudly here rather than silently 404ing. Keep in lockstep
+# with APP_PREFIX in security.py and in the frontend's lib/backend.ts.
+_RESERVED_SEGMENT = "_mdshards"
+
 
 class VaultPathError(ValueError):
     """A URL path that does not resolve safely into the vault."""
@@ -27,6 +36,10 @@ def _validate(url_path: str) -> str:
     if len(stripped) > _MAX_PATH_LEN:
         raise VaultPathError(f"path too long (max {_MAX_PATH_LEN} chars)")
     parts = PurePosixPath(stripped).parts
+    if parts and parts[0] == _RESERVED_SEGMENT:
+        raise VaultPathError(
+            f"{_RESERVED_SEGMENT!r} is a reserved top-level name (mdshards app namespace)"
+        )
     for p in parts:
         if p in ("", ".", ".."):
             raise VaultPathError(f"illegal path segment: {p!r}")

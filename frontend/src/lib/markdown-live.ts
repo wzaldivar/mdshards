@@ -26,7 +26,7 @@ import {
   WidgetType,
 } from '@codemirror/view'
 import { kindFor } from './asset-kind'
-import { backendUrl } from './backend'
+import { apiUrl, backendUrl } from './backend'
 import { getNameToEmoji, loadEmojiData } from './emoji'
 import { parseWikilink, parseWikilinkBody } from './wikilink'
 
@@ -762,7 +762,7 @@ function decorateImage(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   // child whose text (past the bang) is `[[...]]` — detect it by shape.
   const embed = parseWikilink(doc.sliceString(node.from + 1, node.to))
   if (embed && kindFor(embed.target) === 'image') {
-    const src = backendUrl(
+    const src = apiUrl(
       '/api/embed?note=' +
         encodeURIComponent(opts.noteDocId) +
         '&target=' +

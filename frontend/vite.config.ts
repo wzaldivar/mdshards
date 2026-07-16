@@ -32,7 +32,7 @@ const docFallbackMiddleware = (server: {
     const url = req.url ?? ''
     const path = url.split('?')[0].split('#')[0]
     const isInternalVitePath =
-      /^\/(?:@|src\/|node_modules\/|favicon\.svg|vite\.svg|api|ws|index\.html)/.test(path)
+      /^\/(?:@|src\/|node_modules\/|_mdshards\/|vite\.svg|index\.html)/.test(path)
     const dest = req.headers['sec-fetch-dest']
     if (!isInternalVitePath && dest === 'document') {
       req.url = '/index.html'
@@ -55,8 +55,8 @@ const spaDocFallback: Plugin = {
 // rewritten Host makes Origin≠Host and 403s every /api + /ws call. This
 // mirrors the prod contract: the reverse proxy must preserve Host.
 const proxy = {
-  '/api': { target: BACKEND, changeOrigin: false },
-  '/ws': { target: BACKEND_WS, ws: true, changeOrigin: false },
+  '/_mdshards/api': { target: BACKEND, changeOrigin: false },
+  '/_mdshards/ws': { target: BACKEND_WS, ws: true, changeOrigin: false },
   // Forward asset bytes to the backend. The middleware above already
   // rewrote document-dest requests to /index.html, so this proxy only
   // ever sees iframe/image/video/etc. fetches that genuinely want the
@@ -65,15 +65,27 @@ const proxy = {
   // Any extensioned path that isn't Vite-owned is a vault asset — the
   // viewer handles arbitrary extensions (browser-default rendering), so
   // the proxy must not enumerate them. The negative lookahead keeps
-  // Vite's own URLs (dev client, modules, public/ files, the shell) on
-  // the Vite server; the trailing `(\?[^#]*)?` tolerates a query string
-  // (AssetViewer appends a `?v=` cache-bust param).
-  '^/(?!@|src/|node_modules/|favicon\\.svg|vite\\.svg|index\\.html$)[^?#]+\\.[A-Za-z0-9]+(\\?[^#]*)?$':
+  // Vite's own URLs (dev client, modules, the shell) and the entire
+  // app-surface namespace (`/_mdshards/*` — bundle assets + favicon are
+  // served locally, /api + /ws have their own proxy entries above) on the
+  // Vite server; vault paths can never start with `_mdshards` (rejected by
+  // the backend + the frontend validator), so nothing legitimate is lost.
+  // The trailing `(\?[^#]*)?` tolerates a query string (AssetViewer appends
+  // a `?v=` cache-bust param).
+  '^/(?!@|src/|node_modules/|_mdshards/|vite\\.svg|index\\.html$)[^?#]+\\.[A-Za-z0-9]+(\\?[^#]*)?$':
     { target: BACKEND, changeOrigin: false },
 }
 
 export default defineConfig({
   plugins: [react(), spaDocFallback],
+  build: {
+    // Emit the hashed bundle under the reserved app-surface namespace so the
+    // served shell references `/_mdshards/assets/*` instead of `/assets/*` —
+    // that frees the top-level `assets` name (and every other name) for the
+    // vault. The backend mounts StaticFiles at `<APP_PREFIX>/assets` to match
+    // (see main.py). Keep in lockstep with APP_PREFIX in lib/backend.ts.
+    assetsDir: '_mdshards/assets',
+  },
   server: {
     // Bind dual-stack, not the default `localhost`, which on Node 17+
     // resolves to ::1 only and leaves 127.0.0.1 unbound. Safari is the

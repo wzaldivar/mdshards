@@ -6,10 +6,11 @@
 #   stage 1  build the React/Vite frontend with Node 24
 #   stage 2  Python 3.14 runtime, copies the prebuilt dist/ in and runs uvicorn
 #
-# uvicorn is the only process. It serves /assets/* and the two top-level
-# bundle files (favicon.svg, icons.svg) straight from the copied dist/, and
-# the catch-all router in app/routers/pages.py returns the real dist/index.html
-# as the SPA shell. /api/* and /ws/* are routed by the existing FastAPI
+# uvicorn is the only process. Every mdshards surface lives under the reserved
+# /_mdshards/ namespace: it serves /_mdshards/assets/* and /_mdshards/favicon.svg
+# straight from the copied dist/, and the catch-all router in
+# app/routers/pages.py returns the real dist/index.html as the SPA shell for
+# every other (vault) path. /_mdshards/api/* and /_mdshards/ws/* are routed by the existing FastAPI
 # routers on the same port — no extra reverse proxy.
 #
 # Only port 8000 is exposed; the REST/WS handlers are reachable only via

@@ -32,7 +32,7 @@ function stubFetch(createStatus = 201) {
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.endsWith('/api/tree')) {
+      if (url.endsWith('/_mdshards/api/tree')) {
         return Promise.resolve(
           new Response(JSON.stringify(TREE), {
             status: 200,
@@ -78,7 +78,7 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loc').textContent).toBe('/brand/new%20note'),
     )
-    expect(posts[0].url).toContain('/api/files')
+    expect(posts[0].url).toContain('/_mdshards/api/files')
     expect(posts[0].body).toEqual({ path: 'brand/new note' })
   })
 

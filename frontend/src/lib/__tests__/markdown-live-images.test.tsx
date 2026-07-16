@@ -115,9 +115,9 @@ describe('wikilink image embeds', () => {
     const doc = 'intro\n\n![[attachments/pic.png]]\n'
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
-    // ONE request; /api/embed resolves adjacent-first-else-root server-side
+    // ONE request; /_mdshards/api/embed resolves adjacent-first-else-root server-side
     expect(imgs()[0].getAttribute('src')).toBe(
-      '/api/embed?note=notes%2Ftoday&target=attachments%2Fpic.png',
+      '/_mdshards/api/embed?note=notes%2Ftoday&target=attachments%2Fpic.png',
     )
     // the raw markup (bang and brackets) is fully hidden
     expect(document.querySelector('.cm-content')!.textContent).not.toContain('![[')
@@ -128,7 +128,7 @@ describe('wikilink image embeds', () => {
     mountWith(doc, 0)
     expect(imgs()).toHaveLength(1)
     expect(imgs()[0].getAttribute('src')).toBe(
-      '/api/embed?note=notes%2Ftoday&target=my%20pics%2Fmy%20pic.png',
+      '/_mdshards/api/embed?note=notes%2Ftoday&target=my%20pics%2Fmy%20pic.png',
     )
     expect(imgs()[0].getAttribute('alt')).toBe('the alt')
   })
