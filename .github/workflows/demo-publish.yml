@@ -43,3 +43,16 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/wzaldivar/mdshards
             org.opencontainers.image.licenses=MIT
+
+      # Sync the mdshards-demo Docker Hub page from the demo branch's overview
+      # (checked out above). Non-fatal: a description hiccup — e.g. Docker Hub's
+      # endpoint wanting the account PASSWORD over a PAT — must not fail the
+      # publish that already pushed the image. See docs/ci-setup.md.
+      - continue-on-error: true
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKERHUB_TOKEN }}
+          repository: wzaldivar/mdshards-demo
+          short-description: "Locked-down public demo of mdshards — read-only, ephemeral, capped. Not for production."
+          readme-filepath: ./docs/dockerhub-demo-overview.md

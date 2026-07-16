@@ -46,6 +46,12 @@ def main() -> int:
     shorts: dict[str, str] = {}
     readmes: dict[str, str] = {}
     for wf in sorted(WORKFLOWS.glob("*.yml")):
+        # The demo image (wzaldivar/mdshards-demo) is published + described by a
+        # separate manual workflow whose overview lives on the `demo` branch,
+        # not here. This validator only guards the versioned wzaldivar/mdshards
+        # page, so skip it.
+        if wf.name == "demo-publish.yml":
+            continue
         text = wf.read_text()
         sm = re.search(r'short-description:\s*"([^"]*)"', text)
         if not sm:
