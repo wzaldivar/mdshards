@@ -11,7 +11,7 @@ from .docs import DocumentManager
 from .files import ensure_index_exists
 from .routers import assets, files, pages, resolve, tree
 from .routers import config as config_router
-from .security import OriginGuard
+from .security import APP_PREFIX, OriginGuard
 from .watcher import VaultWatcher
 
 
@@ -46,25 +46,34 @@ def create_app() -> FastAPI:
     # Outermost middleware — gates every state-changing HTTP request and
     # every WebSocket upgrade on Origin / Sec-Fetch-Site. See security.py.
     app.add_middleware(OriginGuard)
-    app.include_router(tree.router)
-    app.include_router(files.router)
-    app.include_router(assets.router)
-    app.include_router(resolve.router)
-    app.include_router(config_router.router)
-    app.include_router(ws.router)
-    # Frontend bundle. `/assets/*` and the top-level public/ file favicon.svg
-    # come straight off disk. These prefixes are reserved for the frontend and
-    # registered BEFORE the catch-all so the md-vs-asset router never sees them.
-    # The catch-all itself reads `index.html` from the same dir as its SPA
-    # shell (see pages.py).
+    # Every mdshards-owned surface lives under APP_PREFIX (`/_mdshards`) so the
+    # entire top-level namespace belongs to the vault — a note or folder can be
+    # named `assets`, `api`, `ws`, anything (see CLAUDE.md "App-surface
+    # namespace"). The routers carry their own `/api` (or `/ws`) segment, so
+    # prefixing here yields `/_mdshards/api/...` and `/_mdshards/ws/...`. Only
+    # the catch-all (pages) stays at the root, where vault paths live.
+    app.include_router(tree.router, prefix=APP_PREFIX)
+    app.include_router(files.router, prefix=APP_PREFIX)
+    app.include_router(assets.router, prefix=APP_PREFIX)
+    app.include_router(resolve.router, prefix=APP_PREFIX)
+    app.include_router(config_router.router, prefix=APP_PREFIX)
+    app.include_router(ws.router, prefix=APP_PREFIX)
+    # Frontend bundle. `<APP_PREFIX>/assets/*` and the favicon come straight off
+    # disk (Vite emits the hashed bundle under `_mdshards/assets/` and the
+    # favicon under `_mdshards/`; see the frontend's vite.config.ts assetsDir
+    # and public/ layout). Registered BEFORE the catch-all so the md-vs-asset
+    # router never sees them. The catch-all reads `index.html` from the bundle
+    # root (see pages.py).
     if settings.static_dir is not None:
-        assets_dir = settings.static_dir / "assets"
+        assets_dir = settings.static_dir / "_mdshards" / "assets"
         if assets_dir.is_dir():
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+            app.mount(
+                f"{APP_PREFIX}/assets", StaticFiles(directory=assets_dir), name="frontend-assets"
+            )
 
         def _public_file(name: str):
             def handler():
-                path = settings.static_dir / name
+                path = settings.static_dir / "_mdshards" / name
                 if not path.is_file():
                     raise HTTPException(404)
                 return FileResponse(path)
@@ -73,7 +82,7 @@ def create_app() -> FastAPI:
             return handler
 
         for filename in ("favicon.svg",):
-            app.add_api_route(f"/{filename}", _public_file(filename), methods=["GET"])
+            app.add_api_route(f"{APP_PREFIX}/{filename}", _public_file(filename), methods=["GET"])
     app.include_router(pages.router)
     return app
 

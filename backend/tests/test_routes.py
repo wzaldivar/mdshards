@@ -3,7 +3,7 @@ import pytest
 
 def test_config_exposes_home_path_default_empty(client) -> None:
     c, _ = client
-    body = c.get("/api/config").json()
+    body = c.get("/_mdshards/api/config").json()
     assert body["homePath"] == ""
     assert "gracePeriodSeconds" in body
 
@@ -14,7 +14,7 @@ def test_config_exposes_home_path_when_base_url_set(client, monkeypatch) -> None
 
     config.get_settings.cache_clear()
     c, _ = client
-    body = c.get("/api/config").json()
+    body = c.get("/_mdshards/api/config").json()
     assert body["homePath"] == "/wiki"
 
 
@@ -56,7 +56,7 @@ def test_missing_path_doc_nav_serves_spa_shell(client) -> None:
     assert '<div id="app"></div>' in r.text
 
 
-# ---- /api/embed — wikilink image-embed resolution ----
+# ---- /_mdshards/api/embed — wikilink image-embed resolution ----
 #
 # ONE request from the browser; the server resolves the `![[target]]`
 # against two candidate locations with fixed priority: adjacent to the
@@ -69,7 +69,9 @@ def test_embed_adjacent_overshadows_root(client) -> None:
     (vault / "attachments").mkdir()
     (vault / "notes" / "attachments" / "pic.png").write_bytes(b"ADJACENT")
     (vault / "attachments" / "pic.png").write_bytes(b"ROOT")
-    r = c.get("/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"})
+    r = c.get(
+        "/_mdshards/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"}
+    )
     assert r.status_code == 200
     assert r.content == b"ADJACENT"
     assert r.headers["x-content-type-options"] == "nosniff"
@@ -80,7 +82,9 @@ def test_embed_falls_back_to_vault_root(client) -> None:
     c, vault = client
     (vault / "attachments").mkdir()
     (vault / "attachments" / "pic.png").write_bytes(b"ROOT")
-    r = c.get("/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"})
+    r = c.get(
+        "/_mdshards/api/embed", params={"note": "notes/today", "target": "attachments/pic.png"}
+    )
     assert r.status_code == 200
     assert r.content == b"ROOT"
 
@@ -88,14 +92,14 @@ def test_embed_falls_back_to_vault_root(client) -> None:
 def test_embed_root_note_resolves_from_root(client) -> None:
     c, vault = client
     (vault / "pic.png").write_bytes(b"ROOT")
-    r = c.get("/api/embed", params={"note": "index", "target": "pic.png"})
+    r = c.get("/_mdshards/api/embed", params={"note": "index", "target": "pic.png"})
     assert r.status_code == 200
     assert r.content == b"ROOT"
 
 
 def test_embed_missing_both_locations_404s(client) -> None:
     c, _ = client
-    r = c.get("/api/embed", params={"note": "notes/today", "target": "nope.png"})
+    r = c.get("/_mdshards/api/embed", params={"note": "notes/today", "target": "nope.png"})
     assert r.status_code == 404
 
 
@@ -106,24 +110,24 @@ def test_embed_dotdot_stays_inside_vault(client) -> None:
     c, vault = client
     (vault / "shared").mkdir()
     (vault / "shared" / "pic.png").write_bytes(b"SHARED")
-    r = c.get("/api/embed", params={"note": "notes/today", "target": "../shared/pic.png"})
+    r = c.get("/_mdshards/api/embed", params={"note": "notes/today", "target": "../shared/pic.png"})
     assert r.status_code == 200
     assert r.content == b"SHARED"
-    r = c.get("/api/embed", params={"note": "index", "target": "../../etc/passwd"})
+    r = c.get("/_mdshards/api/embed", params={"note": "index", "target": "../../etc/passwd"})
     assert r.status_code == 400
 
 
 def test_embed_refuses_md_targets(client) -> None:
     c, vault = client
     (vault / "secret.md").write_text("note bytes")
-    r = c.get("/api/embed", params={"note": "index", "target": "secret.md"})
+    r = c.get("/_mdshards/api/embed", params={"note": "index", "target": "secret.md"})
     assert r.status_code == 400
 
 
 def test_embed_scriptable_suffix_gets_csp_sandbox(client) -> None:
     c, vault = client
     (vault / "img.svg").write_text("<svg/>")
-    r = c.get("/api/embed", params={"note": "index", "target": "img.svg"})
+    r = c.get("/_mdshards/api/embed", params={"note": "index", "target": "img.svg"})
     assert r.status_code == 200
     assert r.headers["content-security-policy"] == "sandbox"
 
@@ -137,10 +141,10 @@ def test_embed_scriptable_suffix_gets_csp_sandbox(client) -> None:
 
 _FAKE_INDEX_HTML = (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-    '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />'
+    '<link rel="icon" type="image/svg+xml" href="/_mdshards/favicon.svg" />'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />'
-    '<script type="module" crossorigin src="/assets/index-abc.js"></script>'
-    '<link rel="stylesheet" crossorigin href="/assets/index-abc.css">'
+    '<script type="module" crossorigin src="/_mdshards/assets/index-abc.js"></script>'
+    '<link rel="stylesheet" crossorigin href="/_mdshards/assets/index-abc.css">'
     '</head><body><div id="app"></div></body></html>'
 )
 
@@ -150,10 +154,10 @@ def subpath_client(vault, tmp_path, monkeypatch):
     """Client with BASE_URL=/notes and a fake prebuilt bundle (static/), to
     exercise the serve-time shell rewrite and the prefixed /assets mount."""
     static = tmp_path / "static"
-    (static / "assets").mkdir(parents=True)
+    (static / "_mdshards" / "assets").mkdir(parents=True)
     (static / "index.html").write_text(_FAKE_INDEX_HTML)
-    (static / "assets" / "index-abc.js").write_text("console.log(1)")
-    (static / "favicon.svg").write_text("<svg></svg>")
+    (static / "_mdshards" / "assets" / "index-abc.js").write_text("console.log(1)")
+    (static / "_mdshards" / "favicon.svg").write_text("<svg></svg>")
     monkeypatch.setenv("BASE_URL", "/notes")
     from app import config
 
@@ -172,9 +176,9 @@ def test_subpath_shell_prefixes_bundle_refs_and_injects_home_path(subpath_client
     c, _ = subpath_client
     r = c.get("/notes/", headers={"sec-fetch-dest": "document"})
     assert r.status_code == 200
-    assert 'src="/notes/assets/index-abc.js"' in r.text
-    assert 'href="/notes/assets/index-abc.css"' in r.text
-    assert 'href="/notes/favicon.svg"' in r.text
+    assert 'src="/notes/_mdshards/assets/index-abc.js"' in r.text
+    assert 'href="/notes/_mdshards/assets/index-abc.css"' in r.text
+    assert 'href="/notes/_mdshards/favicon.svg"' in r.text
     assert '<meta name="mdshards-home-path" content="/notes">' in r.text
     # External URLs are untouched.
     assert 'href="https://fonts.gstatic.com"' in r.text
@@ -182,7 +186,7 @@ def test_subpath_shell_prefixes_bundle_refs_and_injects_home_path(subpath_client
 
 def test_subpath_assets_served_under_prefix(subpath_client) -> None:
     c, _ = subpath_client
-    r = c.get("/notes/assets/index-abc.js")
+    r = c.get("/notes/_mdshards/assets/index-abc.js")
     assert r.status_code == 200
     assert r.text == "console.log(1)"
 
@@ -247,7 +251,7 @@ def test_md_url_with_literal_md_file_serves_shell(client) -> None:
     (`<vault>/x.md.md`) doesn't exist but the literal `<vault>/x.md` does —
     which is itself a markdown note with doc-id `x` — the catch-all serves
     the SPA shell (no server 302). The SPA canonicalizes `/x.md` → `/x`
-    client-side from `/api/resolve`'s `canonical` field
+    client-side from `/_mdshards/api/resolve`'s `canonical` field
     (test_resolve_md_url_falls_back_to_canonical covers that contract)."""
     c, vault = client
     (vault / "x.md").write_text("hi")
@@ -348,7 +352,7 @@ def test_deleted_asset_no_longer_serves(client) -> None:
     c, vault = client
     (vault / "gone.png").write_bytes(b"\x89PNG")
     assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 200
-    assert c.delete("/api/assets/gone.png").status_code == 200
+    assert c.delete("/_mdshards/api/assets/gone.png").status_code == 200
     assert c.get("/gone.png", headers={"sec-fetch-dest": "image"}).status_code == 404
 
 
@@ -405,14 +409,14 @@ def test_spaces_in_url_ok(client) -> None:
 
 def test_create_file(client) -> None:
     c, vault = client
-    r = c.post("/api/files", json={"path": "notes/hello"})
+    r = c.post("/_mdshards/api/files", json={"path": "notes/hello"})
     assert r.status_code == 201
     assert (vault / "notes" / "hello.md").exists()
 
 
 def test_create_file_with_content(client) -> None:
     c, vault = client
-    r = c.post("/api/files", json={"path": "notes/imported", "content": "# Hi\n"})
+    r = c.post("/_mdshards/api/files", json={"path": "notes/imported", "content": "# Hi\n"})
     assert r.status_code == 201
     assert (vault / "notes" / "imported.md").read_text() == "# Hi\n"
 
@@ -420,20 +424,20 @@ def test_create_file_with_content(client) -> None:
 def test_create_file_conflict(client) -> None:
     c, vault = client
     (vault / "x.md").write_text("")
-    r = c.post("/api/files", json={"path": "x"})
+    r = c.post("/_mdshards/api/files", json={"path": "x"})
     assert r.status_code == 409
 
 
 def test_create_file_allows_spaces(client) -> None:
     c, vault = client
-    r = c.post("/api/files", json={"path": "has space"})
+    r = c.post("/_mdshards/api/files", json={"path": "has space"})
     assert r.status_code == 201
     assert (vault / "has space.md").exists()
 
 
 def test_create_file_rejects_traversal(client) -> None:
     c, _ = client
-    r = c.post("/api/files", json={"path": "../escape"})
+    r = c.post("/_mdshards/api/files", json={"path": "../escape"})
     assert r.status_code == 400
 
 
@@ -441,7 +445,7 @@ def test_delete_file_and_prune(client) -> None:
     c, vault = client
     (vault / "a").mkdir()
     (vault / "a" / "b.md").write_text("")
-    r = c.delete("/api/files/a/b")
+    r = c.delete("/_mdshards/api/files/a/b")
     assert r.status_code == 200
     assert not (vault / "a" / "b.md").exists()
     assert not (vault / "a").exists()
@@ -451,7 +455,9 @@ def test_move_renames_file_and_prunes_source_dirs(client) -> None:
     c, vault = client
     (vault / "old" / "nested").mkdir(parents=True)
     (vault / "old" / "nested" / "note.md").write_text("body")
-    r = c.post("/api/files/move", json={"src": "old/nested/note", "dst": "new/place/note"})
+    r = c.post(
+        "/_mdshards/api/files/move", json={"src": "old/nested/note", "dst": "new/place/note"}
+    )
     assert r.status_code == 200
     assert (vault / "new" / "place" / "note.md").read_text() == "body"
     assert not (vault / "old").exists()
@@ -461,7 +467,7 @@ def test_move_rejects_existing_destination(client) -> None:
     c, vault = client
     (vault / "a.md").write_text("")
     (vault / "b.md").write_text("")
-    r = c.post("/api/files/move", json={"src": "a", "dst": "b"})
+    r = c.post("/_mdshards/api/files/move", json={"src": "a", "dst": "b"})
     assert r.status_code == 409
 
 
@@ -469,17 +475,19 @@ def test_move_endpoints_have_no_overwrite_escape(client) -> None:
     """INVARIANT: upload is the only operation that may overwrite — it asks
     the user and carries a declared payload. The move endpoints must 409 on
     an existing destination even if a caller smuggles an `overwrite` field
-    into the body; the flag exists only on POST /api/files and /api/assets."""
+    into the body; the flag exists only on POST /_mdshards/api/files and /_mdshards/api/assets."""
     c, vault = client
     (vault / "a.md").write_text("keep a")
     (vault / "b.md").write_text("keep b")
-    r = c.post("/api/files/move", json={"src": "a", "dst": "b", "overwrite": True})
+    r = c.post("/_mdshards/api/files/move", json={"src": "a", "dst": "b", "overwrite": True})
     assert r.status_code == 409
     assert (vault / "b.md").read_text() == "keep b"
 
     (vault / "x.png").write_bytes(b"keep x")
     (vault / "y.png").write_bytes(b"keep y")
-    r = c.post("/api/assets/move", json={"src": "x.png", "dst": "y.png", "overwrite": True})
+    r = c.post(
+        "/_mdshards/api/assets/move", json={"src": "x.png", "dst": "y.png", "overwrite": True}
+    )
     assert r.status_code == 409
     assert (vault / "y.png").read_bytes() == b"keep y"
 
@@ -488,16 +496,16 @@ def test_move_rejects_index(client) -> None:
     c, vault = client
     (vault / "x.md").write_text("")
     c.get("/")  # materialize index.md
-    r = c.post("/api/files/move", json={"src": "index", "dst": "x_renamed"})
+    r = c.post("/_mdshards/api/files/move", json={"src": "index", "dst": "x_renamed"})
     assert r.status_code == 403
-    r = c.post("/api/files/move", json={"src": "x", "dst": "index"})
+    r = c.post("/_mdshards/api/files/move", json={"src": "x", "dst": "index"})
     assert r.status_code == 403
 
 
 def test_move_allows_spaces(client) -> None:
     c, vault = client
     (vault / "a.md").write_text("")
-    r = c.post("/api/files/move", json={"src": "a", "dst": "with space"})
+    r = c.post("/_mdshards/api/files/move", json={"src": "a", "dst": "with space"})
     assert r.status_code == 200
     assert (vault / "with space.md").exists()
 
@@ -505,13 +513,13 @@ def test_move_allows_spaces(client) -> None:
 def test_delete_index_refused(client) -> None:
     c, _ = client
     c.get("/")
-    r = c.delete("/api/files/index")
+    r = c.delete("/_mdshards/api/files/index")
     assert r.status_code == 403
 
 
 def test_delete_missing_404(client) -> None:
     c, _ = client
-    r = c.delete("/api/files/never/existed")
+    r = c.delete("/_mdshards/api/files/never/existed")
     assert r.status_code == 404
 
 
@@ -520,7 +528,7 @@ def test_tree_endpoint(client) -> None:
     (vault / "a").mkdir()
     (vault / "a" / "b.md").write_text("")
     (vault / "c.md").write_text("")
-    r = c.get("/api/tree")
+    r = c.get("/_mdshards/api/tree")
     assert r.status_code == 200
     body = r.json()
     assert body["type"] == "dir"
@@ -534,11 +542,13 @@ def test_md_create_collision_requires_explicit_overwrite(client) -> None:
     Shift-Enter can never replace an existing file."""
     c, vault = client
     (vault / "note.md").write_text("original")
-    r = c.post("/api/files", json={"path": "note", "content": "replacement"})
+    r = c.post("/_mdshards/api/files", json={"path": "note", "content": "replacement"})
     assert r.status_code == 409
     assert (vault / "note.md").read_text() == "original"
 
-    r = c.post("/api/files", json={"path": "note", "content": "replacement", "overwrite": True})
+    r = c.post(
+        "/_mdshards/api/files", json={"path": "note", "content": "replacement", "overwrite": True}
+    )
     assert r.status_code == 201
     assert (vault / "note.md").read_text() == "replacement"
 
@@ -546,7 +556,7 @@ def test_md_create_collision_requires_explicit_overwrite(client) -> None:
 def test_asset_upload(client) -> None:
     c, vault = client
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "notes/diagram.png"},
         files={"file": ("diagram.png", b"\x89PNG\r\n\x1a\n", "image/png")},
     )
@@ -560,7 +570,7 @@ def test_asset_upload_collision_requires_explicit_overwrite(client) -> None:
     c, vault = client
     (vault / "pic.png").write_bytes(b"original")
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "pic.png"},
         files={"file": ("pic.png", b"replacement", "image/png")},
     )
@@ -568,7 +578,7 @@ def test_asset_upload_collision_requires_explicit_overwrite(client) -> None:
     assert (vault / "pic.png").read_bytes() == b"original"
 
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "pic.png", "overwrite": "true"},
         files={"file": ("pic.png", b"replacement", "image/png")},
     )
@@ -585,7 +595,7 @@ def test_asset_upload_case_variant_is_not_a_collision(client) -> None:
     c, vault = client
     (vault / "pic.png").write_bytes(b"lower")
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "pic.PNG"},
         files={"file": ("pic.PNG", b"upper", "image/png")},
     )
@@ -599,7 +609,7 @@ def test_asset_upload_case_variant_is_not_a_collision(client) -> None:
 def test_asset_upload_rejects_no_extension(client) -> None:
     c, _ = client
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "notes/diagram"},
         files={"file": ("d", b"\x00", "application/octet-stream")},
     )
@@ -613,7 +623,7 @@ def test_asset_upload_rejects_md_path(client) -> None:
     in-memory Doc."""
     c, vault = client
     r = c.post(
-        "/api/assets",
+        "/_mdshards/api/assets",
         data={"path": "notes/shadow.md"},
         files={"file": ("shadow.md", b"overwrite", "text/plain")},
     )
@@ -628,15 +638,15 @@ def test_asset_move_to_md_converts_into_note(client) -> None:
     escape hatch for stray `foo.MD` files created directly on disk."""
     c, vault = client
     (vault / "notes.MD").write_text("# stuck as asset")
-    r = c.post("/api/assets/move", json={"src": "notes.MD", "dst": "notes.md"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "notes.MD", "dst": "notes.md"})
     assert r.status_code == 200
     assert r.json() == {"from": "notes.MD", "to": "notes", "converted": True}
     assert (vault / "notes.md").read_text() == "# stuck as asset"
-    assert c.get("/api/resolve/notes").json() == {"type": "md", "canonical": "notes"}
+    assert c.get("/_mdshards/api/resolve/notes").json() == {"type": "md", "canonical": "notes"}
 
     # Any casing of the target works and lands lowercase.
     (vault / "img.png").write_bytes(b"x")
-    r = c.post("/api/assets/move", json={"src": "img.png", "dst": "img-note.MD"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "img.png", "dst": "img-note.MD"})
     assert r.status_code == 200
     assert r.json()["to"] == "img-note"
     assert (vault / "img-note.md").exists()
@@ -646,21 +656,21 @@ def test_asset_move_to_md_collides_with_existing_note(client) -> None:
     c, vault = client
     (vault / "taken.md").write_text("existing note")
     (vault / "data.bin").write_bytes(b"x")
-    r = c.post("/api/assets/move", json={"src": "data.bin", "dst": "taken.md"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "data.bin", "dst": "taken.md"})
     assert r.status_code == 409
     assert (vault / "taken.md").read_text() == "existing note"
 
 
 def test_asset_move_rejects_lowercase_md_source(client) -> None:
     """A true lowercase `.md` source is a live note — it belongs to
-    /api/files/move, never the asset endpoint."""
+    /_mdshards/api/files/move, never the asset endpoint."""
     c, vault = client
     (vault / "note.md").write_text("note")
-    r = c.post("/api/assets/move", json={"src": "note.md", "dst": "note.txt"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "note.md", "dst": "note.txt"})
     assert r.status_code == 400
     assert not (vault / "shadow.md").exists()
     (vault / "shadow.md").write_text("a real note")
-    r = c.post("/api/assets/move", json={"src": "shadow.md", "dst": "moved.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "shadow.md", "dst": "moved.png"})
     assert r.status_code == 400
     assert (vault / "shadow.md").exists()
 
@@ -670,7 +680,7 @@ def test_asset_move_renames_and_prunes(client) -> None:
     (vault / "old" / "nested").mkdir(parents=True)
     (vault / "old" / "nested" / "diagram.png").write_bytes(b"\x89PNG")
     r = c.post(
-        "/api/assets/move",
+        "/_mdshards/api/assets/move",
         json={"src": "old/nested/diagram.png", "dst": "new/place/diagram.png"},
     )
     assert r.status_code == 200
@@ -682,33 +692,33 @@ def test_asset_move_rejects_existing_destination(client) -> None:
     c, vault = client
     (vault / "a.png").write_bytes(b"a")
     (vault / "b.png").write_bytes(b"b")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "b.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "a.png", "dst": "b.png"})
     assert r.status_code == 409
 
 
 def test_asset_move_rejects_missing_source(client) -> None:
     c, _ = client
-    r = c.post("/api/assets/move", json={"src": "missing.png", "dst": "new.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "missing.png", "dst": "new.png"})
     assert r.status_code == 404
 
 
 def test_asset_move_rejects_extensionless_destination(client) -> None:
     c, vault = client
     (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "renamed"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "a.png", "dst": "renamed"})
     assert r.status_code == 400
 
 
 def test_asset_move_rejects_extensionless_source(client) -> None:
     c, _ = client
-    r = c.post("/api/assets/move", json={"src": "no_ext", "dst": "a.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "no_ext", "dst": "a.png"})
     assert r.status_code == 400
 
 
 def test_asset_move_allows_spaces(client) -> None:
     c, vault = client
     (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "with space.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "a.png", "dst": "with space.png"})
     assert r.status_code == 200
     assert (vault / "with space.png").exists()
 
@@ -716,20 +726,20 @@ def test_asset_move_allows_spaces(client) -> None:
 def test_asset_move_same_src_dst_rejected(client) -> None:
     c, vault = client
     (vault / "a.png").write_bytes(b"a")
-    r = c.post("/api/assets/move", json={"src": "a.png", "dst": "a.png"})
+    r = c.post("/_mdshards/api/assets/move", json={"src": "a.png", "dst": "a.png"})
     assert r.status_code == 400
 
 
 def test_resolve_root_is_md(client) -> None:
     c, _ = client
-    r = c.get("/api/resolve")
+    r = c.get("/_mdshards/api/resolve")
     assert r.status_code == 200
     assert r.json() == {"type": "md", "canonical": ""}
 
 
 def test_resolve_index_is_md(client) -> None:
     c, _ = client
-    r = c.get("/api/resolve/index")
+    r = c.get("/_mdshards/api/resolve/index")
     assert r.status_code == 200
     assert r.json() == {"type": "md", "canonical": ""}
 
@@ -738,7 +748,7 @@ def test_resolve_existing_md(client) -> None:
     c, vault = client
     (vault / "notes").mkdir()
     (vault / "notes" / "today.md").write_text("hi")
-    r = c.get("/api/resolve/notes/today")
+    r = c.get("/_mdshards/api/resolve/notes/today")
     assert r.json() == {"type": "md", "canonical": "notes/today"}
 
 
@@ -747,7 +757,7 @@ def test_resolve_dotty_md(client) -> None:
     c, vault = client
     (vault / "notes").mkdir()
     (vault / "notes" / "my.weekly.md").write_text("hi")
-    r = c.get("/api/resolve/notes/my.weekly")
+    r = c.get("/_mdshards/api/resolve/notes/my.weekly")
     assert r.json() == {"type": "md", "canonical": "notes/my.weekly"}
 
 
@@ -755,7 +765,7 @@ def test_resolve_existing_asset(client) -> None:
     c, vault = client
     (vault / "notes").mkdir()
     (vault / "notes" / "diagram.png").write_bytes(b"\x89PNG")
-    r = c.get("/api/resolve/notes/diagram.png")
+    r = c.get("/_mdshards/api/resolve/notes/diagram.png")
     assert r.json() == {"type": "asset", "canonical": "notes/diagram.png"}
 
 
@@ -764,7 +774,7 @@ def test_resolve_md_wins_over_existing_asset(client) -> None:
     c, vault = client
     (vault / "foo.jpg.md").write_text("the note about the picture")
     (vault / "foo.jpg").write_bytes(b"\xff\xd8\xff")
-    r = c.get("/api/resolve/foo.jpg")
+    r = c.get("/_mdshards/api/resolve/foo.jpg")
     assert r.json() == {"type": "md", "canonical": "foo.jpg"}
 
 
@@ -774,7 +784,7 @@ def test_resolve_md_url_falls_back_to_canonical(client) -> None:
     Canonical URL is `/foo`."""
     c, vault = client
     (vault / "foo.md").write_text("hi")
-    r = c.get("/api/resolve/foo.md")
+    r = c.get("/_mdshards/api/resolve/foo.md")
     assert r.json() == {"type": "md", "canonical": "foo"}
 
 
@@ -783,19 +793,19 @@ def test_resolve_md_url_with_nested_md_md(client) -> None:
     `foo.md`, no `.md` to strip from the URL)."""
     c, vault = client
     (vault / "foo.md.md").write_text("doc-id is foo.md")
-    r = c.get("/api/resolve/foo.md")
+    r = c.get("/_mdshards/api/resolve/foo.md")
     assert r.json() == {"type": "md", "canonical": "foo.md"}
 
 
 def test_resolve_missing(client) -> None:
     c, _ = client
-    r = c.get("/api/resolve/no/such/thing")
+    r = c.get("/_mdshards/api/resolve/no/such/thing")
     assert r.json() == {"type": "missing", "canonical": "no/such/thing"}
 
 
 def test_resolve_missing_dotty(client) -> None:
     c, _ = client
-    r = c.get("/api/resolve/no/such/thing.png")
+    r = c.get("/_mdshards/api/resolve/no/such/thing.png")
     assert r.json() == {"type": "missing", "canonical": "no/such/thing.png"}
 
 
@@ -804,20 +814,20 @@ def test_resolve_missing_md_url_canonicalizes(client) -> None:
     extensionless form (which is also missing). The frontend will redirect
     `/foo.md` → `/foo` and then show NotFound at the canonical address."""
     c, _ = client
-    r = c.get("/api/resolve/no.md")
+    r = c.get("/_mdshards/api/resolve/no.md")
     assert r.json() == {"type": "missing", "canonical": "no"}
 
 
 def test_resolve_allows_spaces(client) -> None:
     c, vault = client
     (vault / "with space.md").write_text("")
-    r = c.get("/api/resolve/with space")
+    r = c.get("/_mdshards/api/resolve/with space")
     assert r.status_code == 200
     assert r.json() == {"type": "md", "canonical": "with space"}
 
 
 def test_resolve_root_regenerates_missing_index(client) -> None:
-    """/api/resolve is the one call every navigation to `/` makes regardless
+    """/_mdshards/api/resolve is the one call every navigation to `/` makes regardless
     of who served the SPA shell (dev server, preview, nginx, static host) —
     a missing index.md must rematerialize there, not only on mode 1's
     document route."""
@@ -825,7 +835,7 @@ def test_resolve_root_regenerates_missing_index(client) -> None:
     index = vault / "index.md"
     if index.exists():
         index.unlink()
-    r = c.get("/api/resolve")
+    r = c.get("/_mdshards/api/resolve")
     assert r.json() == {"type": "md", "canonical": ""}
     assert index.exists()
     assert "Welcome to mdshards" in index.read_text()

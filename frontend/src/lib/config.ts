@@ -19,7 +19,7 @@ export interface ServerConfig {
   homePath: string
 }
 
-import { backendUrl } from './backend'
+import { apiUrl } from './backend'
 
 const DEFAULT_CONFIG: ServerConfig = { gracePeriodSeconds: 30, homePath: '' }
 
@@ -32,7 +32,7 @@ let inflight: Promise<ServerConfig> | null = null
 export function loadConfig(): Promise<ServerConfig> {
   if (loaded) return Promise.resolve(loaded)
   if (inflight) return inflight
-  inflight = fetch(backendUrl('/api/config'))
+  inflight = fetch(apiUrl('/api/config'))
     .then((r) => (r.ok ? (r.json() as Promise<ServerConfig>) : DEFAULT_CONFIG))
     .catch(() => DEFAULT_CONFIG)
     .then((c) => {

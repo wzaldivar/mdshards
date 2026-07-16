@@ -1,4 +1,4 @@
-import { backendUrl } from '../lib/backend'
+import { apiUrl } from '../lib/backend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { encodePathToUrl } from '../lib/paths'
@@ -105,7 +105,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
     // path the source of truth navigates reliably regardless of the socket.
     const wasCurrent = entry.target === currentDocId
     const endpoint = entry.isMd ? '/api/files/' : '/api/assets/'
-    const r = await fetch(backendUrl(endpoint + encodePathToUrl(entry.target)), { method: 'DELETE' })
+    const r = await fetch(apiUrl(endpoint + encodePathToUrl(entry.target)), { method: 'DELETE' })
     if (!r.ok) {
       setError(`delete failed: ${r.status}`)
       return

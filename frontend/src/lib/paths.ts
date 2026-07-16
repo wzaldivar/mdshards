@@ -4,6 +4,13 @@
  * `backend/app/vault.py`.
  */
 
+/** The one reserved top-level name — the mdshards app-surface namespace
+ *  (`/_mdshards/*`: API, WebSocket, bundle, favicon). A vault path whose first
+ *  segment is this would collide with the app subtree, so it's refused up
+ *  front. Keep in lockstep with `_RESERVED_SEGMENT` in backend/app/vault.py
+ *  and APP_PREFIX in lib/backend.ts. */
+const RESERVED_SEGMENT = '_mdshards'
+
 export function validateVaultPath(path: string): string | null {
   if (path === '') return null
   if (path.includes('\0')) return 'null byte in path'
@@ -12,6 +19,9 @@ export function validateVaultPath(path: string): string | null {
   const trimmed = path.replace(/^\/+/, '')
   if (trimmed === '') return null
   const segments = trimmed.split('/')
+  if (segments[0] === RESERVED_SEGMENT) {
+    return `'${RESERVED_SEGMENT}' is a reserved top-level name (mdshards app namespace)`
+  }
   for (const segment of segments) {
     if (segment === '' || segment === '.' || segment === '..') {
       return `illegal path segment: '${segment}'`

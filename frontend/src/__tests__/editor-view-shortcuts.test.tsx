@@ -243,7 +243,7 @@ describe('QuickSwitcher force-create', () => {
             new Response(JSON.stringify({ type: 'md', canonical }), { status: 200 }),
           )
         }
-        if (url.endsWith('/api/files') && init?.method === 'POST') {
+        if (url.endsWith('/_mdshards/api/files') && init?.method === 'POST') {
           posts.push({
             url: new URL(url, 'http://x'),
             body: JSON.parse(String(init.body)),
@@ -284,7 +284,7 @@ describe('QuickSwitcher force-create', () => {
     const input = await openSwitcherAndType('my')
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0].url.pathname).toBe('/api/files')
+    expect(posts[0].url.pathname).toBe('/_mdshards/api/files')
     expect(posts[0].body).toMatchObject({ path: 'my' })
   })
 
@@ -341,9 +341,9 @@ describe('Upload dispatch is by source type, not target extension', () => {
   it('md source typed as foo.jpeg POSTs /api/files with path=foo.jpeg', async () => {
     const file = new File(['# note'], 'draft.md', { type: 'text/markdown' })
     const calls = await submitWith(file)
-    const post = calls.find((u) => u.pathname.startsWith('/api/files'))
+    const post = calls.find((u) => u.pathname.startsWith('/_mdshards/api/files'))
     expect(post).toBeDefined()
-    expect(post!.pathname).toBe('/api/files')
+    expect(post!.pathname).toBe('/_mdshards/api/files')
   })
 
   it('non-md source POSTs /api/assets (no .md forcing)', async () => {
@@ -351,7 +351,7 @@ describe('Upload dispatch is by source type, not target extension', () => {
       type: 'image/jpeg',
     })
     const calls = await submitWith(file)
-    const post = calls.find((u) => u.pathname.startsWith('/api/assets'))
+    const post = calls.find((u) => u.pathname.startsWith('/_mdshards/api/assets'))
     expect(post).toBeDefined()
   })
 })
