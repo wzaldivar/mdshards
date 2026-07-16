@@ -12,6 +12,11 @@ on:
 
 jobs:
   backend:
+    # Skip the whole suite on demo→main PRs — the Guard workflow
+    # (guard-demo-pr.yml) blocks them anyway, so running CI is wasted minutes.
+    # Empty head_ref (pushes to main) always runs. sonarcloud needs
+    # backend+frontend, so it skips with them.
+    if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,6 +48,7 @@ jobs:
           fail_ci_if_error: false
 
   frontend:
+    if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -78,6 +84,7 @@ jobs:
   # containment, split-mount permissions). Fully containerized — no browser on
   # the runner. ubuntu-latest ships Docker + compose.
   e2e:
+    if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +101,7 @@ jobs:
   # caught here instead of silently producing a wrong Docker Hub page on the
   # next release. Stdlib-only script; no setup beyond the default Python.
   dockerhub-description:
+    if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
