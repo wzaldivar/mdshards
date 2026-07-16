@@ -1,0 +1,36 @@
+name: Guard
+
+# Refuse any pull request whose head branch is `demo` (or a `demo/*` branch)
+# from targeting `main`. The demo branch carries deliberate public-hardening
+# divergence — read-only landing page, removed upload/asset endpoints, external
+# images swapped for Lorem Picsum, 30-char path cap — that must NEVER land on
+# main. main is folded INTO demo (one direction only); the reverse is always a
+# mistake, and a green review would quietly break main. This makes it a red X.
+#
+# Runs from the base branch (main) for pull_request events, so it is active for
+# every PR into main once merged here. Mark it a required status check in branch
+# protection to make the block unbypassable.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  no-demo-into-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse demo -> main PRs
+        # head_ref goes through the environment, never interpolated into the
+        # script — a branch name can contain shell metacharacters.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            demo|demo/*)
+              echo "::error::Refusing to merge '$HEAD_REF' into main."
+              echo "The demo branch carries public-hardening divergence (read-only index, removed upload/asset endpoints, Picsum image swaps, 30-char path cap) that must not reach main."
+              echo "main is folded INTO demo, never the reverse. If you meant to sync, run 'git merge main' on the demo branch instead."
+              exit 1
+              ;;
+          esac
+          echo "OK: head branch '$HEAD_REF' may target main."
