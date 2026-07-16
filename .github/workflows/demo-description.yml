@@ -1,0 +1,38 @@
+name: Update demo description
+
+# MANUAL ONLY — syncs just the wzaldivar/mdshards-demo Docker Hub PAGE (short
+# description + overview), no image build/push. Run it to update the demo's
+# page without republishing the image.
+#
+# Lives on the default branch (main) because workflow_dispatch must, but checks
+# out `demo` for the overview (docs/dockerhub-demo-overview.md). Fail-loud (no
+# continue-on-error): a manual page update should surface a bad credential.
+# Docker Hub's description endpoint wants the account PASSWORD, not a PAT — set
+# DOCKERHUB_DESCRIPTION_TOKEN to it if DOCKERHUB_TOKEN 401s (see docs/ci-setup.md).
+#
+# NOTE: the target repo (wzaldivar/mdshards-demo) must already exist on Docker
+# Hub — a description attaches to a repo, so publish the image at least once
+# first (or pre-create the repo).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/ref to read the overview from"
+        required: false
+        default: demo
+
+jobs:
+  describe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKERHUB_TOKEN }}
+          repository: wzaldivar/mdshards-demo
+          short-description: "Locked-down public demo of mdshards — read-only, ephemeral, capped. Not for production."
+          readme-filepath: ./docs/dockerhub-demo-overview.md
