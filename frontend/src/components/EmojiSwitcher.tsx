@@ -10,10 +10,12 @@ interface Props {
    *  picker opened (`:smi` → "smi"), so a half-typed or wrong emoji can be
    *  finished/replaced without retyping. Empty for a plain open. */
   initialQuery: string
-  /** Called with the picked shortcode NAME (no colons); the parent writes
-   *  `:name:` into the buffer (replacing the touched token, if any). The
-   *  file keeps the shortcode — the glyph is render-time only. */
-  onPick: (name: string) => void
+  /** Called with the picked entry's shortcode NAME (no colons) and its glyph.
+   *  `asGlyph` picks the write mode: Enter (false) writes `:name:` — the file
+   *  keeps the shortcode, the glyph is render-time only; Shift-Enter (true)
+   *  writes the literal `glyph` straight into the buffer as a plain character.
+   *  Either way the touched token (if any) is replaced. */
+  onPick: (name: string, glyph: string, asGlyph: boolean) => void
   onClose: () => void
 }
 
@@ -87,10 +89,12 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
     return [...exact, ...byPrefix, ...bySubstring, ...byDesc]
   }, [entries, query])
 
-  function pick(i: number): void {
+  // `e` is present for Enter (from useListNavigation) and absent for a mouse
+  // click; Shift-Enter writes the glyph, plain Enter / click writes `:name:`.
+  function pick(i: number, e?: React.KeyboardEvent<HTMLInputElement>): void {
     const entry = matches[i]
     if (!entry) return
-    onPick(entry.names[0])
+    onPick(entry.names[0], entry.emoji, e?.shiftKey ?? false)
     onClose()
   }
 
@@ -137,6 +141,14 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
           ))
         )}
       </ul>
+      <div className={`${styles.item} ${styles.createHint}`}>
+        <span>
+          <span className={styles.kbd}>Enter</span> :code:
+        </span>
+        <span>
+          <span className={styles.kbd}>Shift-Enter</span> glyph
+        </span>
+      </div>
     </SwitcherShell>
   )
 }
