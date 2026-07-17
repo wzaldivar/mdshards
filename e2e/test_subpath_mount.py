@@ -16,6 +16,7 @@ from conftest import (
     WIKI_URL,
     WIKI_VAULT,
     click_editor,
+    expect_editor_contains,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -94,4 +95,4 @@ def test_vault_path_starting_with_prefix_segment(page: Page, browser_name: str):
 
     # …and it survives a cold reload at the double-segment URL.
     page.goto(f"{WIKI_URL}/{rel}")
-    expect(page.locator(".cm-content")).to_contain_text(marker)
+    expect_editor_contains(page, marker)
