@@ -84,7 +84,17 @@ describe('EmojiSwitcher', () => {
     fireEvent.change(input, { target: { value: 't-rex' } })
     await screen.findByRole('button', { name: /🦖 :t-rex:/ })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onPick).toHaveBeenCalledWith('t-rex')
+    expect(onPick).toHaveBeenCalledWith('t-rex', '🦖', false)
+  })
+
+  it('inserts the literal glyph (not the name) on Shift-Enter', async () => {
+    const onPick = vi.fn()
+    render(<EmojiSwitcher open initialQuery="" onPick={onPick} onClose={() => {}} />)
+    const input = await screen.findByPlaceholderText(/insert emoji/i)
+    fireEvent.change(input, { target: { value: 't-rex' } })
+    await screen.findByRole('button', { name: /🦖 :t-rex:/ })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(onPick).toHaveBeenCalledWith('t-rex', '🦖', true)
   })
 
   it('matches by alias/description, not just the primary name', async () => {
@@ -94,7 +104,7 @@ describe('EmojiSwitcher', () => {
     fireEvent.change(input, { target: { value: 'thumbs up' } })
     await screen.findByRole('button', { name: /👍 :\+1:/ })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onPick).toHaveBeenCalledWith('+1')
+    expect(onPick).toHaveBeenCalledWith('+1', '👍', false)
   })
 
   it('seeds the query from the touched token and arrows move the pick', async () => {

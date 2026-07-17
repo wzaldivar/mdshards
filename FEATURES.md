@@ -57,7 +57,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Highlight (`==text==`) — custom inline extension (`lib/md-highlight.ts`, mirrors lezer's Strikethrough rules: exactly two `=`, emphasis-style flanking); renders with a translucent yellow background, marks hidden cursor-aware.
 - Subscript (`H~2~O`) — `@lezer/markdown`'s `Subscript` extension; rendered via `vertical-align: sub`, marks hidden cursor-aware.
 - Superscript (`X^2^`) — `@lezer/markdown`'s `Superscript` extension; rendered via `vertical-align: super`, marks hidden cursor-aware.
-- Emoji shortcodes (`:joy:`, `:t-rex:`, `:+1:`) — custom parser (`lib/md-emoji.ts`; lezer's stock `Emoji` misses hyphens/signs, so `:t-rex:` and `:+1:` wouldn't parse); the gemoji dataset (GitHub's ~1900 names, lazy-loaded like the code-block language packs) resolves known names to glyphs at render time, cursor-aware. Unknown shortcodes stay raw text; the file always keeps the literal `:shortcode:`. `Cmd/Ctrl-E` opens a picker that inserts one at the cursor.
+- Emoji shortcodes (`:joy:`, `:t-rex:`, `:+1:`) — custom parser (`lib/md-emoji.ts`; lezer's stock `Emoji` misses hyphens/signs, so `:t-rex:` and `:+1:` wouldn't parse); the gemoji dataset (GitHub's ~1900 names, lazy-loaded like the code-block language packs) resolves known names to glyphs at render time, cursor-aware. Unknown shortcodes stay raw text; the file always keeps the literal `:shortcode:`. `Cmd/Ctrl-E` opens a picker: Enter inserts a `:shortcode:` (glyph is render-time only), Shift-Enter inserts the literal UTF-8 glyph straight into the file. Conversion is one-way — `:code:` renders to a glyph, but a literal glyph is never substituted back to a shortcode.
 
 **Missing — candidates for follow-up**
 
@@ -102,7 +102,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 | `Cmd/Ctrl-Shift-K` | Rename the current file (md or asset). |
 | `Cmd/Ctrl-Backspace` | Delete-file picker — confirms before unlinking. |
 | `Cmd/Ctrl-U` | Upload a file into the vault. |
-| `Cmd/Ctrl-E` | Emoji picker — search by name/description, Enter inserts `:shortcode:` at the cursor (md notes only). |
+| `Cmd/Ctrl-E` | Emoji picker — search by name/description; Enter inserts `:shortcode:`, Shift-Enter inserts the literal glyph, at the cursor (md notes only). |
 | `Cmd/Ctrl-Alt-O` | Editor options panel — vim mode, line numbers, relative line numbers, center current line (all remembered locally). |
 | `Enter` (inside quick switcher) | Open the highlighted existing note. Never creates — a no-op when nothing matches. |
 | `Shift+Enter` (inside quick switcher) | Create a note at the typed text (the only way to create). Works whether or not matches are highlighted. |

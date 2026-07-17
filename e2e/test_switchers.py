@@ -125,6 +125,28 @@ def test_emoji_picker_inserts_shortcode(page: Page):
     wait_vault_file(ROOT_VAULT, "swe/note.md", ":smile:")
 
 
+def test_emoji_picker_shift_enter_inserts_literal_glyph(page: Page, browser_name: str):
+    # Engine-unique path: this note lingers in server memory for the grace
+    # period, so a shared path would let one engine's run reconcile against
+    # the next engine's re-seed (same reason the rename test isolates paths).
+    note = f"swg/note-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{note}.md", b"glyph-seed \n")
+    page.goto(f"{ROOT_URL}/{note}")
+    expect(page.locator(".cm-content")).to_be_visible()
+    click_editor(page)  # a live buffer + cursor for the insert
+
+    page.keyboard.press("Control+e")
+    page.get_by_placeholder(INSERT_EMOJI).fill("t-rex")
+    # wait for the (lazily bundled) gemoji dataset to load and rank the match
+    expect(page.get_by_text(":t-rex:").first).to_be_visible()
+    # Shift-Enter is the glyph variant: the literal 🦖 lands in the FILE (not
+    # the `:t-rex:` shortcode) — the one-way rule, exercised on disk.
+    page.get_by_placeholder(INSERT_EMOJI).press("Shift+Enter")
+
+    raw = wait_vault_file(ROOT_VAULT, f"{note}.md", "🦖")
+    assert ":t-rex:" not in raw
+
+
 # ---- asset-URL context: the shortcut rebind inside the AssetViewer iframe ----
 
 
