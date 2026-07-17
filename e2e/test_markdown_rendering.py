@@ -22,6 +22,7 @@ from conftest import (
     ROOT_URL,
     ROOT_VAULT,
     click_editor,
+    expect_editor_contains,
     poll_until,
     read_vault_file,
     seed_vault_file,
@@ -297,7 +298,7 @@ def test_wikilinks_render_and_navigate(page: Page):
     # clicking navigates via the SPA router to the target note
     page.locator(".cm-md-wikilink").first.click()
     expect(page).to_have_url(re.compile(r"/features/target$"))
-    expect(page.locator(".cm-content")).to_contain_text("wikilink landing pad")
+    expect_editor_contains(page, "wikilink landing pad")
 
 
 def test_direct_image_url_renders_pixels(page: Page):

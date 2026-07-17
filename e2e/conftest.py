@@ -15,6 +15,9 @@ the shared mount rather than a `docker exec`.
 Run locally (needs a Docker daemon — colima):
     docker compose -f e2e/docker-compose.e2e.yml up --build \
         --abort-on-container-exit --exit-code-from tests
+
+Flaky-looking WebKit failure? See FLAKES.md for the re-run policy and the log of
+confirmed timing flakes (and the `CRDT_LOAD_TIMEOUT` mitigation).
 """
 
 from __future__ import annotations
@@ -53,6 +56,16 @@ APP_GID = int(os.environ.get("APP_GID", "1000"))
 
 # expect() default is 5s; our flows (image decode, cold loads) want headroom.
 expect.set_options(timeout=15_000)
+
+# Note body text only appears after a whole chain runs: the editor mounts, the
+# WebSocket connects, the CRDT doc syncs, and CodeMirror renders it. That chain
+# is reliably sub-second on Chromium/Firefox but spikes past the default expect
+# timeout on WebKit under parallel-engine CI load — the sole root cause of every
+# e2e flake logged in FLAKES.md so far (all passed verbatim on re-run). Give the
+# post-navigation content wait real headroom via `expect_editor_contains` /
+# `expect_note_text` below; leave the default for fast UI (modals, visibility)
+# so genuine failures there still surface quickly.
+CRDT_LOAD_TIMEOUT = 30_000
 
 
 # ---- readiness ----
@@ -185,6 +198,23 @@ def type_text(page: Page, text: str) -> None:
 
 def editor_text(page: Page) -> str:
     return page.locator(".cm-content").inner_text()
+
+
+def expect_editor_contains(page: Page, text: str) -> None:
+    """Assert the editor body contains `text` after a navigation, with the
+    CRDT-load headroom (see `CRDT_LOAD_TIMEOUT`). Waits for the editor to mount
+    first so a failure reads as 'content never synced', not 'editor never
+    rendered'. Use this for every post-navigation note-body assertion — it is
+    the wait that flakes on WebKit under CI, not the editor mount itself."""
+    expect(page.locator(".cm-content")).to_be_visible()
+    expect(page.locator(".cm-content")).to_contain_text(text, timeout=CRDT_LOAD_TIMEOUT)
+
+
+def expect_note_text(page: Page, text: str) -> None:
+    """Like `expect_editor_contains` but for rendered/decorated text located via
+    `get_by_text` (e.g. a note whose raw markdown is hidden). Same CRDT-load
+    headroom — the text still depends on the sync+render chain."""
+    expect(page.get_by_text(text)).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
 
 
 # ---- fixtures assets ----
