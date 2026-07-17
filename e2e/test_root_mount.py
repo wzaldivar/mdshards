@@ -9,6 +9,7 @@ from conftest import (
     ROOT_VAULT,
     TINY_PNG,
     click_editor,
+    expect_note_text,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -97,4 +98,4 @@ def test_formerly_reserved_names_are_vault_paths(page: Page):
     # A top-level note literally named `api` opens in the editor, not the API.
     page.goto(f"{ROOT_URL}/api")
     expect(page.locator(".cm-content")).to_be_visible()
-    expect(page.get_by_text("a note literally named api")).to_be_visible()
+    expect_note_text(page, "a note literally named api")

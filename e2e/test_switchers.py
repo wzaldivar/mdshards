@@ -20,6 +20,7 @@ from conftest import (
     ROOT_URL,
     ROOT_VAULT,
     click_editor,
+    expect_editor_contains,
     poll_until,
     read_vault_file,
     seed_vault_file,
@@ -50,7 +51,7 @@ def test_quick_switcher_navigates_to_existing_note(page: Page):
     switcher.press("Enter")
 
     expect(page).to_have_url(re.compile(r"/swq/target$"))
-    expect(page.locator(".cm-content")).to_contain_text("swq-target-body")
+    expect_editor_contains(page, "swq-target-body")
 
 
 def test_quick_switcher_escape_closes_and_stays_put(page: Page):
@@ -70,7 +71,7 @@ def test_quick_switcher_escape_closes_and_stays_put(page: Page):
 def test_delete_switcher_confirms_then_deletes_current_and_navigates_home(page: Page):
     seed_vault_file(ROOT_VAULT, "swd/victim.md", b"swd-victim-body\n")
     page.goto(f"{ROOT_URL}/swd/victim")
-    expect(page.locator(".cm-content")).to_contain_text("swd-victim-body")
+    expect_editor_contains(page, "swd-victim-body")
 
     page.keyboard.press("Control+Backspace")
     switcher = page.get_by_placeholder(PICK_FILE)
@@ -94,7 +95,7 @@ def test_rename_switcher_moves_note_and_navigates(page: Page, browser_name: str)
     src, dst = f"swr/old-{browser_name}", f"swr/new-{browser_name}"
     seed_vault_file(ROOT_VAULT, f"{src}.md", b"swr-rename-body\n")
     page.goto(f"{ROOT_URL}/{src}")
-    expect(page.locator(".cm-content")).to_contain_text("swr-rename-body")
+    expect_editor_contains(page, "swr-rename-body")
 
     page.keyboard.press("Control+Shift+K")
     # prefilled with the current doc-id; fill() clears it and types the new one
