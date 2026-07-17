@@ -27,15 +27,6 @@ logger = logging.getLogger("mdshards.docs")
 FLUSH_QUIET_SECONDS = 0.5
 TEXT_KEY = "content"
 
-# Ghost-merge trust thresholds (see `reconcile_external`). `SequenceMatcher` is
-# not a minimal diff and degrades on large/repetitive text, so a diff that turns
-# out to be an almost-total rewrite is treated as untrustworthy: we drop a
-# Syncthing-style conflict file rather than ghost-apply garbage into the live
-# doc. Small buffers legitimately rewrite wholesale, so the ratio gate only
-# applies once both sides exceed `_GHOST_MIN_LEN`.
-_GHOST_MIN_RATIO = 0.4
-_GHOST_MIN_LEN = 200
-
 # WebSocket close codes the manager emits when forcibly disconnecting clients.
 # Defined here (rather than in ws.py) so DocumentManager can build the close
 # signal without importing the WebSocket router module.
@@ -207,12 +198,30 @@ class DocumentManager:
         # Synchronous by design: it reads `state.doc` (pycrdt Docs are only
         # ever touched on the loop thread) and does blocking file writes, with
         # nothing to await. Callers invoke it inline on the loop thread.
+        #
+        # This is the ONE reconcile-and-write step: both the debounced flush
+        # loop (memory→disk) and the watcher's `reconcile_external` (disk→memory)
+        # funnel through here, so a single 3-way-merge policy governs both
+        # directions instead of the two paths disagreeing on who wins.
         content = str(state.doc.get(TEXT_KEY, type=Text))
+        merged = content
         if state.disk_path.exists():
             disk_now = read_md(state.disk_path, self._vault_dir)
             if disk_now != state.last_disk_content and disk_now != content:
-                self._write_conflict_file(state.disk_path, disk_now)
-        write_md_atomic(state.disk_path, content, self._vault_dir)
+                # Disk diverged from our last-synced baseline since we last
+                # wrote — an external writer (Syncthing/Obsidian) landed between
+                # reconciles. 3-way merge it against the baseline rather than
+                # clobbering either side: non-overlapping edits from both sides
+                # combine; a region both sides changed keeps OURS live and
+                # spills THEIRS into a Syncthing-style conflict file.
+                merged, conflict = self._three_way_merge(state.last_disk_content, content, disk_now)
+                if conflict:
+                    self._write_conflict_file(state.disk_path, disk_now)
+                if merged != content:
+                    # Replay the folded-in disk hunks as Y.Text splices so the
+                    # change fans out to connected clients (ghost-editor style).
+                    self._apply_ghost_merge(state, content, merged)
+        write_md_atomic(state.disk_path, merged, self._vault_dir)
         # Persist the binary CRDT state so the next load can rehydrate items
         # with their original IDs instead of generating new ones from text.
         # The cache is an optimization, never load-bearing — a failure here
@@ -232,30 +241,31 @@ class DocumentManager:
                 self._cache_root,
                 exc_info=True,
             )
-        state.last_disk_content = content
+        state.last_disk_content = merged
 
     async def reconcile_external(self, disk_path: Path) -> None:
         """Fold an external on-disk change to an actively-loaded `.md` into its
-        in-memory Doc, ghost-editor style (stage 2). Diffs the new disk bytes
-        against the live text and replays the opcodes as `Y.Text` splices in one
-        transaction, so the change fans out to connected clients through the
-        normal `on_event` path — as if a ghost typed it — and is never applied
-        by overwriting the file.
+        in-memory Doc. This is the disk→memory trigger; it delegates the actual
+        reconciliation to `_flush`, so both directions share one 3-way-merge
+        policy (non-overlapping edits combine; a region both sides changed keeps
+        the live doc and spills disk into a conflict file). The merged result is
+        written back to disk and fans out to clients through the normal
+        `on_event` path — as if a ghost typed it.
 
         No-op for idle notes (not in `_docs`): those reconcile lazily via the
         cold-open `_load` path on next open, deliberately, to avoid blob-cache
         churn for files nobody is using. Self-writes (our own atomic flush) are
         filtered by comparing the disk bytes against `last_disk_content`, which
-        `_flush` set to exactly what we wrote. An untrustworthy diff writes a
-        Syncthing-style conflict file and leaves the live doc untouched."""
+        `_flush` set to exactly what we wrote — this is also what stops the
+        flush→watcher→flush loop."""
         key = str(disk_path.resolve())
         async with self._lock:
             state = self._docs.get(key)
             if state is None:
                 return
-            # An external `rm` of a live file is out of scope for the
-            # ghost-merge — the REST delete path (kick + purge) owns removal;
-            # here we keep the live doc as the source of truth.
+            # An external `rm` of a live file is out of scope for the merge —
+            # the REST delete path (kick + purge) owns removal; here we keep the
+            # live doc as the source of truth.
             if not disk_path.exists():
                 return
             try:
@@ -263,37 +273,76 @@ class DocumentManager:
             except OSError, VaultPathError:
                 return
             # Self-write filter: our own flush left `last_disk_content` equal to
-            # what it wrote, so nothing external actually happened.
+            # what it wrote, so nothing external actually happened. Skipping the
+            # flush here is what breaks the write→event→write loop.
             if disk_content == state.last_disk_content:
                 return
-            current = str(state.doc.get(TEXT_KEY, type=Text))
-            if disk_content == current:
-                # Already in sync — e.g. a self-write whose `last_disk_content`
-                # update raced this event. Record the baseline and stop.
-                state.last_disk_content = disk_content
-                return
-            if not self._diff_is_trustworthy(current, disk_content):
-                self._write_conflict_file(disk_path, disk_content)
-                # Adopt disk as the known baseline so the passive `_flush` path
-                # doesn't emit a SECOND conflict file for the same divergence;
-                # the unchanged live doc wins back to disk on the next flush.
-                state.last_disk_content = disk_content
-                return
-            self._apply_ghost_merge(state, current, disk_content)
-            state.last_disk_content = disk_content
+            self._flush(state)
 
     @staticmethod
-    def _diff_is_trustworthy(current: str, disk: str) -> bool:
-        """Whether the `current` → `disk` diff is safe to ghost-apply. Below
-        `_GHOST_MIN_LEN` on both sides a full rewrite is legitimate and cheap,
-        so trust it. Above that, a similarity ratio under `_GHOST_MIN_RATIO`
-        means the buffers share almost nothing — an unreliable diff, so bail to
-        a conflict file. `autojunk=False` disables the heuristic that misbehaves
-        on large/repetitive markdown."""
-        if len(current) < _GHOST_MIN_LEN and len(disk) < _GHOST_MIN_LEN:
-            return True
-        sm = difflib.SequenceMatcher(a=current, b=disk, autojunk=False)
-        return sm.ratio() >= _GHOST_MIN_RATIO
+    def _three_way_merge(base: str, ours: str, theirs: str) -> tuple[str, bool]:
+        """Line-based 3-way merge against the common `base`. Returns the merged
+        text and whether any region was changed by BOTH sides (a real conflict).
+
+        Regions only one side touched are taken from that side; regions both
+        touched keep OURS (the live doc is the winner) and raise the conflict
+        flag so the caller can spill THEIRS into a Syncthing-style conflict file.
+        Lines are split `keepends` so the join round-trips byte-for-byte,
+        including a missing trailing newline."""
+        base_l = base.splitlines(keepends=True)
+        ours_l = ours.splitlines(keepends=True)
+        theirs_l = theirs.splitlines(keepends=True)
+
+        o_map = DocumentManager._unchanged_line_map(base_l, ours_l)
+        t_map = DocumentManager._unchanged_line_map(base_l, theirs_l)
+        # Sync points: base lines that survive UNCHANGED into both sides. They
+        # partition the buffers into independently-mergeable regions. Matching
+        # blocks are monotonic, so the mapped indices rise with the base index —
+        # every region slice below is therefore non-negative in width.
+        sync = [i for i in range(len(base_l)) if i in o_map and i in t_map]
+
+        out: list[str] = []
+        conflict = False
+        bi = oi = ti = 0
+        for i in (*sync, None):
+            if i is None:  # trailing region after the last sync point
+                b_end, o_end, t_end = len(base_l), len(ours_l), len(theirs_l)
+            else:
+                b_end, o_end, t_end = i, o_map[i], t_map[i]
+            region, c = DocumentManager._merge_region(
+                base_l[bi:b_end], ours_l[oi:o_end], theirs_l[ti:t_end]
+            )
+            out.extend(region)
+            conflict = conflict or c
+            if i is not None:
+                out.append(base_l[i])  # the synchronized (identical) line
+                bi, oi, ti = i + 1, o_map[i] + 1, t_map[i] + 1
+        return "".join(out), conflict
+
+    @staticmethod
+    def _unchanged_line_map(base_l: list[str], other_l: list[str]) -> dict[int, int]:
+        """base-line-index → other-line-index for every base line that survives
+        unchanged into `other`, from `SequenceMatcher`'s matching blocks.
+        `autojunk=False` — its heuristic misbehaves on large/repetitive text."""
+        sm = difflib.SequenceMatcher(a=base_l, b=other_l, autojunk=False)
+        mapping: dict[int, int] = {}
+        for i, j, n in sm.get_matching_blocks():
+            for k in range(n):
+                mapping[i + k] = j + k
+        return mapping
+
+    @staticmethod
+    def _merge_region(
+        base_c: list[str], ours_c: list[str], theirs_c: list[str]
+    ) -> tuple[list[str], bool]:
+        """Resolve one region between two sync points. Returns (lines, conflict)."""
+        if ours_c == base_c:
+            return theirs_c, False  # only THEIRS changed here
+        if theirs_c == base_c:
+            return ours_c, False  # only OURS changed here
+        if ours_c == theirs_c:
+            return ours_c, False  # both made the identical change
+        return ours_c, True  # true conflict — live doc (ours) wins
 
     @staticmethod
     def _apply_ghost_merge(state: _DocState, current: str, disk_content: str) -> None:

@@ -48,6 +48,12 @@ export interface EditorApi {
    *  cursor touches (half-typed `:smi`, typo'd `:zmile:`, or a valid one
    *  being swapped), else inserts at the cursor. Refocuses the editor. */
   insertShortcode: (name: string) => void
+  /** Write a literal UTF-8 glyph into the buffer — the Shift-Enter variant of
+   *  the picker. Same token-replace / insert rule as `insertShortcode`, but
+   *  the glyph lands as-is (no `:code:`); it stays a plain character on disk
+   *  (`:code:`→glyph rendering never runs on it — there is no reverse
+   *  substitution). Refocuses the editor. */
+  insertGlyph: (glyph: string) => void
   /** Refocus the buffer — used when a modal opened from the editor closes
    *  without acting, so typing can resume where it left off. */
   focus: () => void
@@ -390,22 +396,26 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
           const token = shortcodeTokenAt(line.text, head - line.from)
           return token ? { ...token, from: line.from + token.start, to: line.from + token.end } : null
         }
+        // Shared by both picker actions: replace the touched shortcode token
+        // (if any) with `text`, else insert at the cursor. Only the inserted
+        // string differs — `:name:` for Enter, the glyph for Shift-Enter.
+        const replaceTokenOrInsert = (text: string) => {
+          if (!view || readOnly) return
+          const token = tokenAtCursor()
+          const sel = view.state.selection.main
+          const from = token ? token.from : sel.from
+          const to = token ? token.to : sel.to
+          view.dispatch({
+            changes: { from, to, insert: text },
+            selection: { anchor: from + text.length },
+          })
+          view.focus()
+        }
         apiRef.current = {
           focus: () => view?.focus(),
           emojiQueryAtCursor: () => tokenAtCursor()?.query ?? null,
-          insertShortcode: (name: string) => {
-            if (!view || readOnly) return
-            const text = `:${name}:`
-            const token = tokenAtCursor()
-            const sel = view.state.selection.main
-            const from = token ? token.from : sel.from
-            const to = token ? token.to : sel.to
-            view.dispatch({
-              changes: { from, to, insert: text },
-              selection: { anchor: from + text.length },
-            })
-            view.focus()
-          },
+          insertShortcode: (name: string) => replaceTokenOrInsert(`:${name}:`),
+          insertGlyph: (glyph: string) => replaceTokenOrInsert(glyph),
         }
       }
     }

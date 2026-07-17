@@ -1,6 +1,6 @@
 """Stage-2 external-writer reconciliation.
 
-Most tests drive `DocumentManager.reconcile_external` directly — the ghost-merge
+Most tests drive `DocumentManager.reconcile_external` directly — the 3-way-merge
 logic — to stay deterministic. The final test wires up a real `watchdog`
 observer end to end to prove events actually reach the reconciler.
 """
@@ -95,32 +95,85 @@ async def test_self_write_is_ignored(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_untrustworthy_diff_writes_conflict_file(tmp_path: Path) -> None:
-    original = "a" * 500
-    (tmp_path / "foo.md").write_text(original)
+async def test_non_overlapping_edits_merge_without_conflict(tmp_path: Path) -> None:
+    """Both sides edit the SAME file but DIFFERENT regions: the 3-way merge
+    combines them and writes no conflict file. Base is the three-line file both
+    started from; the client prepends a line, disk appends one."""
+    (tmp_path / "foo.md").write_text("a\nb\nc\n")
     mgr = _mgr(tmp_path)
     try:
         state = await mgr.acquire("foo")
-        # A near-total rewrite of a large buffer: SequenceMatcher shares almost
-        # nothing, so we must NOT ghost-apply — we drop a conflict file.
-        state.disk_path.write_text("b" * 500)
+        # Local (client) edit: prepend a line — this is "ours".
+        state.doc.get(TEXT_KEY, type=Text).insert(0, "TOP\n")
+        # External edit against the SAME baseline: append a line — "theirs".
+        state.disk_path.write_text("a\nb\nc\nBOT\n")
         await mgr.reconcile_external(state.disk_path)
-        assert _text(state) == original  # live doc untouched
-        conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
-        assert len(conflicts) == 1
-        assert conflicts[0].read_text() == "b" * 500
+        assert _text(state) == "TOP\na\nb\nc\nBOT\n"
+        assert list(tmp_path.glob("*.sync-conflict-*.md")) == []
+        # Merged result was written back to disk and adopted as the baseline.
+        assert (tmp_path / "foo.md").read_text() == "TOP\na\nb\nc\nBOT\n"
+        assert state.last_disk_content == "TOP\na\nb\nc\nBOT\n"
     finally:
         await mgr.shutdown()
 
 
-def test_diff_trustworthiness_thresholds() -> None:
-    # Small buffers legitimately rewrite wholesale.
-    assert DocumentManager._diff_is_trustworthy("cat", "dog") is True
-    # Large, similar → trustworthy.
-    base = "line\n" * 200
-    assert DocumentManager._diff_is_trustworthy(base, base + "extra\n") is True
-    # Large, near-disjoint → untrustworthy.
-    assert DocumentManager._diff_is_trustworthy("a" * 500, "b" * 500) is False
+@pytest.mark.asyncio
+async def test_overlapping_edits_conflict_ours_wins_theirs_to_file(tmp_path: Path) -> None:
+    """Both sides change the SAME line: a real conflict. The live doc (ours)
+    wins in-memory and on disk; the disk version spills to a conflict file."""
+    (tmp_path / "foo.md").write_text("a\nb\nc\n")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        text = state.doc.get(TEXT_KEY, type=Text)
+        del text[2:3]  # "a\nb\nc\n" -> "a\nB\nc\n" via replace of the middle line
+        text.insert(2, "B")
+        assert _text(state) == "a\nB\nc\n"
+        # External writer changes the SAME middle line differently.
+        state.disk_path.write_text("a\nXYZ\nc\n")
+        await mgr.reconcile_external(state.disk_path)
+        assert _text(state) == "a\nB\nc\n"  # ours wins live
+        assert (tmp_path / "foo.md").read_text() == "a\nB\nc\n"  # and on disk
+        conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
+        assert len(conflicts) == 1
+        assert conflicts[0].read_text() == "a\nXYZ\nc\n"  # theirs preserved
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_external_rewrite_without_local_edit_is_not_a_conflict(tmp_path: Path) -> None:
+    """A near-total external rewrite with NO competing local edit is just an
+    update, not a conflict — it folds in wholesale, no conflict file. (Under
+    the old ratio heuristic this wrote a conflict file; the 3-way merge only
+    conflicts when both sides touched the same region.)"""
+    (tmp_path / "foo.md").write_text("a" * 500)
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        state.disk_path.write_text("b" * 500)
+        await mgr.reconcile_external(state.disk_path)
+        assert _text(state) == "b" * 500
+        assert list(tmp_path.glob("foo.sync-conflict-*.md")) == []
+    finally:
+        await mgr.shutdown()
+
+
+def test_three_way_merge_classifies_regions() -> None:
+    m = DocumentManager._three_way_merge
+    # Only theirs changed → take theirs, no conflict.
+    assert m("a\nb\n", "a\nb\n", "a\nB\n") == ("a\nB\n", False)
+    # Only ours changed → take ours, no conflict.
+    assert m("a\nb\n", "A\nb\n", "a\nb\n") == ("A\nb\n", False)
+    # Both made the identical change → no conflict.
+    assert m("a\nb\n", "a\nX\n", "a\nX\n") == ("a\nX\n", False)
+    # Non-overlapping edits combine.
+    assert m("a\nb\nc\n", "TOP\na\nb\nc\n", "a\nb\nc\nBOT\n") == (
+        "TOP\na\nb\nc\nBOT\n",
+        False,
+    )
+    # Same region changed differently → conflict, ours kept.
+    assert m("a\nb\nc\n", "a\nB\nc\n", "a\nXYZ\nc\n") == ("a\nB\nc\n", True)
 
 
 # --- end-to-end through a real watchdog observer ------------------------------
