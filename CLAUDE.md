@@ -160,3 +160,14 @@ End-to-end (`e2e/`, Playwright + docker compose — real browsers against the sh
 - Keep the frontend stateless beyond the live CRDT doc. No persistent client storage — except small, non-vault editor UI preferences (the `Cmd-Alt-O` options panel; see the "No client-side database" exception above).
 - Treat CRDT integration as the central design problem; new features that bypass it (e.g. raw REST writes that don't go through the CRDT) need explicit justification.
 - Don't add auth scaffolding speculatively.
+
+## OpenWiki
+
+This repository has documentation located in the /openwiki directory.
+
+Start here:
+- [OpenWiki quickstart](openwiki/quickstart.md)
+
+OpenWiki includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
+
+When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
