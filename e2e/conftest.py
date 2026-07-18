@@ -41,6 +41,9 @@ WIKI_URL = WIKI_ORIGIN + WIKI_PREFIX
 # that escaped the prefix (origin-rooted rather than under /wiki).
 WIKI_HOST = WIKI_ORIGIN.split("//", 1)[-1]
 PERMS_URL = os.environ.get("PERMS_URL", "http://app-perms:8000")
+# A separate app with a short GRACE_PERIOD_SECONDS so the client's read-only
+# "dino" countdown fires in seconds — used by the A→B navigation regression.
+DINO_URL = os.environ.get("DINO_URL", "http://app-dino:8000")
 
 # Each app's vault, seen through the shared named volume mounted into this
 # container. The app writes /data/vault; we see it here.
@@ -48,6 +51,7 @@ ROOT_VAULT = Path(os.environ.get("ROOT_VAULT", "/vaults/root/vault"))
 WIKI_VAULT = Path(os.environ.get("WIKI_VAULT", "/vaults/wiki/vault"))
 PERMS_VAULT = Path(os.environ.get("PERMS_VAULT", "/vaults/perms-vault"))
 PERMS_CACHE = Path(os.environ.get("PERMS_CACHE", "/vaults/perms-cache"))
+DINO_VAULT = Path(os.environ.get("DINO_VAULT", "/vaults/dino/vault"))
 
 # The app runs as this uid/gid (docker-entrypoint default). Seeded files must
 # land under it so the app can rename/delete/rewrite them.
@@ -94,6 +98,7 @@ def _wait_ready(base: str, timeout: float = 120) -> None:
 def _apps_ready() -> None:
     _wait_ready(ROOT_URL)
     _wait_ready(WIKI_URL)
+    _wait_ready(DINO_URL)
 
 
 @pytest.fixture(scope="session")

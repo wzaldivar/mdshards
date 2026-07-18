@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ..config import get_settings
@@ -85,3 +85,27 @@ def resolve(url_path: str = "") -> ResolveResponse:
     """
     settings = get_settings()
     return _resolve(url_path.strip("/"), settings.vault_dir)
+
+
+class MovedResponse(BaseModel):
+    target: str | None = None
+    """Doc-id the requested path was moved/conflicted to (rename, or a web doc
+    spilled to a `.mdshards-conflict-*` file by an irreconcilable external
+    edit), if the server still holds a recent forward. `null` in the common
+    case — an ordinary disconnect with nowhere to go."""
+
+
+@router.get("/moved")
+@router.get("/moved/{url_path:path}")
+def moved(request: Request, url_path: str = "") -> MovedResponse:
+    """Where did the doc at `url_path` go? The `DOC_MOVED` WebSocket close that
+    normally drives the frontend's "follow" link carries the target in its close
+    code + reason — but Safari/WebKit reports our app close codes as a bare 1006
+    and drops the reason, so a WebKit tab never learns the destination. This
+    endpoint is the durable side channel: the client fetches it on an
+    unexplained drop and, when a forward exists, renders an explicit link to the
+    new location instead of a dead read-only banner. Forwards are short-lived
+    (see `_FORWARD_TTL_SECONDS`) and in-memory."""
+    manager = getattr(request.app.state, "doc_manager", None)
+    target = manager.forward_target(url_path.strip("/")) if manager is not None else None
+    return MovedResponse(target=target)
