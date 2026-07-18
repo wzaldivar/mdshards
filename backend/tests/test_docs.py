@@ -24,6 +24,14 @@ def _mgr(vault: Path, *, grace_period_seconds: float = 10.0) -> DocumentManager:
     )
 
 
+async def _persist(mgr: DocumentManager, state) -> None:
+    """Force an OUT flush now — persist memory→disk + cache, the way the flush
+    loop does. (Replaces the old synchronous `mgr._flush(state)` these tests
+    leaned on before IN/OUT were split.)"""
+    async with state.io_lock:
+        await mgr._flush_out(state)
+
+
 @pytest.mark.asyncio
 async def test_first_acquire_loads_disk_content(tmp_path: Path) -> None:
     (tmp_path / "foo.md").write_text("hello from disk")
@@ -99,18 +107,19 @@ async def test_reconcile_external_noops_when_file_vanished(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_reconcile_external_adopts_baseline_when_already_in_sync(tmp_path: Path) -> None:
-    """Disk content equal to the live text (a self-write whose baseline update
-    raced the watcher event) records the baseline and changes nothing."""
+async def test_self_write_event_is_a_noop(tmp_path: Path) -> None:
+    """A watcher event whose disk bytes hash-match our golden snapshot (our own
+    write, or a no-op touch) changes nothing and writes no conflict file — the
+    O(1) golden-hash self-write filter."""
     (tmp_path / "foo.md").write_text("same text")
     mgr = _mgr(tmp_path)
     try:
         state = await mgr.acquire("foo")
-        state.last_disk_content = "stale baseline"
+        golden_before = state.golden_hash
         await mgr.reconcile_external(tmp_path / "foo.md")
-        assert state.last_disk_content == "same text"
         assert str(state.doc.get(TEXT_KEY, type=Text)) == "same text"
-        assert not list(tmp_path.glob("*sync-conflict*"))
+        assert state.golden_hash == golden_before
+        assert not list(tmp_path.glob("*conflict*"))
     finally:
         await mgr.shutdown()
 
@@ -278,33 +287,42 @@ async def test_debounced_flush_writes_on_quiet(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_conflict_file_written_on_external_divergence(tmp_path: Path) -> None:
-    """If the disk file is modified by an external writer while the doc holds
-    divergent state, the divergent disk content gets written to a Syncthing-style
-    sync-conflict file and the live doc's content lands at the original path."""
+async def test_conflict_moves_ours_to_conflict_and_keeps_fs(tmp_path: Path) -> None:
+    """Both sides change the same region → git-style unapplyable → conflict. The
+    web side (ours) is preserved in an `.mdshards-conflict-` file and its clients
+    are kicked there (DOC_MOVED); the main file keeps the FS version (we can't
+    merge it without noise); the doc is dropped."""
     (tmp_path / "foo.md").write_text("baseline")
     mgr = _mgr(tmp_path)
     try:
         state = await mgr.acquire("foo")
-        # Pause the auto-flush task so we control timing exactly.
+        # Pause the auto-flush so the baseline stays "baseline" (an early flush
+        # would advance it and turn this into a clean disk-wins update).
         assert state.flush_task is not None
         state.flush_task.cancel()
         with suppress(asyncio.CancelledError):
             await state.flush_task
         state.flush_task = None
 
-        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")
-        assert str(state.doc.get(TEXT_KEY, type=Text)) == "baseline edited"
+        q: asyncio.Queue[bytes | KickSignal] = asyncio.Queue()
+        state.subscribers.add(q)
+        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")  # ours diverges
+        (tmp_path / "foo.md").write_text("external write")  # theirs diverges, same region
 
-        # External writer overwrites the file with divergent content.
-        (tmp_path / "foo.md").write_text("external write")
+        await mgr.reconcile_external(tmp_path / "foo.md")
 
-        mgr._flush(state)
-
-        conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
+        conflicts = list(tmp_path.glob("foo.mdshards-conflict-*.md"))
         assert len(conflicts) == 1
-        assert conflicts[0].read_text() == "external write"
-        assert (tmp_path / "foo.md").read_text() == "baseline edited"
+        assert conflicts[0].read_text() == "baseline edited"  # ours preserved
+        assert (tmp_path / "foo.md").read_text() == "external write"  # FS canonical
+        drained = []
+        while not q.empty():
+            drained.append(q.get_nowait())
+        kicks = [s for s in drained if isinstance(s, KickSignal)]
+        assert len(kicks) == 1
+        assert kicks[0].code == DOC_MOVED_CODE
+        assert kicks[0].reason == conflicts[0].stem  # kicked to the conflict file
+        assert str((tmp_path / "foo.md").resolve()) not in mgr._docs
     finally:
         await mgr.shutdown()
 
@@ -329,9 +347,8 @@ async def test_no_conflict_when_disk_matches_in_memory(tmp_path: Path) -> None:
     mgr = _mgr(tmp_path)
     try:
         state = await mgr.acquire("foo")
-        mgr._flush(state)
-        conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
-        assert conflicts == []
+        await _persist(mgr, state)
+        assert list(tmp_path.glob("foo.*conflict-*.md")) == []
     finally:
         await mgr.shutdown()
 
@@ -349,7 +366,7 @@ async def test_cache_preserves_item_ids_across_manager_recreate(tmp_path: Path) 
         s = await mgr1.acquire("foo")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("hello")
         sv_before = s.doc.get_state()
-        mgr1._flush(s)
+        await _persist(mgr1, s)
     finally:
         await mgr1.shutdown()
 
@@ -375,7 +392,7 @@ async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -
     try:
         s = await mgr1.acquire("foo")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("from the editor")
-        mgr1._flush(s)
+        await _persist(mgr1, s)
     finally:
         await mgr1.shutdown()
 
@@ -387,7 +404,7 @@ async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -
         s2 = await mgr2.acquire("foo")
         # Live Doc keeps the cached text — the user's CRDT state takes priority.
         assert str(s2.doc.get(TEXT_KEY, type=Text)) == "from the editor"
-        conflicts = list(tmp_path.glob("foo.sync-conflict-*.md"))
+        conflicts = list(tmp_path.glob("foo.mdshards-conflict-*.md"))
         assert len(conflicts) == 1
         assert conflicts[0].read_text() == "from disk"
     finally:
@@ -421,6 +438,20 @@ async def test_kick_drops_state_and_signals_subscribers(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_kick_delete_records_root_forward(tmp_path: Path) -> None:
+    """A delete-kick records a forward to root ("") so a client that dropped
+    without the DOC_DELETED close code (Safari) can still be sent home."""
+    (tmp_path / "foo.md").write_text("x")
+    mgr = _mgr(tmp_path)
+    try:
+        await mgr.acquire("foo")
+        await mgr.kick("foo")  # default = DOC_DELETED
+        assert mgr.forward_target("foo") == ""
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_kick_does_not_flush(tmp_path: Path) -> None:
     """Kick must not persist — the file is being deleted, so flushing would
     resurrect it after the delete completes."""
@@ -446,7 +477,7 @@ async def test_rename_moves_cache_and_kicks_clients(tmp_path: Path) -> None:
         s.doc.get(TEXT_KEY, type=Text).__iadd__("history")
         q: asyncio.Queue[bytes | None] = asyncio.Queue()
         s.subscribers.add(q)
-        mgr._flush(s)
+        await _persist(mgr, s)
         src_cache = mgr._cache_path(s.disk_path)
         assert src_cache.exists()
 
@@ -457,6 +488,8 @@ async def test_rename_moves_cache_and_kicks_clients(tmp_path: Path) -> None:
         assert isinstance(signal, KickSignal)
         assert signal.code == DOC_MOVED_CODE
         assert signal.reason == "renamed"
+        # The forward is queryable too (Safari side channel via GET /api/moved).
+        assert mgr.forward_target("notes/old") == "renamed"
         # Source cache moved, source parent dir pruned, dest cache present.
         assert not src_cache.exists()
         dst_disk = tmp_path / "renamed.md"
@@ -474,7 +507,7 @@ async def test_purge_removes_cache_file(tmp_path: Path) -> None:
         s = await mgr.acquire("notes/today")
         s.doc.get(TEXT_KEY, type=Text).__iadd__("x")
         cache_path = mgr._cache_path(s.disk_path)
-        mgr._flush(s)
+        await _persist(mgr, s)
         assert cache_path.exists()
         await mgr.release("notes/today")
         mgr.purge("notes/today")
@@ -495,8 +528,8 @@ async def test_prune_orphaned_cache_drops_files_with_no_md(tmp_path: Path) -> No
         gone = await mgr1.acquire("gone")
         kept.doc.get(TEXT_KEY, type=Text).__iadd__("k")
         gone.doc.get(TEXT_KEY, type=Text).__iadd__("g")
-        mgr1._flush(kept)
-        mgr1._flush(gone)
+        await _persist(mgr1, kept)
+        await _persist(mgr1, gone)
         kept_cache = mgr1._cache_path(kept.disk_path)
         gone_cache = mgr1._cache_path(gone.disk_path)
         assert kept_cache.exists() and gone_cache.exists()
@@ -524,8 +557,8 @@ async def test_two_docs_get_distinct_cache_files(tmp_path: Path) -> None:
         b = await mgr.acquire("bar")
         a.doc.get(TEXT_KEY, type=Text).__iadd__("A")
         b.doc.get(TEXT_KEY, type=Text).__iadd__("B")
-        mgr._flush(a)
-        mgr._flush(b)
+        await _persist(mgr, a)
+        await _persist(mgr, b)
         ca = mgr._cache_path(a.disk_path)
         cb = mgr._cache_path(b.disk_path)
         assert ca != cb

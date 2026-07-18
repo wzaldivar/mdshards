@@ -17,7 +17,7 @@ import { Autolink, Strikethrough, Subscript, Superscript, Table, TaskList } from
 import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ixora'
 import { yCollab } from 'y-codemirror.next'
 import { catppuccinHighlight } from '../lib/cm-highlight'
-import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
+import { closeDoc, fetchMovedTarget, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
 import { shortcodeTokenAt } from '../lib/emoji'
 import { EmojiShortcode } from '../lib/md-emoji'
 import { Highlight } from '../lib/md-highlight'
@@ -331,6 +331,30 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
             // Someone else moved this doc. Let the user choose whether to follow.
             onMovedRef.current(target)
           }
+        } else {
+          // Any other close — notably Safari/WebKit, which reports our app close
+          // codes (4001/4002) as a bare 1006 with no reason, so the branches
+          // above never fire there. Ask the server whether this doc was
+          // moved/conflicted; if so, surface the SAME "follow" banner an
+          // explicit-code browser would get. null in the common case (an
+          // ordinary network drop) — nothing changes then, the read-only
+          // countdown proceeds as before. Guard against a stale bundle and an
+          // echo of our own rename (pendingRenames).
+          void fetchMovedTarget(docId).then((target) => {
+            if (bundle !== b || target === null) return
+            if (target === '') {
+              // Deleted — forwarded to root. Mirror the DOC_DELETED branch:
+              // bail home so we don't reconnect to a doc that no longer exists.
+              teardown()
+              navigate('/')
+              return
+            }
+            if (pendingRenames.has(target)) {
+              pendingRenames.delete(target)
+              return
+            }
+            onMovedRef.current(target)
+          })
         }
       })
       let everConnected = false

@@ -730,6 +730,34 @@ def test_asset_move_same_src_dst_rejected(client) -> None:
     assert r.status_code == 400
 
 
+def test_moved_reports_recorded_forward(client) -> None:
+    """GET /api/moved returns the recorded move/conflict destination — the
+    Safari side channel for a doc whose WS close code was lost."""
+    c, _ = client
+    mgr = c.app.state.doc_manager
+    mgr._record_forward(mgr._key("foo"), "bar")
+    r = c.get("/_mdshards/api/moved/foo")
+    assert r.status_code == 200
+    assert r.json() == {"target": "bar"}
+
+
+def test_moved_null_when_no_forward(client) -> None:
+    c, _ = client
+    assert c.get("/_mdshards/api/moved/never-moved").json() == {"target": None}
+    # The bare route (root doc-id) is also valid and simply has no forward.
+    assert c.get("/_mdshards/api/moved").json() == {"target": None}
+
+
+def test_moved_delete_forward_is_empty_string_not_null(client) -> None:
+    """A delete forwards to root, encoded as "" — which must survive the wire as
+    "" (go home), NOT collapse to null (no forward). The client relies on the
+    distinction."""
+    c, _ = client
+    mgr = c.app.state.doc_manager
+    mgr._record_forward(mgr._key("gone"), "")
+    assert c.get("/_mdshards/api/moved/gone").json() == {"target": ""}
+
+
 def test_resolve_root_is_md(client) -> None:
     c, _ = client
     r = c.get("/_mdshards/api/resolve")

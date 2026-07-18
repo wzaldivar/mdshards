@@ -172,7 +172,7 @@ export function EditorView() {
   return (
     <div className={styles.view}>
       {content}
-      {connectionLost && (
+      {connectionLost && movedTo === null && (
         <output className={`${styles.banner} ${styles.offline}`}>
           <span className={styles.dino} aria-hidden="true">
             🦖
@@ -181,6 +181,16 @@ export function EditorView() {
             Lost connection to the server — this tab is read-only until it's
             back.
           </span>
+          {/* Recovery escape hatch. On Chromium/Firefox a move/delete/conflict
+              arrives as a typed close code and drives its own navigation; Safari
+              (WebKit) reports every such close as a generic 1006, so those cases
+              land here indistinguishably. Reloading re-resolves the current path
+              and reconnects — for a conflict the path now serves the FS version,
+              editable again — so the user is never stranded read-only with no
+              action. Harmless on a genuine outage (it just retries). */}
+          <button className={styles.primaryBtn} onClick={() => window.location.reload()}>
+            Reload
+          </button>
         </output>
       )}
       {movedTo !== null && (
