@@ -188,7 +188,7 @@ export function EditorView() {
               and reconnects — for a conflict the path now serves the FS version,
               editable again — so the user is never stranded read-only with no
               action. Harmless on a genuine outage (it just retries). */}
-          <button className={styles.primaryBtn} onClick={() => window.location.reload()}>
+          <button type="button" className={styles.primaryBtn} onClick={() => window.location.reload()}>
             Reload
           </button>
         </output>
@@ -198,10 +198,12 @@ export function EditorView() {
           <span>
             This file was moved to <code>{movedTo}</code>.
           </span>
-          <button className={styles.primaryBtn} onClick={followMove}>
+          <button type="button" className={styles.primaryBtn} onClick={followMove}>
             Follow
           </button>
-          <button onClick={dismissMove}>Dismiss</button>
+          <button type="button" onClick={dismissMove}>
+            Dismiss
+          </button>
         </div>
       )}
       <QuickSwitcher
