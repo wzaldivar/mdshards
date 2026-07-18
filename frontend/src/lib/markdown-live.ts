@@ -695,6 +695,79 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   return true
 }
 
+const AUTOLINK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** The href for an autolinked token, or null to leave it as plain text.
+ *  Mirrors the GFM autolink set the parser recognizes: `http(s)://` (and an
+ *  already-schemed `mailto:`/`xmpp:`) passes through, a bare email gains a
+ *  `mailto:` scheme, a bare `www.` host gains `https://`. */
+function autolinkHref(text: string): string | null {
+  if (/^(?:https?|mailto|xmpp):/i.test(text)) return text
+  if (/^www\./i.test(text)) return `https://${text}`
+  if (AUTOLINK_EMAIL_RE.test(text)) return `mailto:${text}`
+  return null
+}
+
+/** Autolinks the `Autolink` parser extension surfaces:
+ *   - a standalone `URL` node — a GFM *bare* autolink (`https://x`, `www.x`,
+ *     `a@b.c`) sitting inline in a paragraph; nothing to hide, so we just mark
+ *     the run clickable; or
+ *   - an angle autolink `<https://x>` / `<a@b.c>` (base-parser `Autolink` node),
+ *     whose `<` `>` LinkMarks we hide around the clickable inner URL.
+ *  Either way the visible URL/email becomes a `.cm-md-link` (opened by the
+ *  shared click handler — new tab for the web, mail client for `mailto:`).
+ *  Cursor-touched → left raw so it stays editable (the touch convention).
+ *
+ *  `URL` is the same node name used for the `(url)` of a link/image and the
+ *  target of a `[ref]: url` definition; those parents are fully handled (and
+ *  stop descent) elsewhere, so we skip a `URL` whose parent is one of them —
+ *  only a genuine standalone autolink reaches us. */
+function decorateAutolink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  const { doc, selFrom, selTo } = ctx
+  if (node.name === 'URL') {
+    const parent = node.node.parent?.name
+    if (
+      parent === 'Link' ||
+      parent === 'Image' ||
+      parent === 'LinkReference' ||
+      parent === 'Autolink'
+    ) {
+      return false
+    }
+    if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+    const href = autolinkHref(doc.sliceString(node.from, node.to))
+    if (!href) return false
+    ctx.ranges.push(
+      Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+        node.from,
+        node.to,
+      ),
+    )
+    return false
+  }
+  if (node.name === 'Autolink') {
+    if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
+    let urlChild: SyntaxNode | null = null
+    for (let c = node.node.firstChild; c; c = c.nextSibling) {
+      if (c.name === 'URL') urlChild = c.node
+    }
+    if (!urlChild) return false
+    const href = autolinkHref(doc.sliceString(urlChild.from, urlChild.to))
+    if (!href) return false
+    ctx.pushAtomic(Decoration.replace({}).range(node.from, urlChild.from)) // hide `<`
+    ctx.ranges.push(
+      Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+        urlChild.from,
+        urlChild.to,
+      ),
+    )
+    ctx.pushAtomic(Decoration.replace({}).range(urlChild.to, node.to)) // hide `>`
+    ctx.visited.add(node.from)
+    return true
+  }
+  return false
+}
+
 /** Wiki link `[[target]]` / `[[target|alias]]`: hide the brackets (and the
  *  separator + target when aliased) and mark the visible label clickable.
  *  Navigation happens via the mousedown handler. (`![[...]]` embeds never
@@ -869,6 +942,7 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       if (decorateLink(node, ctx)) return false
       if (decorateWikilink(node, ctx)) return false
       if (decorateImage(node, ctx)) return false
+      if (decorateAutolink(node, ctx)) return false
       decorateInlineClass(node, ctx)
       decorateEmoji(node, ctx)
       decorateMark(node, ctx)
@@ -908,7 +982,13 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // backendUrl so a sub-path mount's prefix is applied. Relative hrefs
       // resolve against the current note URL, which already carries it.
       const openHref = href.startsWith('/') && !href.startsWith('//') ? backendUrl(href) : href
-      window.open(openHref, '_blank', 'noopener,noreferrer')
+      if (/^(?:mailto|xmpp):/i.test(openHref)) {
+        // Hand a mail/chat scheme to the OS handler in place — `window.open`
+        // would leave a stray blank tab.
+        window.location.href = openHref
+      } else {
+        window.open(openHref, '_blank', 'noopener,noreferrer')
+      }
       return true
     },
   })
