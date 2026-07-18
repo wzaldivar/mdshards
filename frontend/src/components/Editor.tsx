@@ -311,6 +311,24 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
       // no cleanup will ever cancel, and it locks the banner on whatever page
       // the user has navigated to since — including asset pages, where no
       // Editor exists to ever clear it again.
+      // Act on a server-recorded forward fetched after an unexplained close
+      // (see below): '' → deleted, bail home (mirrors the DOC_DELETED branch);
+      // a doc-id → the same "follow" banner an explicit-code browser gets;
+      // null → ordinary drop, do nothing. Named (not inlined into the `.then`)
+      // to keep the connection-close handler's function nesting shallow.
+      const resolveForward = (target: string | null): void => {
+        if (bundle !== b || target === null) return
+        if (target === '') {
+          teardown()
+          navigate('/')
+          return
+        }
+        if (pendingRenames.has(target)) {
+          pendingRenames.delete(target)
+          return
+        }
+        onMovedRef.current(target)
+      }
       bundle.provider.on('connection-close', (event: CloseEvent | null) => {
         if (bundle !== b) return
         if (!event) return
@@ -335,26 +353,8 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
           // Any other close — notably Safari/WebKit, which reports our app close
           // codes (4001/4002) as a bare 1006 with no reason, so the branches
           // above never fire there. Ask the server whether this doc was
-          // moved/conflicted; if so, surface the SAME "follow" banner an
-          // explicit-code browser would get. null in the common case (an
-          // ordinary network drop) — nothing changes then, the read-only
-          // countdown proceeds as before. Guard against a stale bundle and an
-          // echo of our own rename (pendingRenames).
-          void fetchMovedTarget(docId).then((target) => {
-            if (bundle !== b || target === null) return
-            if (target === '') {
-              // Deleted — forwarded to root. Mirror the DOC_DELETED branch:
-              // bail home so we don't reconnect to a doc that no longer exists.
-              teardown()
-              navigate('/')
-              return
-            }
-            if (pendingRenames.has(target)) {
-              pendingRenames.delete(target)
-              return
-            }
-            onMovedRef.current(target)
-          })
+          // moved/conflicted and act on the forward via `resolveForward`.
+          void fetchMovedTarget(docId).then(resolveForward)
         }
       })
       let everConnected = false

@@ -369,13 +369,13 @@ describe('EditorView shortcuts on a missing URL', () => {
 
   it('Cmd-K still opens the quick switcher (so the user can navigate away)', async () => {
     renderAt('/no/such/page')
-    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    await screen.findByText(/not found/i)
     expect(await openWithShortcut({ key: 'k' }, /go to or create/i)).toBeDefined()
   })
 
   it('Cmd-U still triggers the file picker', async () => {
     renderAt('/no/such/page')
-    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    await screen.findByText(/not found/i)
     const hiddenInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
     const clickSpy = vi.spyOn(hiddenInput, 'click')
     pressShortcut({ key: 'u' })
@@ -384,14 +384,14 @@ describe('EditorView shortcuts on a missing URL', () => {
 
   it('Cmd-Backspace does NOT open delete (no real file to delete)', async () => {
     renderAt('/no/such/page')
-    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    await screen.findByText(/not found/i)
     pressShortcut({ key: 'Backspace', code: 'Backspace' })
     expect(screen.queryByPlaceholderText(/pick a file to delete/i)).toBeNull()
   })
 
   it('Cmd-Shift-K does NOT open rename (no real file to rename)', async () => {
     renderAt('/no/such/page')
-    await waitFor(() => expect(screen.getByText(/not found/i)).toBeDefined())
+    await screen.findByText(/not found/i)
     pressShortcut({ key: 'K', shift: true })
     expect(screen.queryByPlaceholderText(/rename to/i)).toBeNull()
   })
