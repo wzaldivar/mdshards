@@ -15,7 +15,7 @@ ruff format backend/ && ruff check backend/
 
 Test files map to the service modules: `test_vault.py` (path-traversal boundary), `test_security.py` (origin guard), `test_docs.py` (doc lifecycle, flush, conflict merge, blob cache), `test_watcher.py` (external-writer reconciliation + a real-`watchdog`-observer end-to-end test), `test_files.py`, `test_tree.py`, `test_routes.py`, `test_config.py`, `test_ws.py`. Shared fixtures in `conftest.py`.
 
-The conflict-merge tests are the sharp edge: `test_docs.py` covers flush/conflict-file/cache behavior, and `test_watcher.py` exercises `_three_way_merge` region classification and both reconciliation directions ([sync-and-crdt](architecture/sync-and-crdt.md#conflict-policy--one-unified-line-based-3-way-merge)).
+The conflict-merge tests are the sharp edge: `test_docs.py` covers flush/conflict-file/cache/forward behavior, and `test_watcher.py` exercises both reconciliation directions — disjoint 3-way merge and the loud conflict-move-and-kick ([sync-and-crdt](architecture/sync-and-crdt.md#conflict-policy--git-style-3-way-loud-on-a-true-conflict)).
 
 ## Frontend — vitest (`frontend/src/__tests__/`, `frontend/src/lib/__tests__/`)
 
@@ -40,7 +40,7 @@ docker compose -f e2e/docker-compose.e2e.yml run --rm tests
 docker compose -f e2e/docker-compose.e2e.yml down -v   # always, to drop vault volumes
 ```
 
-The shipping image runs as `app-root` / `app-wiki` (`BASE_URL=/wiki`) / `app-perms` (root-owned split mounts) services; the suite runs inside the official Playwright image as the `tests` service and drives **Chromium + Firefox + WebKit** by service name over the compose network. The vault is a shared named volume, so the external-writer role (`seed_vault_file` / `read_vault_file` / `wait_vault_file` in `conftest.py`) is a direct filesystem write. Suites: `test_root_mount.py`, `test_subpath_mount.py`, `test_switchers.py`, `test_markdown_rendering.py`, `test_embedded_images.py`, `test_asset_refresh.py`, `test_mount_permissions.py`.
+The shipping image runs as `app-root` / `app-wiki` (`BASE_URL=/wiki`) / `app-perms` (root-owned split mounts) / `app-dino` (short `GRACE_PERIOD_SECONDS` so the read-only "dino" countdown fires in seconds) services; the suite runs inside the official Playwright image as the `tests` service and drives **Chromium + Firefox + WebKit** by service name over the compose network. The vault is a shared named volume, so the external-writer role (`seed_vault_file` / `read_vault_file` / `wait_vault_file` in `conftest.py`) is a direct filesystem write. Suites: `test_root_mount.py`, `test_subpath_mount.py`, `test_switchers.py`, `test_navigation.py` (leaving note A must not strand the read-only dino on note B), `test_markdown_rendering.py`, `test_embedded_images.py`, `test_asset_refresh.py`, `test_mount_permissions.py`.
 
 Prefer adding an e2e journey over a unit-level fetch when a change touches deployment behavior (routing, prefixes, the shell, the origin guard).
 
