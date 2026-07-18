@@ -34,6 +34,20 @@ services:
     expose:
       - "8000"
 
+  # Short grace period so the client's read-only "dino" countdown fires in
+  # seconds — lets the navigation regression test (no stranded dino on note B
+  # after leaving note A) run fast and deterministically instead of waiting out
+  # the 30s default. Its own vault so its short grace can't perturb other apps.
+  app-dino:
+    image: mdshards-e2e:compose
+    pull_policy: never
+    environment:
+      GRACE_PERIOD_SECONDS: "2"
+    volumes:
+      - data-dino:/data
+    expose:
+      - "8000"
+
   # Seeds the split-mount permission scenario: make the nested vault/cache
   # mounts root-owned (a NAS export / docker-created dir) with a preexisting
   # note, BEFORE app-perms boots — so app-perms' entrypoint has to remap them.
@@ -74,10 +88,12 @@ services:
       WIKI_URL: http://app-wiki:8000
       WIKI_PREFIX: /wiki
       PERMS_URL: http://app-perms:8000
+      DINO_URL: http://app-dino:8000
       ROOT_VAULT: /vaults/root/vault
       WIKI_VAULT: /vaults/wiki/vault
       PERMS_VAULT: /vaults/perms-vault
       PERMS_CACHE: /vaults/perms-cache
+      DINO_VAULT: /vaults/dino/vault
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ..:/work:ro
@@ -85,10 +101,12 @@ services:
       - data-wiki:/vaults/wiki
       - perm-vault:/vaults/perms-vault
       - perm-cache:/vaults/perms-cache
+      - data-dino:/vaults/dino
     depends_on:
       - app-root
       - app-wiki
       - app-perms
+      - app-dino
     command:
       - bash
       - -c
@@ -103,3 +121,4 @@ volumes:
   data-wiki:
   perm-vault:
   perm-cache:
+  data-dino:

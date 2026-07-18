@@ -86,6 +86,32 @@ def test_delete_switcher_confirms_then_deletes_current_and_navigates_home(page: 
     poll_until(lambda: read_vault_file(ROOT_VAULT, "swd/victim.md") is None)
 
 
+def test_delete_other_file_leaves_current_view(page: Page, browser_name: str):
+    # Deleting an UNRELATED file (not the one open) must remove only it and leave
+    # the current view in place — the counterpart to the delete-current journey.
+    keep, victim = f"swd2/keep-{browser_name}", f"swd2/other-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{keep}.md", b"swd2-keeper-body\n")
+    seed_vault_file(ROOT_VAULT, f"{victim}.md", b"swd2-other-body\n")
+    page.goto(f"{ROOT_URL}/{keep}")
+    expect_editor_contains(page, "swd2-keeper-body")
+
+    page.keyboard.press("Control+Backspace")
+    switcher = page.get_by_placeholder(PICK_FILE)
+    # Typing the victim's path moves the highlight to its row (best match), past
+    # the preselected "delete this file" top entry.
+    switcher.fill(victim)
+    expect(page.get_by_role("button", name=victim)).to_be_visible()
+    switcher.press("Enter")  # arm confirm on the victim
+    expect(page.get_by_text(re.compile("confirm delete", re.I))).to_be_visible()
+    switcher.press("Enter")  # commit
+
+    # Stay put on `keep`; only the victim is gone.
+    expect(page).to_have_url(re.compile(rf"/{re.escape(keep)}$"))
+    poll_until(lambda: read_vault_file(ROOT_VAULT, f"{victim}.md") is None)
+    assert read_vault_file(ROOT_VAULT, f"{keep}.md") is not None
+    expect_editor_contains(page, "swd2-keeper-body")
+
+
 # ---- rename switcher (Ctrl-Shift-K) ----
 
 
@@ -110,9 +136,13 @@ def test_rename_switcher_moves_note_and_navigates(page: Page, browser_name: str)
 # ---- emoji picker (Ctrl-E) ----
 
 
-def test_emoji_picker_inserts_shortcode(page: Page):
-    seed_vault_file(ROOT_VAULT, "swe/note.md", b"emoji-seed \n")
-    page.goto(f"{ROOT_URL}/swe/note")
+def test_emoji_picker_inserts_shortcode(page: Page, browser_name: str):
+    # Engine-unique path (see the glyph test): the note lingers in server memory
+    # for the grace period, so a shared path lets one engine's run reconcile
+    # against the next engine's re-seed and the insert fails to land on disk.
+    note = f"swe/note-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{note}.md", b"emoji-seed \n")
+    page.goto(f"{ROOT_URL}/{note}")
     expect(page.locator(".cm-content")).to_be_visible()
     click_editor(page)  # a live buffer + cursor for the insert
 
@@ -123,7 +153,7 @@ def test_emoji_picker_inserts_shortcode(page: Page):
     page.get_by_placeholder(INSERT_EMOJI).press("Enter")
 
     # the FILE keeps the literal shortcode; the glyph is render-time only
-    wait_vault_file(ROOT_VAULT, "swe/note.md", ":smile:")
+    wait_vault_file(ROOT_VAULT, f"{note}.md", ":smile:")
 
 
 def test_emoji_picker_shift_enter_inserts_literal_glyph(page: Page, browser_name: str):
