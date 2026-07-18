@@ -695,7 +695,10 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
   return true
 }
 
-const AUTOLINK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Deterministic (no catastrophic backtracking): the domain is dot-separated
+// labels that each EXCLUDE the dot, so there's no ambiguous split over a `.`
+// that also matches the label class. Requires at least one dot in the domain.
+const AUTOLINK_EMAIL_RE = /^[^\s@]+@[^\s.@]+(?:\.[^\s.@]+)+$/
 
 /** The href for an autolinked token, or null to leave it as plain text.
  *  Mirrors the GFM autolink set the parser recognizes: `http(s)://` (and an
@@ -722,50 +725,49 @@ function autolinkHref(text: string): string | null {
  *  target of a `[ref]: url` definition; those parents are fully handled (and
  *  stop descent) elsewhere, so we skip a `URL` whose parent is one of them —
  *  only a genuine standalone autolink reaches us. */
-function decorateAutolink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
-  const { doc, selFrom, selTo } = ctx
-  if (node.name === 'URL') {
-    const parent = node.node.parent?.name
-    if (
-      parent === 'Link' ||
-      parent === 'Image' ||
-      parent === 'LinkReference' ||
-      parent === 'Autolink'
-    ) {
-      return false
-    }
-    if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
-    const href = autolinkHref(doc.sliceString(node.from, node.to))
-    if (!href) return false
-    ctx.ranges.push(
-      Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
-        node.from,
-        node.to,
-      ),
-    )
-    return false
+/** The `URL` node names shared with link/image/reference targets — those are
+ *  fully handled (and stop descent) by their own decorators, so a `URL` under
+ *  one of them is never a standalone autolink. */
+const NON_AUTOLINK_URL_PARENTS = new Set(['Link', 'Image', 'LinkReference', 'Autolink'])
+
+/** Standalone `URL` node — a GFM *bare* autolink (`https://x`, `www.x`,
+ *  `a@b.c`). Nothing to hide, so just mark the run clickable. Cursor-touched →
+ *  left raw (editable) per the touch convention. */
+function decorateBareUrl(node: SyntaxNodeRef, ctx: DecoContext): void {
+  if (node.name !== 'URL' || NON_AUTOLINK_URL_PARENTS.has(node.node.parent?.name ?? '')) return
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return
+  const href = autolinkHref(ctx.doc.sliceString(node.from, node.to))
+  if (!href) return
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+      node.from,
+      node.to,
+    ),
+  )
+}
+
+/** Angle autolink `<https://x>` / `<a@b.c>` (base-parser `Autolink` node): hide
+ *  the `<` `>` LinkMarks and mark the inner URL/email clickable. */
+function decorateAngleAutolink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Autolink') return false
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return false
+  let urlChild: SyntaxNode | null = null
+  for (let c = node.node.firstChild; c; c = c.nextSibling) {
+    if (c.name === 'URL') urlChild = c.node
   }
-  if (node.name === 'Autolink') {
-    if (rangesOverlap(node.from, node.to, selFrom, selTo)) return false
-    let urlChild: SyntaxNode | null = null
-    for (let c = node.node.firstChild; c; c = c.nextSibling) {
-      if (c.name === 'URL') urlChild = c.node
-    }
-    if (!urlChild) return false
-    const href = autolinkHref(doc.sliceString(urlChild.from, urlChild.to))
-    if (!href) return false
-    ctx.pushAtomic(Decoration.replace({}).range(node.from, urlChild.from)) // hide `<`
-    ctx.ranges.push(
-      Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
-        urlChild.from,
-        urlChild.to,
-      ),
-    )
-    ctx.pushAtomic(Decoration.replace({}).range(urlChild.to, node.to)) // hide `>`
-    ctx.visited.add(node.from)
-    return true
-  }
-  return false
+  if (!urlChild) return false
+  const href = autolinkHref(ctx.doc.sliceString(urlChild.from, urlChild.to))
+  if (!href) return false
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, urlChild.from)) // hide `<`
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+      urlChild.from,
+      urlChild.to,
+    ),
+  )
+  ctx.pushAtomic(Decoration.replace({}).range(urlChild.to, node.to)) // hide `>`
+  ctx.visited.add(node.from)
+  return true
 }
 
 /** Wiki link `[[target]]` / `[[target|alias]]`: hide the brackets (and the
@@ -942,7 +944,8 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       if (decorateLink(node, ctx)) return false
       if (decorateWikilink(node, ctx)) return false
       if (decorateImage(node, ctx)) return false
-      if (decorateAutolink(node, ctx)) return false
+      decorateBareUrl(node, ctx)
+      if (decorateAngleAutolink(node, ctx)) return false
       decorateInlineClass(node, ctx)
       decorateEmoji(node, ctx)
       decorateMark(node, ctx)
