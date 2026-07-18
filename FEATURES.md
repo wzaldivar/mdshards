@@ -26,7 +26,7 @@ Reference: [markdownguide.org/basic-syntax](https://www.markdownguide.org/basic-
 - Escape sequences (`\X` for any punctuation).
 - Inline links `[text](url)` — clickable; external URLs open in a new tab, in-vault links navigate via the SPA router.
 - Link titles `[text](url "hover")` — surfaced as the `title=` attribute (browser tooltip).
-- Autolinks for URLs and emails (`<https://...>`, `<a@b.c>`).
+- Autolinks for URLs and emails (`<https://...>`, `<a@b.c>`) — the `< >` are hidden and the URL/email renders as a clickable inline link.
 - Bold/italic/code wrapping a link.
 - Reference-style links: full form `[text][label]` + `[label]: url "title"`, and the shortcut form `[label]` + `[label]: url`. Labels match case-insensitively, with whitespace trimmed.
 - Images `![alt](src)` — vault-relative paths resolve against the containing note's directory; absolute and external URLs pass through unchanged. Empty alt (`![](src)`) is fully supported, standalone or inline mid-sentence.
@@ -52,7 +52,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Syntax highlighting in fenced code blocks — `@codemirror/language-data` lazily loads per-language packs (~50 languages: JS, TS, Python, Rust, Go, JSON, HTML, CSS, SQL, YAML, Bash, Java, C/C++, PHP, Ruby, and more) and the `catppuccinHighlight` style colors the tokens.
 - Strikethrough (`~~text~~`).
 - Task lists (`- [x]` / `- [ ]`).
-- Automatic URL linking (autolink extension).
+- Automatic URL linking (autolink extension) — bare `http(s)://…` URLs, `www.…` hosts, and bare emails render as clickable inline links (email → `mailto:`, `www.` → `https://`); the raw text stays untouched on disk and is revealed for editing when the cursor is on it.
 - Disabling auto-link by wrapping in backticks (`` `https://x.com` ``).
 - Highlight (`==text==`) — custom inline extension (`lib/md-highlight.ts`, mirrors lezer's Strikethrough rules: exactly two `=`, emphasis-style flanking); renders with a translucent yellow background, marks hidden cursor-aware.
 - Subscript (`H~2~O`) — `@lezer/markdown`'s `Subscript` extension; rendered via `vertical-align: sub`, marks hidden cursor-aware.
