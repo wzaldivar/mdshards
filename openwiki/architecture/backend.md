@@ -32,7 +32,7 @@ The one cost: a vault path whose **first segment** is `_mdshards` is rejected lo
 
 ## Routers (`app/routers/`) — thin adapters
 
-- `resolve.py` — backs `GET /api/resolve/{path}`; the md-wins / asset-fallback disambiguator.
+- `resolve.py` — backs `GET /api/resolve/{path}` (the md-wins / asset-fallback disambiguator) and `GET /api/moved/{path}` (the short-lived move/conflict/delete forward a dropped client queries when its WS close code was lost — the Safari side channel; see [sync-and-crdt](sync-and-crdt.md#conflict-policy--git-style-3-way-loud-on-a-true-conflict)).
 - `pages.py` — catch-all returning the SPA shell or a 404 based on `Sec-Fetch-Dest` (document → shell; sub-resource → 404). Also `_prefix_shell` for `BASE_URL` sub-path rewriting.
 - `files.py` — REST for markdown notes (upload-as-md, metadata, rename, delete); **mutations route through the CRDT layer**.
 - `assets.py` — REST for non-`.md` bytes (upload/serve/delete; `GET /api/embed` resolves wikilink image targets). **Bypasses CRDT entirely.**

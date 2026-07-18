@@ -16,34 +16,38 @@ A `.md` is loaded into a `Doc` when the **first** client connects and stays resi
 Each client gets a task driving the y-protocol handshake (`SYNC_STEP1` / `SYNC_STEP2` / `SYNC_UPDATE`) plus awareness relay, using `pycrdt`'s `create_sync_message` / `handle_sync_message`. Two subtleties encoded here:
 
 - **Server→client keepalive** (`_KEEPALIVE_SECONDS = 10`): y-websocket hard-closes a socket that received no server message for 30s (`messageReconnectTimeout`); an idle doc is exactly that silence. Client timers can't prevent it (Safari throttles unfocused tabs), but *incoming* messages reach throttled tabs, so the server pushes an empty-awareness no-op frame (`_KEEPALIVE_MSG`) every 10s.
-- **Kick signals** (`KickSignal`, close codes `DOC_DELETED_CODE=4001` / `DOC_MOVED_CODE=4002`): how a delete/rename forcibly closes attached sockets. (Note: Safari/WebKit reports `1006` instead of the app code — current-tab outcomes are also driven from the initiating REST request, not only the WS close.)
+- **Kick signals** (`KickSignal`, close codes `DOC_DELETED_CODE=4001` / `DOC_MOVED_CODE=4002`): how a delete/rename/conflict forcibly closes attached sockets. (Note: Safari/WebKit reports `1006` instead of the app code — current-tab outcomes are also driven from the initiating REST request, and from the `GET /api/moved` forward for cases the tab didn't initiate; see Conflict policy.)
 
-## Persistence — the flush loop
+## Persistence — the flush loop and the two reconcile directions
 
-Changes are persisted by a per-doc debounced background task (`_flush_loop`), coalescing a burst of edits into one write after `FLUSH_QUIET_SECONDS = 0.5`. `_flush` is **the single reconcile-and-write step** and is synchronous by design (pycrdt Docs are only touched on the loop thread). A failing flush is logged loudly and the loop stays alive to retry — never silently dropping writes.
+Changes are persisted by a per-doc debounced background task (`_flush_loop`), coalescing a burst of edits into one write after `FLUSH_QUIET_SECONDS = 0.5`. There are **two reconcile directions, coordinated by a per-doc `io_lock` so they are never in flight together:**
+
+- **OUT** (`_flush_out`, memory → disk): the flush loop takes `io_lock` **blocking**. It first *drains* any pending external change with pseudo-INs (the IN step below, run without re-locking, repeated until the disk stops changing), then writes the "golden snapshot" to disk.
+- **IN** (`reconcile_external` → `_reconcile_once`, disk → memory): the watcher takes `io_lock` as a **try-lock** — if held it returns immediately (OUT's drain absorbs the change) rather than queueing.
+
+Both are synchronous once they hold the lock (pycrdt Docs are only touched on the loop thread). A failing flush is logged loudly and the loop stays alive to retry — never silently dropping writes.
+
+**`golden_hash`** (sha256 of `last_disk_content`) is the O(1) change guard: on a watcher event, IN hashes disk and compares — equal means our own write or a no-op touch, skipped without diffing (the free self-write filter, and what breaks the write → event → write loop); on a flush, OUT compares `sha(memory)` and **skips the write syscall entirely** when memory already equals disk (zero write-amplification against Syncthing).
 
 Each flush also writes the **binary Yjs cache** at `$CACHE_DIR/<vault-hash>/<rel-path>.yjs` (default `~/.cache/mdshards/`, outside the vault so the vault stays strictly plain `.md`). The cache preserves CRDT item IDs across grace eviction and restart so reconnecting clients don't merge the same characters in twice. It's an optimization: a cache write failure degrades to a warning and never undoes the vault write.
 
-## Conflict policy — one unified line-based 3-way merge
+## Conflict policy — git-style 3-way, loud on a true conflict
 
-**Both** reconciliation directions funnel through `_flush`, so a single policy governs them instead of two paths racing to disagree:
+IN reconciles via `_three_way_merge(base=last_disk_content, ours=live doc, theirs=disk)` (line-based, `SequenceMatcher(autojunk=False)` over lines):
 
-- the debounced flush loop (memory → disk), and
-- the watcher's `reconcile_external` (disk → memory), which adds only trigger plumbing + a self-write filter and then calls `_flush`.
-
-On divergence (`disk_now != last_disk_content`), `_flush` runs `_three_way_merge(base=last_disk_content, ours=live doc, theirs=disk)` (`docs.py`):
-
-- a region **only one side** changed → take that side (non-overlapping edits from both sides **combine losslessly**);
+- a region **only one side** changed → take that side (disjoint external + local edits **combine losslessly**);
 - both changed it **identically** → take once, no conflict;
-- both changed it **differently** → **true conflict**: keep OURS in the merged text (the live doc wins, in memory and on disk) and write a Syncthing-style **`foo.sync-conflict-<timestamp>.md`** file capturing THEIRS.
+- both changed it **differently** → a git-style **conflict** (the disk hunk can't apply over the live edit).
 
-The merged text is written back and adopted as the new `last_disk_content` (so a divergence never conflicts twice), and folded-in disk hunks replay as `Y.Text` splices — the **"ghost editor"** — so they fan out to connected clients via the normal `on_event` path. This is line-based (`_unchanged_line_map` uses `SequenceMatcher(autojunk=False)` over lines) and **has no similarity/"trustworthiness" ratio heuristic** — a big external rewrite with no competing local edit is just an update, not a fake conflict. (This is the current design as of Release 1.5.0, replacing an earlier 2-way ghost-merge that could silently drop a concurrent client edit; see the conflict-policy bullet in [`CLAUDE.md`](../CLAUDE.md).)
+A clean merge folds the external hunks into the live doc as `Y.Text` splices replayed **EOF→0** (reversed opcodes — the **"ghost editor"**, `_apply_ghost_merge`), fanning out to clients via `on_event`; the IN **never writes disk** (`last_disk_content` just tracks what disk holds now). A conflict is handled **loudly, not silently** (`_to_conflict`): write the live (web) doc to a distinctly-named **`foo.mdshards-conflict-<timestamp>.md`** file (distinct from Syncthing's own `*.sync-conflict-*`), drop the doc, and **kick every attached client to that file** (`DOC_MOVED_CODE`) — the main file **keeps the FS version** (we can't merge it without noise). Nobody's data is lost: theirs on the main file, ours in the conflict file. (User decision 2026-07-18, replacing the Release 1.5.0 unified-`_flush` 3-way that produced timing-dependent inconsistent merges + echo-write amplification against Syncthing; see the conflict-policy bullet in [`CLAUDE.md`](../CLAUDE.md).)
 
-**Cold-open (`_load`) is deliberately NOT unified into this:** a within-grace cache restore keeps the cached doc and conflict-files any disk divergence rather than 3-way merging.
+**Move/delete forward for lost close codes.** Every `kick` records a short-lived forward — move/conflict → the new doc-id, delete → `""` (root) — served by **`GET /api/moved/{doc_id}`** (`resolve.py`, `DocumentManager.forward_target`). Safari/WebKit reports our 4001/4002 close codes as a bare `1006` with no reason, so a WebKit tab queries this on an unexplained drop to still surface the explicit "follow" link (or navigate home) instead of a dead read-only banner.
+
+**Cold-open (`_load`) keeps its own policy:** a within-grace cache restore keeps the cached doc and conflict-files any disk divergence rather than 3-way merging.
 
 ## External writers (`watcher.py`)
 
-The use case is `mdshards vault <> Syncthing <> Obsidian vault` — another tool may overwrite a `.md` while a browser edits it. A `watchdog` observer over the vault root reconciles **only actively-loaded docs** (deliberately not idle notes, to avoid blob-cache churn; idle notes reconcile lazily on next open via `_load`). Observer events fire on watchdog's own thread and are dispatched onto the asyncio loop via `run_coroutine_threadsafe` (pycrdt Docs mutate only on the loop thread). Self-writes are filtered by comparing disk against `last_disk_content` — which also breaks the write → watcher-event → write loop.
+The use case is `mdshards vault <> Syncthing <> Obsidian vault` — another tool may overwrite a `.md` while a browser edits it. A `watchdog` observer over the vault root reconciles **only actively-loaded docs** (deliberately not idle notes, to avoid blob-cache churn; idle notes reconcile lazily on next open via `_load`). Observer events fire on watchdog's own thread and are dispatched onto the asyncio loop via `run_coroutine_threadsafe` (pycrdt Docs mutate only on the loop thread). Self-writes are filtered by the `golden_hash` of `last_disk_content` — which also breaks the write → watcher-event → write loop.
 
 ## Disconnection semantics (a hard stop, not offline mode)
 
@@ -55,7 +59,7 @@ This is a network-convenience editor, **not** offline-first (see [domain/concept
 
 ## Where to start / what to watch
 
-- The merge logic is `_three_way_merge` + `_merge_region` + `_apply_ghost_merge` in `docs.py`; tests are `backend/tests/test_docs.py` (flush/conflict/cache) and `test_watcher.py` (reconciliation + a real-observer end-to-end test).
+- The two directions are `_flush_out` (OUT) and `reconcile_external`/`_reconcile_once` (IN), gated by `io_lock`; the merge logic is `_three_way_merge` + `_merge_region` + `_apply_ghost_merge`, and a true conflict goes through `_to_conflict` (+ `forward_target` for `GET /api/moved`). Tests: `backend/tests/test_docs.py` (flush/conflict/cache/forward) and `test_watcher.py` (both reconciliation directions, conflict-move, and a real-observer end-to-end test).
 - Anything touching persistence must keep `last_disk_content` accurate — it's both the merge base and the self-write filter.
 - Keep the on-disk format strictly portable markdown; a round-trip through Obsidian/Syncthing must not corrupt anything.
 - Client/server wire-format changes must move together (`crdt.ts` ⇄ `ws.py`).
