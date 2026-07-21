@@ -57,6 +57,26 @@ describe('live-preview click handling', () => {
     expect(onNavigate).toHaveBeenCalledWith('notes/target')
   })
 
+  it('clicking a bare #section wikilink reports the anchor target verbatim', () => {
+    const onNavigate = vi.fn()
+    mountWith('intro\n\njump to [[#Section Foo]]\n', onNavigate)
+    const wiki = document.querySelector('.cm-md-wikilink')!
+    expect(wiki.textContent).toBe('#Section Foo')
+    mousedown(wiki)
+    // The full anchor (page + #section) is handed to onNavigate; the Editor
+    // splits it into page/section and decides scroll-vs-navigate.
+    expect(onNavigate).toHaveBeenCalledWith('#Section Foo')
+  })
+
+  it('clicking a cross-note note#section wikilink reports the full target', () => {
+    const onNavigate = vi.fn()
+    mountWith('intro\n\nsee [[notes/other#Deep|there]]\n', onNavigate)
+    const wiki = document.querySelector('.cm-md-wikilink')!
+    expect(wiki.textContent).toBe('there')
+    mousedown(wiki)
+    expect(onNavigate).toHaveBeenCalledWith('notes/other#Deep')
+  })
+
   it('clicking an external link opens a new tab with noopener', () => {
     const open = vi.fn()
     vi.stubGlobal('open', open)

@@ -64,7 +64,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Table alignment (`:---`, `:---:`, `---:`) — separator colons aren't parsed; cells default to left-aligned.
 
 - Footnotes (`[^1]` and `[^1]: text`) — no parser extension shipped with `@lezer/markdown`; would need a custom inline parser + a reference-style resolution pass.
-- Heading IDs (`### Title {#custom-id}`) — would need both parsing and integration with the URL/anchor system.
+- Heading IDs (`### Title {#custom-id}`) — would need both parsing and integration with the URL/anchor system. (Section *anchors* — `[[#Heading]]` / `[[note#Heading]]` — are supported; see the project-specific syntax below. What's missing is authoring an explicit custom id on a heading.)
 - Definition lists (`Term\n: Def`) — no parser extension shipped; non-trivial render.
 
 **Out of scope (will not be added)**
@@ -76,6 +76,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Wiki links — `[[target]]` and `[[target|alias]]`. Clickable; navigates intra-app via the SPA router (no full reload). Dashed-underline visual to distinguish from regular `[text](url)` links. The target is the doc-id form (no `.md` suffix, no leading `/`); resolution follows the backend's md-wins / asset-fallback rule.
+- Wiki section links — `[[#Heading]]` jumps to a heading in the **current** note; `[[note#Heading]]` (and the aliased `[[note#Heading|label]]`) opens another note and scrolls to its heading. Matches all six ATX levels plus Setext headings; the match is case- and whitespace-insensitive on the heading text (the `#`/underline markup is ignored). The jump places the cursor on the target heading and scrolls it into view — it does **not** change the URL (no `#fragment`), so it isn't bookmarkable. Cross-note jumps wait for the destination note's CRDT content to load before scrolling (`lib/pending-anchor.ts`, `lib/heading-nav.ts`). Only heading anchors are resolved — block references (`[[note#^blockid]]`) are out of scope.
 - Wiki-link image embeds — `![[pic.png]]` and `![[pic.png|alt]]` (Obsidian's default embed syntax). The browser makes **one request** (`GET /api/embed?note=…&target=…`) and the server resolves the target at request time: **adjacent to the note first** (a folder next to the note overshadows a same-named one at the vault root), vault root second — two `stat()` calls, always fresh, no wasted 404 round-trip. `..` segments are allowed while the result stays inside the vault. No shortest-unique-path search beyond that: an Obsidian vault set to "New link format: Absolute path in vault" or "Relative to file" round-trips; the default "shortest path" resolves only when the bare name lives next to the note or at the root. Non-image targets (`![[note]]` transclusion) stay raw — out of scope.
 
 ## Editor
