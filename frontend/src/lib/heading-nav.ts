@@ -10,7 +10,7 @@
  * `#`/underline markup never participates.
  */
 
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
@@ -37,12 +37,20 @@ function headingText(state: EditorState, from: number, to: number, name: string)
 }
 
 /** Document offset of the first heading whose text matches `section`, or null
- *  if none does. Empty/blank sections never match. */
+ *  if none does. Empty/blank sections never match.
+ *
+ *  Forces the parse to the end of the document first: the language parse is
+ *  time-budgeted, so a plain `syntaxTree(state)` may be truncated before a
+ *  heading far down a long note (or, in a bare test state, before the later
+ *  headings) — which would make the jump silently miss. `ensureSyntaxTree`
+ *  parses through `doc.length`; if it can't within the budget we fall back to
+ *  the partial tree rather than not searching at all. */
 export function findHeadingPos(state: EditorState, section: string): number | null {
   const wanted = normalize(section)
   if (wanted === '') return null
   let found: number | null = null
-  syntaxTree(state).iterate({
+  const tree = ensureSyntaxTree(state, state.doc.length, 5_000) ?? syntaxTree(state)
+  tree.iterate({
     enter: (node) => {
       if (found !== null) return false
       const isHeading = ATX_NAME_RE.test(node.name) || SETEXT_NAME_RE.test(node.name)
