@@ -203,6 +203,36 @@ def test_tables_render_as_grid_except_cursor_row(page: Page):
     assert "**" not in _visible_text(page)
 
 
+def test_table_cell_renders_sub_sup_and_highlight(page: Page):
+    """Extended inline syntax (`x^2^`, `H~2~O`, `==hi==`) must render inside a
+    table cell with the same look as prose — the widget cell renderer used to
+    drop these to raw text, leaking their `^`/`~`/`==` delimiters."""
+    _open(
+        page,
+        "table-extended",
+        "| Formula | Note |\n| --- | --- |\n| x^2^ and H~2~O | ==important== |\n",
+    )
+    expect(page.locator(".cm-md-table-row").first).to_be_visible()
+    sup = page.locator(".cm-md-table-cell .cm-md-sup")
+    sub = page.locator(".cm-md-table-cell .cm-md-sub")
+    mark = page.locator(".cm-md-table-cell .cm-md-mark")
+    expect(sup).to_have_text("2")
+    expect(sub).to_have_text("2")
+    expect(mark).to_have_text("important")
+    # The CSS actually applies in the browser: super/sub alignment + a
+    # highlight background (not the default transparent).
+    assert sup.evaluate("el => getComputedStyle(el).verticalAlign") == "super"
+    assert sub.evaluate("el => getComputedStyle(el).verticalAlign") == "sub"
+    assert mark.evaluate("el => getComputedStyle(el).backgroundColor") not in (
+        "rgba(0, 0, 0, 0)",
+        "transparent",
+    )
+    # Delimiters gone from the rendered cell.
+    text = _visible_text(page)
+    for delim in ("^", "~", "=="):
+        assert delim not in text, f"{delim!r} delimiter still visible in cell"
+
+
 def test_table_rows_stay_contiguous_through_row_navigation(page: Page):
     """Guard: moving the cursor up/down through a tall table's rows must keep
     the rendered rows abutting (no gaps, no leftover visible widgetBuffer).

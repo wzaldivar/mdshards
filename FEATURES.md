@@ -47,7 +47,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Tables — rendered as a CSS-grid widget per row when the cursor is elsewhere; the row containing the cursor falls back to raw `| col | col |` markdown for editing. Header row is `surface0` background + lavender bold + slightly larger font; separator row collapses to a thin accent stripe but stays arrow-navigable.
-- Table cell formatting — bold/italic/inline-code/strikethrough/escape inside cells, driven by the lezer-markdown parser (no regex), so the GFM rules for intra-word underscores etc. are honored.
+- Table cell formatting — bold/italic/inline-code/strikethrough/escape plus the extended-syntax wrappers superscript (`x^2^`), subscript (`H~2~O`), and highlight (`==text==`) inside cells, driven by the lezer-markdown parser (no regex), so the GFM rules for intra-word underscores etc. are honored. In-cell inline runs reuse the same `cm-md-*` classes as prose, so a cell looks identical to the same markup outside a table.
 - Fenced code blocks (` ``` ` and ` ~~~ `).
 - Syntax highlighting in fenced code blocks — `@codemirror/language-data` lazily loads per-language packs (~50 languages: JS, TS, Python, Rust, Go, JSON, HTML, CSS, SQL, YAML, Bash, Java, C/C++, PHP, Ruby, and more) and the `catppuccinHighlight` style colors the tokens.
 - Strikethrough (`~~text~~`).

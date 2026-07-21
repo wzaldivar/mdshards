@@ -260,6 +260,9 @@ type CellRun =
   | { k: 'bold'; runs: CellRun[] }
   | { k: 'italic'; runs: CellRun[] }
   | { k: 'strike'; runs: CellRun[] }
+  | { k: 'sup'; runs: CellRun[] }
+  | { k: 'sub'; runs: CellRun[] }
+  | { k: 'mark'; runs: CellRun[] }
 
 /** Walk `parent`'s children within `[from, to)` and emit a flat list of
  *  CellRuns. Marker nodes (`EmphasisMark`, `CodeMark`, `StrikethroughMark`)
@@ -267,8 +270,17 @@ type CellRun =
  *  nodes recurse so nested emphasis works. Implicit text (the gaps between
  *  explicit nodes) is emitted as plain `text` runs. */
 // Marker nodes contribute no run — they're the `**`/`*`/`` ` ``/`~~`/`[` `]`
-// delimiters, whose source chars are skipped.
-const INLINE_MARKER_NAMES = new Set(['EmphasisMark', 'CodeMark', 'StrikethroughMark', 'LinkMark'])
+// delimiters plus the extended-syntax `^`/`~`/`==` delimiters, whose source
+// chars are skipped so only the wrapped content renders.
+const INLINE_MARKER_NAMES = new Set([
+  'EmphasisMark',
+  'CodeMark',
+  'StrikethroughMark',
+  'LinkMark',
+  'SuperscriptMark',
+  'SubscriptMark',
+  'HighlightMark',
+])
 
 /** Text of an InlineCode node between its boundary CodeMark delimiters. */
 function inlineCodeText(node: SyntaxNode, doc: Text): string {
@@ -289,6 +301,9 @@ function childRun(child: SyntaxNode, doc: Text): CellRun {
   if (child.name === 'StrongEmphasis') return { k: 'bold', runs: inner() }
   if (child.name === 'Emphasis') return { k: 'italic', runs: inner() }
   if (child.name === 'Strikethrough') return { k: 'strike', runs: inner() }
+  if (child.name === 'Superscript') return { k: 'sup', runs: inner() }
+  if (child.name === 'Subscript') return { k: 'sub', runs: inner() }
+  if (child.name === 'Highlight') return { k: 'mark', runs: inner() }
   if (child.name === 'InlineCode') return { k: 'code', text: inlineCodeText(child, doc) }
   // `\X` — drop the backslash, keep the escaped character.
   if (child.name === 'Escape') return { k: 'text', text: doc.sliceString(child.from + 1, child.to) }
@@ -342,6 +357,18 @@ function runsToDom(runs: readonly CellRun[]): DocumentFragment {
         const del = document.createElement('del')
         del.appendChild(runsToDom(run.runs))
         frag.appendChild(del)
+        break
+      }
+      // Extended-syntax wrappers reuse the same CSS classes as the non-table
+      // live-preview path (INLINE_CLASS_NODES) so `x^2^`, `H~2~O`, and
+      // `==highlight==` look identical inside and outside a table cell.
+      case 'sup':
+      case 'sub':
+      case 'mark': {
+        const span = document.createElement('span')
+        span.className = { sup: 'cm-md-sup', sub: 'cm-md-sub', mark: 'cm-md-mark' }[run.k]
+        span.appendChild(runsToDom(run.runs))
+        frag.appendChild(span)
         break
       }
     }
@@ -542,10 +569,11 @@ function tableRowCellRuns(child: SyntaxNode, doc: Text): CellRun[][] | null {
  *      TableDelimiter    (the `|---|---|` separator row, top-level)
  *      TableRow*         (each data row, same shape as TableHeader)
  *
- *  Returns true always: cell content is rendered by the widget straight from
- *  the source slice, so there's nothing for inline handlers to do inside — we
- *  stop iterate from descending. (Inline formatting inside rendered cells is
- *  therefore plain text — an explicit trade-off until the widget parses it.) */
+ *  Returns true always: the widget renders each cell's inline content itself
+ *  from a pre-parsed `CellRun[]` (see `parseInlineRuns` / `runsToDom` — bold,
+ *  italic, strike, code, super/subscript, highlight, escape), so there's
+ *  nothing for the inline handlers to do inside — we stop iterate from
+ *  descending. */
 /** Decorate one direct child of a Table node: a header/data row becomes a
  *  populated `TableRowWidget`, the top-level `|---|---|` becomes a separator
  *  widget. Anything else (or a row under the cursor) is left raw. */
