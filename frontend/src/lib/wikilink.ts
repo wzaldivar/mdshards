@@ -87,3 +87,25 @@ export function parseWikilink(raw: string): WikilinkParts | null {
   if (!raw.startsWith('[[') || !raw.endsWith(']]')) return null
   return parseWikilinkBody(raw.slice(2, -2))
 }
+
+export interface WikilinkTarget {
+  /** The note's doc-id. Empty string for a bare `#section` link that targets a
+   *  heading in the current note. */
+  page: string
+  /** The heading text after `#` (Obsidian-style section anchor), or null when
+   *  the target carries no `#section`. */
+  section: string | null
+}
+
+/** Split a wikilink target into its note doc-id and an optional `#section`
+ *  heading anchor — the `page` half of what `parseWikilinkBody` already peeled
+ *  off the `|alias`. Splits on the FIRST `#`:
+ *    `notes/x#Foo` → { page: 'notes/x', section: 'Foo' }
+ *    `#Foo`        → { page: '',        section: 'Foo' }   (current note)
+ *    `notes/x`     → { page: 'notes/x', section: null }
+ *  The section text is kept verbatim (heading matching normalizes it). */
+export function parseWikilinkTarget(target: string): WikilinkTarget {
+  const hash = target.indexOf('#')
+  if (hash === -1) return { page: target, section: null }
+  return { page: target.slice(0, hash), section: target.slice(hash + 1) }
+}

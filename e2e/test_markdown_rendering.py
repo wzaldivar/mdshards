@@ -19,6 +19,7 @@ import re
 from playwright.sync_api import Page, expect
 
 from conftest import (
+    CRDT_LOAD_TIMEOUT,
     ROOT_URL,
     ROOT_VAULT,
     click_editor,
@@ -299,6 +300,88 @@ def test_wikilinks_render_and_navigate(page: Page):
     page.locator(".cm-md-wikilink").first.click()
     expect(page).to_have_url(re.compile(r"/features/target$"))
     expect_editor_contains(page, "wikilink landing pad")
+
+
+# Section names are unique per level so each anchor + revealed heading locates
+# exactly one element; the level number is baked into the name for readability.
+_SECTION_LEVELS = [
+    (1, "Alpha One"),
+    (2, "Bravo Two"),
+    (3, "Charlie Three"),
+    (4, "Delta Four"),
+    (5, "Echo Five"),
+    (6, "Foxtrot Six"),
+]
+
+
+def test_wiki_section_links_scroll_within_note(page: Page):
+    """`[[#Heading]]` jumps to that heading in the CURRENT note, for all six
+    ATX levels. Tall filler forces a real scroll; clicking the anchor places
+    the cursor on the target heading (revealing its raw `#` markers, so the
+    level is observable) and scrolls it into the viewport."""
+    filler = "\n\n".join(f"filler line {i}" for i in range(40))
+    anchors = "\n\n".join(f"[[#{name}]]" for _, name in _SECTION_LEVELS)
+    sections = "\n\n".join(
+        f"{'#' * lvl} {name}\n\n{filler}" for lvl, name in _SECTION_LEVELS
+    )
+    _open(page, "sections", f"{anchors}\n\n{filler}\n\n{sections}\n")
+    # Gate on the anchors rendering — proves the note synced + parsed. All six
+    # anchors sit at the top of the doc, so they're rendered at the initial
+    # scroll position.
+    expect(page.locator(".cm-md-wikilink")).to_have_count(
+        len(_SECTION_LEVELS), timeout=CRDT_LOAD_TIMEOUT
+    )
+
+    scroller = page.locator(".cm-scroller")
+    for lvl, name in _SECTION_LEVELS:
+        # CodeMirror culls off-screen lines, so a prior jump to a bottom heading
+        # removes the top anchors from the DOM. Reset to the top before each
+        # click so the anchor is present and clickable.
+        scroller.evaluate("el => { el.scrollTop = 0 }")
+        # Anchor label is "#Name" (no space); the revealed heading is
+        # "#...# Name" (space after the hashes) — distinct substrings, so the
+        # class-scoped anchor locator and the heading text locator never cross.
+        page.locator(".cm-md-wikilink", has_text=f"#{name}").click()
+        revealed = page.get_by_text(f"{'#' * lvl} {name}").first
+        expect(revealed).to_be_in_viewport(timeout=CRDT_LOAD_TIMEOUT)
+
+
+def test_wiki_section_link_setext_within_note(page: Page):
+    """Section jump also resolves a Setext heading (`Heading\\n===`)."""
+    filler = "\n\n".join(f"pad {i}" for i in range(40))
+    _open(page, "sections-setext", f"[[#Setext Target]]\n\n{filler}\n\nSetext Target\n===\n")
+    expect(page.locator(".cm-md-wikilink")).to_have_count(1, timeout=CRDT_LOAD_TIMEOUT)
+    page.locator(".cm-md-wikilink").first.click()
+    # Target the styled Setext heading LINE (class cm-md-h1), not bare text —
+    # the anchor "#Setext Target" contains "Setext Target" as a substring.
+    expect(page.locator(".cm-md-h1", has_text="Setext Target")).to_be_in_viewport(
+        timeout=CRDT_LOAD_TIMEOUT
+    )
+
+
+def test_wiki_section_link_across_notes(page: Page):
+    """`[[note#Heading]]` navigates to another note AND scrolls to the heading
+    once that note's content loads over CRDT. The aliased form shows its alias
+    but still carries the anchor."""
+    filler = "\n\n".join(f"far below {i}" for i in range(40))
+    seed_vault_file(
+        ROOT_VAULT,
+        "features/deep.md",
+        (f"deep intro line\n\n{filler}\n\n## Deep Section\n\n{filler}\n").encode(),
+    )
+    _open(page, "sections-x", "cross ref [[features/deep#Deep Section|go deep]]\n")
+    link = page.locator(".cm-md-wikilink")
+    expect(link).to_have_count(1, timeout=CRDT_LOAD_TIMEOUT)
+    expect(link).to_have_text("go deep")
+    link.click()
+    expect(page).to_have_url(re.compile(r"/features/deep$"))
+    # The heading is 40 filler lines down, past the top of the note (whose intro
+    # line CodeMirror culls once we're scrolled away). The cross-note jump must
+    # have loaded the note AND scrolled the heading into view — revealing its
+    # markers by placing the cursor there. The 30s headroom covers CRDT load.
+    expect(page.get_by_text("## Deep Section").first).to_be_in_viewport(
+        timeout=CRDT_LOAD_TIMEOUT
+    )
 
 
 def test_direct_image_url_renders_pixels(page: Page):
