@@ -49,15 +49,24 @@ def test_shell_is_contained_under_prefix(page: Page):
     assert not origin_rooted, f"requests escaped the prefix: {origin_rooted}"
 
 
-def test_edits_persist_under_prefix(page: Page):
+def test_edits_persist_under_prefix(page: Page, browser_name: str):
     # The home is read-only on the demo, so exercise the persist-under-prefix
     # loop on a regular (writable) note.
-    seed_vault_file(WIKI_VAULT, "wp/note.md", b"seed \n")
-    page.goto(f"{WIKI_URL}/wp/note")
+    #
+    # Engine-unique path: this note is MUTATED, and the vault is shared across
+    # the chromium/firefox/webkit matrix. A shared path re-seeded per engine
+    # races the previous engine's still-in-memory doc (it lingers for the grace
+    # period), so the re-seed is reconciled against stale CRDT state and the
+    # flush never lands — passing on the first engine and failing on the rest.
+    # (main's version edits `index.md`, which is read-only here, so this
+    # demo-only variant needs its own isolation.)
+    note = f"wp/{browser_name}.md"
+    seed_vault_file(WIKI_VAULT, note, b"seed \n")
+    page.goto(f"{WIKI_URL}/wp/{browser_name}")
     click_editor(page)
     marker = "e2e-wiki-roundtrip"
     type_text(page, marker + " ")
-    wait_vault_file(WIKI_VAULT, "wp/note.md", marker)
+    wait_vault_file(WIKI_VAULT, note, marker)
 
 
 def test_note_with_image_renders_under_prefix(page: Page):
