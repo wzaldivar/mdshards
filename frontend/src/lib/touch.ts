@@ -42,7 +42,7 @@ function mediaQuery(): MediaQueryList | null {
 /**
  * True when the primary pointer is a finger and there's no hover — i.e. a
  * phone/tablet with no physical keyboard. False everywhere `matchMedia` is
- * unavailable (tests, SSR), so the desktop keyboard-first behaviour is the
+ * unavailable (tests, SSR), so the desktop keyboard-first behavior is the
  * safe default.
  */
 export function isTouchPrimary(): boolean {

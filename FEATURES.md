@@ -93,8 +93,8 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
   - Everything else (PDF, plain text, etc.) — iframe fallback to the browser's built-in viewer.
 - Backend file-existence disambiguation — `.md` always wins. URL `/foo.jpg` resolves to `<vault>/foo.jpg.md` if it exists; otherwise to `<vault>/foo.jpg`.
 - Upload dispatch by source file — `Cmd+U` opens the OS file picker first; if the source filename ends in `.md` it's stored as a markdown note (with the user's typed extension becoming part of the doc-id basename), otherwise it's stored as an asset at the literal target path.
-- Touch / mobile support — on a keyboardless touch device (detected via `(pointer: coarse) and (hover: none)`, see `frontend/src/lib/touch.ts`) a bottom **action bar** exposes every global shortcut as a tap target, since a phone can't produce a Cmd/Ctrl chord. It rides above the software keyboard via the `visualViewport` API, clears the home indicator via `env(safe-area-inset-bottom)`, and disables the actions that don't apply to the current path (rename/delete on a missing file, emoji on a non-markdown one). Vim mode and typewriter scrolling are off there (see below); tap targets, picker rows, and the editor's line height are sized for a finger, and the modal inputs use a 16px font so iOS doesn't zoom the page on focus. **Gestures that need a modifier get a tappable equivalent**, since a software keyboard cannot produce `Shift+Enter`: the quick switcher's `Create "…"` row is a real button (without it, creating a note — the app's only file-creating surface — would be impossible on touch), and the emoji picker replaces its `Enter` / `Shift+Enter` hint with a `:code:` / `glyph` mode toggle that arms which form the next pick writes (defaulting to `:code:`). The delete confirmation reads `(tap again)` rather than `(Enter)`, and the **device Back button closes an open dialog** instead of navigating away from the note.
-- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for four local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere), and **Center current line** (typewriter scrolling — keeps the cursor line vertically centered, except near the top/bottom of the file where it clamps naturally). While the panel is open, `⌥V` / `⌥N` / `⌥R` / `⌥C` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event. On a keyboardless touch device the **Vim mode** and **Center current line** rows are hidden and both preferences are clamped off on read — vim needs modifier keys a software keyboard lacks, and typewriter scrolling centres into the region the keyboard covers. The stored choices survive, so the same profile still gets both on a desktop.
+- Touch / mobile support — on a phone or tablet the editor swaps in a tap-driven UI: an action bar for the shortcuts, tappable equivalents for the modifier-key gestures, and Back closes an open dialog. See [Touch & mobile](#touch--mobile) below.
+- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for four local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere), and **Center current line** (typewriter scrolling — keeps the cursor line vertically centered, except near the top/bottom of the file where it clamps naturally). While the panel is open, `⌥V` / `⌥N` / `⌥R` / `⌥C` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event. Two of the four are hidden on touch — see [Touch & mobile](#touch--mobile).
 
 ### Keyboard shortcuts (global)
 
@@ -107,11 +107,60 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 | `Cmd/Ctrl-E` | Emoji picker — search by name/description; Enter inserts `:shortcode:`, Shift-Enter inserts the literal glyph, at the cursor (md notes only). |
 | `Cmd/Ctrl-Alt-O` | Editor options panel — vim mode, line numbers, relative line numbers, center current line (all remembered locally). |
 | `Enter` (inside quick switcher) | Open the highlighted existing note. Never creates — a no-op when nothing matches. |
-| `Shift+Enter` (inside quick switcher) | Create a note at the typed text. Works whether or not matches are highlighted. The `Create "…"` row is also clickable/tappable, which is the only route on touch — see below. |
+| `Shift+Enter` (inside quick switcher) | Create a note at the typed text. Works whether or not matches are highlighted. The `Create "…"` row is also a button, so a click or tap does the same. |
 
 Shortcuts work in the editor, in the asset viewer (re-bound inside the iframe's `contentDocument` for same-origin assets), and on the NotFound page.
 
-On a keyboardless touch device every row above is reachable by tapping the action bar instead (the bar drives the same handlers as the keymap — see the touch bullet above).
+### Touch & mobile
+
+The app is keyboard-first, and a phone can't produce a `Cmd`/`Ctrl` chord — so on a
+touch device the same actions are exposed as tap targets. Detection is one media
+query, `(pointer: coarse) and (hover: none)` (`frontend/src/lib/touch.ts`): the
+primary pointer is a finger *and* it can't hover. Both halves matter — `coarse`
+alone also matches a touchscreen laptop, where the keyboard is right there and
+nothing should change.
+
+**Action bar.** A bar along the bottom exposes every global shortcut: open/create,
+emoji, upload, rename, delete, options. It drives the same handlers as the keymap,
+so behavior is identical to the desktop path. It rides above the software keyboard
+(via `visualViewport`), clears the home indicator (via `env(safe-area-inset-bottom)`),
+and greys out actions that don't apply to the current path — rename/delete on a
+missing file, emoji on a non-markdown one.
+
+**Gestures needing a modifier get a tappable equivalent.** A software keyboard's
+Shift only changes letter case, so `Shift+Enter` is unreachable — and the flows
+behind it were dead ends, not merely awkward:
+
+| Gesture | Keyboard | Touch |
+|---|---|---|
+| Create a note | `Shift+Enter` in the quick switcher | tap the `Create "…"` row (a real button on every pointer type) |
+| Insert a literal emoji glyph | `Shift+Enter` in the emoji picker | arm the `:code:` / `glyph` toggle, then tap a row (defaults to `:code:`, resets each open) |
+| Confirm a delete | press `Enter` again | tap the armed row again — the prompt reads `(tap again)`, not `(Enter)` |
+
+**Back closes dialogs.** On a phone, Back is the universal dismiss gesture, but a
+dialog here is application state rather than a route — so Back would leave the note
+entirely. An open dialog now consumes one Back press to close itself, leaving the
+URL untouched; a dialog dismissed any other way gives that press back, so Back
+never appears to do nothing.
+
+**Preferences that presuppose a desktop are hidden and clamped off** — the stored
+value is untouched, so the same browser profile still gets them on a desktop:
+
+- **Vim mode** — modal editing needs `Escape`, `:` and `hjkl`; a buffer stuck in
+  NORMAL swallows every keystroke and just looks broken.
+- **Center current line** — typewriter scrolling centers within the editor's
+  scroller, which is sized by the *layout* viewport, while the software keyboard
+  shrinks only the *visual* one. The centered line lands under the keyboard, and
+  re-centering on every tap fights the browser's own caret scrolling.
+
+**Sizing.** 44px minimum tap targets; picker rows and editor line height sized for a
+finger; 16px modal inputs (below that iOS zooms the page on focus and never zooms
+back); `100dvh` so mobile browser chrome stops hiding the bottom of the buffer.
+
+Verified on Chromium and WebKit under mobile emulation — iOS Safari being where
+this UI is actually met. Mobile Firefox is untested rather than unsupported:
+Playwright's Firefox backend can't emulate a touch device, so it's excluded from
+the matrix; nothing here is engine-specific and it is expected to work.
 
 ### Out of scope (will not be added)
 

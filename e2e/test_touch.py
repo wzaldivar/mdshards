@@ -118,7 +118,7 @@ def test_options_panel_drops_desktop_only_rows_and_offers_a_tappable_close(touch
 
     # Vim needs Escape / `:` / hjkl — hidden rather than offered-then-ignored.
     expect(panel.get_by_text("Vim mode")).to_have_count(0)
-    # Typewriter scrolling centres into the region the software keyboard
+    # Typewriter scrolling centers into the region the software keyboard
     # covers, so it's hidden on touch too.
     expect(panel.get_by_text("Center current line")).to_have_count(0)
     # The pointer-agnostic prefs stay available.
@@ -132,8 +132,8 @@ def test_options_panel_drops_desktop_only_rows_and_offers_a_tappable_close(touch
 
 
 def test_desktop_only_prefs_stay_off_on_touch_even_when_stored_on(touch_page: Page):
-    """A profile that enabled vim / centring on a desktop must not have them
-    applied on a phone — vim would swallow every keystroke, and centring would
+    """A profile that enabled vim / centering on a desktop must not have them
+    applied on a phone — vim would swallow every keystroke, and centering would
     aim the cursor line at the region the software keyboard covers."""
     touch_page.add_init_script(
         "localStorage.setItem('mdshards:vim', '1');"
@@ -249,7 +249,7 @@ def test_back_after_dismissing_a_dialog_still_leaves_the_note(touch_page: Page, 
     expect_editor_contains(touch_page, "touch-back2-body")
 
     # Open a dialog and dismiss it WITHOUT Back. The options panel's Close is a
-    # real button; the switchers' scrim is centred behind the modal, so tapping
+    # real button; the switchers' scrim is centered behind the modal, so tapping
     # it is not a reliable actionability target in a test.
     touch_page.get_by_label("Editor options").first.tap()
     panel = touch_page.locator("dialog")

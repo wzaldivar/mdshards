@@ -62,7 +62,7 @@ const ROWS: Row[] = [
     label: 'Center current line',
     hint: 'Keep the cursor line vertically centered (except near file edges)',
     // Centring is meaningless on a phone: the software keyboard covers the
-    // area the line would be centred into, and re-centring on every tap
+    // area the line would be centered into, and re-centering on every tap
     // fights the browser's own caret scrolling.
     desktopOnly: true,
   },

@@ -40,7 +40,7 @@ afterEach(() => {
 describe('touch', () => {
   it('reports desktop when matchMedia is unavailable', () => {
     // jsdom does not implement matchMedia; the keyboard-first desktop
-    // behaviour must be the safe default rather than a crash.
+    // behavior must be the safe default rather than a crash.
     expect(window.matchMedia).toBeUndefined()
     expect(isTouchPrimary()).toBe(false)
   })

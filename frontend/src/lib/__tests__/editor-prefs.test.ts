@@ -94,7 +94,7 @@ describe('editor-prefs on a keyboardless touch device', () => {
     // keyboard and reads as a broken editor.
     expect(getEditorPrefs().vim).toBe(false)
     // centerLine: the software keyboard covers the region the cursor line
-    // would be centred into, so centring is meaningless on a phone.
+    // would be centered into, so centering is meaningless on a phone.
     expect(getEditorPrefs().centerLine).toBe(false)
     // ...but the user's choices survive, so the same profile on a desktop
     // (or a tablet docked to a keyboard) gets both back.

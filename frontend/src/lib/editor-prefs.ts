@@ -47,10 +47,10 @@ function read(key: string): boolean {
  *   - `vim` — modal editing needs Escape, `:`, and hjkl, none of which a
  *     software keyboard offers, and a buffer stuck in NORMAL swallows every
  *     keystroke, so the editor just looks broken.
- *   - `centerLine` — typewriter scrolling centres within the CodeMirror
+ *   - `centerLine` — typewriter scrolling centers within the CodeMirror
  *     scroller, which is sized by the LAYOUT viewport; the software keyboard
- *     only shrinks the VISUAL one. So the "centred" line lands under the
- *     keyboard, and re-centring on every tap fights the browser's own caret
+ *     only shrinks the VISUAL one. So the "centered" line lands under the
+ *     keyboard, and re-centering on every tap fights the browser's own caret
  *     scrolling. On a phone-sized screen it costs vertical space and yanks the
  *     viewport around for no benefit (user call, 2026-09-07).
  *
