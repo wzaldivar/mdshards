@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router'
 import { diskPathToUrl, fetchTree, flattenTree } from '../lib/tree'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { useListNavigation } from '../lib/use-list-navigation'
+import { hasModalSentinel } from '../lib/modal-history'
+import { useTouchPrimary } from '../lib/touch'
 import { SwitcherShell } from './SwitcherShell'
 import styles from './QuickSwitcher.module.css'
 
@@ -30,6 +32,9 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
   const [allPaths, setAllPaths] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  // A software keyboard can't produce Shift-Enter, which is otherwise the ONLY
+  // create gesture — so the create row has to be tappable (see below).
+  const touchPrimary = useTouchPrimary()
 
   useEffect(() => {
     if (!open) return
@@ -107,7 +112,12 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
     if (allUrls.includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
-      navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target))
+      // Replace rather than push when a modal sentinel is the current entry:
+      // stacking on top of it would bury it, costing the user a dead Back
+      // press before they returned to where they started. See lib/modal-history.
+      navigate(target === 'index' ? '/' : '/' + encodePathToUrl(target), {
+        replace: hasModalSentinel(),
+      })
       onClose()
       return
     }
@@ -128,7 +138,7 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
       setError(`create failed: ${r.status}`)
       return
     }
-    navigate('/' + encodePathToUrl(target))
+    navigate('/' + encodePathToUrl(target), { replace: hasModalSentinel() })
     onClose()
   }
 
@@ -211,9 +221,22 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
           </li>
         ))}
         {trimmed && !hasExactMatch && (
-          <li className={`${styles.item} ${styles.createHint}`}>
-            Create &ldquo;{trimmed}&rdquo;
-            <span className={styles.kbd}> Shift-Enter</span>
+          <li>
+            {/* A real <button>, not a static hint. Shift-Enter is the keyboard
+                create gesture, but a software keyboard cannot produce it — and
+                without a click target this row left touch users with no way to
+                create a note at all (the quick switcher is the app's only
+                file-creating surface). Clickable on every pointer type: a
+                mouse user couldn't activate it before either. */}
+            <button
+              type="button"
+              className={`${styles.item} ${styles.createHint}`}
+              tabIndex={-1}
+              onClick={() => void commit(trimmed, true)}
+            >
+              Create &ldquo;{trimmed}&rdquo;
+              {!touchPrimary && <span className={styles.kbd}> Shift-Enter</span>}
+            </button>
           </li>
         )}
       </ul>

@@ -1,6 +1,7 @@
 import { apiUrl } from '../lib/backend'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { hasModalSentinel } from '../lib/modal-history'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { pendingRenames } from '../lib/pending-rename'
 import { SwitcherShell } from './SwitcherShell'
@@ -86,7 +87,7 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
     // conversion's canonical URL is the doc-id the backend returns.
     const body = (await r.json().catch(() => null)) as { to?: string; converted?: boolean } | null
     const destination = body?.converted && body.to ? body.to : dst
-    navigate('/' + encodePathToUrl(destination))
+    navigate('/' + encodePathToUrl(destination), { replace: hasModalSentinel() })
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {

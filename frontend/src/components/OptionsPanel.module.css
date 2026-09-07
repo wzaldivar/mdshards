@@ -102,3 +102,20 @@
   border-radius: 4px;
   font-size: 11px;
 }
+
+/* Touch-only dismiss control — replaces the "Esc to close" hint when there's
+   no physical keyboard. Sized to the 44px comfortable tap target. */
+.closeBtn {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bg-surface-elev);
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.closeBtn:active {
+  filter: brightness(1.15);
+}

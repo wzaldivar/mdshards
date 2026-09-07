@@ -33,3 +33,11 @@
   color: var(--danger-color);
   font-size: 13px;
 }
+
+/* Touch / mobile — see Switcher.module.css. */
+@media (pointer: coarse) and (hover: none) {
+  .fileButton {
+    min-height: 44px;
+    font-size: 15px;
+  }
+}

@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router'
 import { encodePathToUrl } from '../lib/paths'
 import { fetchTree, flattenTree } from '../lib/tree'
 import { useListNavigation } from '../lib/use-list-navigation'
+import { hasModalSentinel } from '../lib/modal-history'
+import { useTouchPrimary } from '../lib/touch'
 import { SwitcherShell } from './SwitcherShell'
 import styles from './DeleteSwitcher.module.css'
 
@@ -34,6 +36,10 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
   const [allFiles, setAllFiles] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // The confirm prompt names the gesture that completes the delete, so it has
+  // to name the one this device actually has. Tapping the armed row already
+  // deletes (selectAndConfirm) — only the label was keyboard-specific.
+  const touchPrimary = useTouchPrimary()
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -111,7 +117,7 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
       return
     }
     onClose()
-    if (wasCurrent) navigate('/')
+    if (wasCurrent) navigate('/', { replace: hasModalSentinel() })
   }
 
   function selectAndConfirm(i: number): void {
@@ -191,7 +197,10 @@ export function DeleteSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
                   onClick={() => selectAndConfirm(i)}
                 >
                   {confirming === entry.target ? (
-                    <span>Confirm delete: {entry.label} (Enter)</span>
+                    <span>
+                      Confirm delete: {entry.label}{' '}
+                      {touchPrimary ? '(tap again)' : '(Enter)'}
+                    </span>
                   ) : (
                     <span>{entry.label}</span>
                   )}

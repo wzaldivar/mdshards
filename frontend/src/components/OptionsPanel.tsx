@@ -5,6 +5,7 @@ import {
   subscribeEditorPrefs,
   type EditorPrefs,
 } from '../lib/editor-prefs'
+import { useTouchPrimary } from '../lib/touch'
 import styles from './OptionsPanel.module.css'
 
 interface Props {
@@ -22,6 +23,11 @@ interface Row {
   hint: string
   /** When set, the row is only meaningful if this other pref is on. */
   requires?: keyof EditorPrefs
+  /** Rows whose feature presupposes a desktop are hidden on touch-primary
+   *  devices — offering a toggle whose effect is clamped away in
+   *  `editor-prefs` would just read as broken. Each such row's reason is on
+   *  the row itself; see `getEditorPrefs` for the matching clamp. */
+  desktopOnly?: boolean
 }
 
 const ROWS: Row[] = [
@@ -31,6 +37,8 @@ const ROWS: Row[] = [
     accel: '⌥V',
     label: 'Vim mode',
     hint: 'Modal editing (NORMAL / INSERT / VISUAL)',
+    // No software keyboard can drive modal editing (no Escape / `:` / hjkl).
+    desktopOnly: true,
   },
   {
     key: 'lineNumbers',
@@ -53,6 +61,10 @@ const ROWS: Row[] = [
     accel: '⌥C',
     label: 'Center current line',
     hint: 'Keep the cursor line vertically centered (except near file edges)',
+    // Centring is meaningless on a phone: the software keyboard covers the
+    // area the line would be centred into, and re-centring on every tap
+    // fights the browser's own caret scrolling.
+    desktopOnly: true,
   },
 ]
 
@@ -60,6 +72,12 @@ const ROWS: Row[] = [
  * to localStorage; the live editor re-applies via the prefs pub/sub. */
 export function OptionsPanel({ open, onClose }: Readonly<Props>) {
   const [prefs, setPrefs] = useState<EditorPrefs>(getEditorPrefs)
+  // Touch device -> drop the rows whose feature presupposes a desktop (vim,
+  // centre-line — both clamped off in editor-prefs too), drop the
+  // Alt-accelerator chrome, and offer a tappable Close since there's no
+  // Escape key.
+  const touchPrimary = useTouchPrimary()
+  const rows = touchPrimary ? ROWS.filter((r) => !r.desktopOnly) : ROWS
 
   // While open, stay in sync with the prefs store: re-read on open, then track
   // changes (including cross-tab `storage` events) so the checkboxes reflect
@@ -115,7 +133,7 @@ export function OptionsPanel({ open, onClose }: Readonly<Props>) {
       <dialog className={styles.modal} aria-label="Editor options" open>
         <div className={styles.header}>Editor options</div>
         <ul className={styles.list}>
-          {ROWS.map((row) => {
+          {rows.map((row) => {
             const disabled = row.requires ? !prefs[row.requires] : false
             return (
               <li key={row.key} className={styles.item}>
@@ -130,14 +148,22 @@ export function OptionsPanel({ open, onClose }: Readonly<Props>) {
                     <span className={styles.label}>{row.label}</span>
                     <span className={styles.hint}>{row.hint}</span>
                   </span>
-                  <span className={styles.accel}>{row.accel}</span>
+                  {!touchPrimary && <span className={styles.accel}>{row.accel}</span>}
                 </label>
               </li>
             )
           })}
         </ul>
         <div className={styles.footer}>
-          <span className={styles.kbd}>Esc</span> to close
+          {touchPrimary ? (
+            <button type="button" className={styles.closeBtn} onClick={onClose}>
+              Close
+            </button>
+          ) : (
+            <>
+              <span className={styles.kbd}>Esc</span> to close
+            </>
+          )}
         </div>
       </dialog>
     </div>
