@@ -17,18 +17,20 @@ import { Autolink, Strikethrough, Subscript, Superscript, Table, TaskList } from
 import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ixora'
 import { yCollab } from 'y-codemirror.next'
 import { catppuccinHighlight } from '../lib/cm-highlight'
-import { closeDoc, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
+import { closeDoc, fetchMovedTarget, fetchServerConfig, openDoc, type DocBundle } from '../lib/crdt'
 import { shortcodeTokenAt } from '../lib/emoji'
 import { EmojiShortcode } from '../lib/md-emoji'
 import { Highlight } from '../lib/md-highlight'
 import { markdownLive } from '../lib/markdown-live'
 import { pendingRenames } from '../lib/pending-rename'
+import { setPendingAnchor, takePendingAnchor } from '../lib/pending-anchor'
+import { findHeadingPos, scrollToHeading } from '../lib/heading-nav'
 import {
   getEditorPrefs,
   subscribeEditorPrefs,
   type EditorPrefs,
 } from '../lib/editor-prefs'
-import { Wikilink } from '../lib/wikilink'
+import { parseWikilinkTarget, Wikilink } from '../lib/wikilink'
 import { encodePathToUrl } from '../lib/paths'
 import { centerCurrentLine } from '../lib/typewriter'
 import styles from './Editor.module.css'
@@ -269,9 +271,21 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
     // Wiki links route through react-router so navigating to `[[notes/today]]`
     // is a SPA push, not a full page load. Strip any accidental leading slash
     // so the doc-id form matches the URL form.
+    //
+    // A `#section` anchor splits off first: `[[#Heading]]` (or an explicit
+    // self-reference) scrolls the current view without navigating; a cross-note
+    // `[[note#Heading]]` stashes the section (see pending-anchor) and navigates,
+    // and the destination Editor scrolls to it once its content loads.
     const onWikilinkNavigate = (target: string): void => {
-      const clean = target.replace(/^\/+/, '')
-      navigate('/' + encodePathToUrl(clean))
+      const { page, section } = parseWikilinkTarget(target)
+      const cleanPage = page.replace(/^\/+/, '')
+      if (section !== null && (cleanPage === '' || cleanPage === docId)) {
+        if (view) scrollToHeading(view, section)
+        return
+      }
+      if (cleanPage === '') return // bare `#` with no heading — nothing to do
+      if (section !== null) setPendingAnchor(cleanPage, section)
+      navigate('/' + encodePathToUrl(cleanPage))
     }
 
     // A reconnect past the grace window means the in-memory Doc we hold is
@@ -311,6 +325,24 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
       // no cleanup will ever cancel, and it locks the banner on whatever page
       // the user has navigated to since — including asset pages, where no
       // Editor exists to ever clear it again.
+      // Act on a server-recorded forward fetched after an unexplained close
+      // (see below): '' → deleted, bail home (mirrors the DOC_DELETED branch);
+      // a doc-id → the same "follow" banner an explicit-code browser gets;
+      // null → ordinary drop, do nothing. Named (not inlined into the `.then`)
+      // to keep the connection-close handler's function nesting shallow.
+      const resolveForward = (target: string | null): void => {
+        if (bundle !== b || target === null) return
+        if (target === '') {
+          teardown()
+          navigate('/')
+          return
+        }
+        if (pendingRenames.has(target)) {
+          pendingRenames.delete(target)
+          return
+        }
+        onMovedRef.current(target)
+      }
       bundle.provider.on('connection-close', (event: CloseEvent | null) => {
         if (bundle !== b) return
         if (!event) return
@@ -331,6 +363,12 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
             // Someone else moved this doc. Let the user choose whether to follow.
             onMovedRef.current(target)
           }
+        } else {
+          // Any other close — notably Safari/WebKit, which reports our app close
+          // codes (4001/4002) as a bare 1006 with no reason, so the branches
+          // above never fire there. Ask the server whether this doc was
+          // moved/conflicted and act on the forward via `resolveForward`.
+          void fetchMovedTarget(docId).then(resolveForward)
         }
       })
       let everConnected = false
@@ -377,12 +415,15 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
           }
         }
       })
+      // A cross-note `[[note#Heading]]` that navigated here left the section to
+      // jump to; buildView arms a one-shot scroll that fires once the note's
+      // content lands over CRDT (see below).
       view = buildView(host, bundle, docId, onWikilinkNavigate, editable, {
         vimMode,
         lineGutter,
         centerLine,
         prefs,
-      })
+      }, takePendingAnchor(docId))
       syncVimStatus()
       if (apiRef) {
         // Both calls scan at CALL time relative to the current cursor —
@@ -481,6 +522,7 @@ function buildView(
   onNavigate: (target: string) => void,
   editable: Compartment,
   cfg: EditorCompartments,
+  initialAnchor: string | null = null,
 ): EditorView {
   const state = EditorState.create({
     doc: bundle.text.toString(),
@@ -531,7 +573,46 @@ function buildView(
       markdownLive({ noteDocId: docId, onNavigate }),
       yCollab(bundle.text, bundle.provider.awareness),
       EditorView.lineWrapping,
+      // Cross-note section jump: the note's content arrives asynchronously over
+      // CRDT (after the initial sync), so we can't scroll to the heading at
+      // build time. Retry on each doc change until the heading is found, then
+      // disarm — and disarm after a deadline regardless, so a heading the user
+      // TYPES later isn't hijacked into an unexpected scroll. The scroll is
+      // deferred to a microtask because dispatching inside an update listener is
+      // disallowed.
+      ...headingJumpExtension(initialAnchor),
     ],
   })
   return new EditorView({ state, parent: host })
+}
+
+/** A one-shot editor extension that scrolls to `section`'s heading once it
+ *  first appears in the document — the destination of a cross-note
+ *  `[[note#Heading]]` jump, whose content streams in over CRDT after the view
+ *  is built. Returns no extension when there's nothing to jump to. Disarms on
+ *  success and, as a backstop, after a fixed window so a later user-typed
+ *  heading of the same name isn't hijacked into a surprise scroll. */
+function headingJumpExtension(section: string | null) {
+  if (section === null) return []
+  let pending: string | null = section
+  // Generous backstop: a note's content can take a while to stream in over
+  // CRDT (WebKit under load especially — the same reason CRDT waits are 30s).
+  // Disarm-on-success is the normal exit; this only stops a permanently-armed
+  // jump on a dead anchor.
+  const deadline = Date.now() + 30_000
+  return [
+    EditorView.updateListener.of((u) => {
+      if (pending === null) return
+      if (Date.now() > deadline) {
+        pending = null
+        return
+      }
+      if (!u.docChanged) return
+      if (findHeadingPos(u.state, pending) === null) return
+      const target = pending
+      pending = null
+      // Dispatching synchronously inside an update listener is disallowed.
+      queueMicrotask(() => scrollToHeading(u.view, target))
+    }),
+  ]
 }

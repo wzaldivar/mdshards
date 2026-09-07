@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import { backendWsUrl } from './backend'
+import { apiUrl, backendWsUrl } from './backend'
 import { encodePathToUrl } from './paths'
 
 export interface DocBundle {
@@ -12,6 +12,23 @@ export interface DocBundle {
 /** Re-exported for call sites that still treat the server's grace period
  *  as their concern (Editor's awareness heartbeat). */
 export { loadConfig as fetchServerConfig } from './config'
+
+/** Ask the server where a doc went after a move/conflict. Used when the
+ *  WebSocket dropped without a usable close code (Safari/WebKit reports our app
+ *  close codes as a bare 1006 and drops the reason), so the tab can still offer
+ *  an explicit link to the new location. Returns the destination doc-id, or
+ *  null when there's no recent forward (the common case: an ordinary drop). */
+export async function fetchMovedTarget(docId: string): Promise<string | null> {
+  try {
+    const url = apiUrl(docId === '' ? '/api/moved' : `/api/moved/${encodePathToUrl(docId)}`)
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const body = (await res.json()) as { target: string | null }
+    return body.target ?? null
+  } catch {
+    return null
+  }
+}
 
 
 export function openDoc(docId: string): DocBundle {

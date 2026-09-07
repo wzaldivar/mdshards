@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getGemojiList, loadEmojiData, type GemojiEntry } from '../lib/emoji'
 import { useListNavigation } from '../lib/use-list-navigation'
+import { useTouchPrimary } from '../lib/touch'
 import { SwitcherShell } from './SwitcherShell'
 import styles from './QuickSwitcher.module.css'
 
@@ -27,6 +28,11 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
   const [query, setQuery] = useState('')
   const [entries, setEntries] = useState<GemojiEntry[] | null>(getGemojiList())
   const inputRef = useRef<HTMLInputElement | null>(null)
+  // Shift-Enter is the glyph gesture and a software keyboard can't produce it,
+  // so on touch the modifier becomes an explicit mode toggle below. On desktop
+  // this stays false forever and `pick` behaves exactly as before.
+  const touchPrimary = useTouchPrimary()
+  const [asGlyph, setAsGlyph] = useState(false)
 
   // Arms on open when there's a seed; the select must happen AFTER the
   // render that commits the seeded value into the input (a microtask can
@@ -38,6 +44,7 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
     if (!open) return
     setQuery(initialQuery)
     setSelectedIndex(0)
+    setAsGlyph(false)
     pendingSelect.current = initialQuery.length > 0
     let cancelled = false
     void loadEmojiData().then(() => {
@@ -89,12 +96,15 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
     return [...exact, ...byPrefix, ...bySubstring, ...byDesc]
   }, [entries, query])
 
-  // `e` is present for Enter (from useListNavigation) and absent for a mouse
-  // click; Shift-Enter writes the glyph, plain Enter / click writes `:name:`.
+  // `e` is present for Enter (from useListNavigation) and absent for a click or
+  // tap; Shift-Enter writes the glyph, plain Enter writes `:name:`. With no
+  // event we fall back to `asGlyph` — the touch mode toggle, which is the only
+  // way to reach the glyph variant without a Shift key. On desktop `asGlyph`
+  // is never set, so a mouse click still writes `:name:` as before.
   function pick(i: number, e?: React.KeyboardEvent<HTMLInputElement>): void {
     const entry = matches[i]
     if (!entry) return
-    onPick(entry.names[0], entry.emoji, e?.shiftKey ?? false)
+    onPick(entry.names[0], entry.emoji, e?.shiftKey ?? asGlyph)
     onClose()
   }
 
@@ -141,14 +151,37 @@ export function EmojiSwitcher({ open, initialQuery, onPick, onClose }: Readonly<
           ))
         )}
       </ul>
-      <div className={`${styles.item} ${styles.createHint}`}>
-        <span>
-          <span className={styles.kbd}>Enter</span> :code:
-        </span>
-        <span>
-          <span className={styles.kbd}>Shift-Enter</span> glyph
-        </span>
-      </div>
+      {touchPrimary ? (
+        // The Shift modifier, promoted to a visible mode. Picking a row then
+        // writes whichever form is armed — one tap per insert, no chord.
+        <div className={styles.modeRow} role="group" aria-label="Insert as">
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${asGlyph ? '' : styles.modeBtnOn}`}
+            aria-pressed={!asGlyph}
+            onClick={() => setAsGlyph(false)}
+          >
+            :code:
+          </button>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${asGlyph ? styles.modeBtnOn : ''}`}
+            aria-pressed={asGlyph}
+            onClick={() => setAsGlyph(true)}
+          >
+            glyph
+          </button>
+        </div>
+      ) : (
+        <div className={`${styles.item} ${styles.createHint}`}>
+          <span>
+            <span className={styles.kbd}>Enter</span> :code:
+          </span>
+          <span>
+            <span className={styles.kbd}>Shift-Enter</span> glyph
+          </span>
+        </div>
+      )}
     </SwitcherShell>
   )
 }

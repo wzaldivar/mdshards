@@ -30,6 +30,16 @@ vi.mock('../lib/crdt', async () => {
   const { Awareness } = await import('y-protocols/awareness')
   return {
     fetchServerConfig: () => Promise.resolve({ gracePeriodSeconds: 30, homePath: '' }),
+    fetchMovedTarget: async (docId: string) => {
+      try {
+        const res = await fetch(`/_mdshards/api/moved/${docId}`)
+        if (!res.ok) return null
+        const body = (await res.json()) as { target: string | null }
+        return body.target ?? null
+      } catch {
+        return null
+      }
+    },
     openDoc: () => {
       const doc = new Y.Doc()
       const text = doc.getText('content')
@@ -140,5 +150,85 @@ describe('server-initiated kicks', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loc').textContent).toBe('/renamed/elsewhere'),
     )
+  })
+
+  it('bare 1006 (Safari) learns the destination from /api/moved and offers follow', async () => {
+    // WebKit reports our app close codes as a code-less 1006 with no reason, so
+    // the 4001/4002 branches never fire — the fallback queries /api/moved.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const path = (typeof input === 'string' ? input : String(input)).split('?')[0]
+        if (/\/api\/moved(?:\/.*)?$/.test(path)) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ target: 'conflicts/mine' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+          )
+        }
+        const m = /\/api\/resolve(?:\/(.*))?$/.exec(path)
+        return Promise.resolve(
+          new Response(JSON.stringify(m ? { type: 'md', canonical: m[1] ?? '' } : {}), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+      }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/notes/today']}>
+        <Routes>
+          <Route path="*" element={<EditorView />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(document.querySelector('.cm-editor')).not.toBeNull())
+    close(1006, '')
+    await screen.findByText(/was moved to/i)
+    screen.getByText('conflicts/mine')
+    fireEvent.click(screen.getByRole('button', { name: /follow/i }))
+    await waitFor(() =>
+      expect(screen.getByTestId('loc').textContent).toBe('/conflicts/mine'),
+    )
+  })
+
+  it('bare 1006 (Safari) for a deleted doc navigates home via /api/moved', async () => {
+    // Delete forwards to root, encoded as an empty target — the client treats
+    // it as "go home", mirroring the DOC_DELETED branch on other browsers.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const path = (typeof input === 'string' ? input : String(input)).split('?')[0]
+        if (/\/api\/moved(?:\/.*)?$/.test(path)) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ target: '' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+          )
+        }
+        const m = /\/api\/resolve(?:\/(.*))?$/.exec(path)
+        return Promise.resolve(
+          new Response(JSON.stringify(m ? { type: 'md', canonical: m[1] ?? '' } : {}), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+      }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/notes/today']}>
+        <Routes>
+          <Route path="*" element={<EditorView />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(document.querySelector('.cm-editor')).not.toBeNull())
+    close(1006, '')
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+    expect(screen.queryByText(/was moved to/i)).toBeNull()
   })
 })

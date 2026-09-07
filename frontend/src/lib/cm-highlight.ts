@@ -22,7 +22,13 @@ export const catppuccinHighlight = HighlightStyle.define([
   { tag: t.url, color: 'var(--link-external-color)' },
   { tag: t.quote, color: 'var(--blockquote-color)', fontStyle: 'italic' },
   { tag: t.contentSeparator, color: 'var(--hr-color)' },
-  { tag: t.list, color: 'var(--list-marker-color)' },
+  // NB: no `t.list` rule. lezer-markdown scopes `tags.list` over the WHOLE
+  // list subtree ("OrderedList/... BulletList/..."), not just the marker — so
+  // coloring it here tints every list item's content and, being a
+  // single-class selector, overrides the nested inline emphasis/strong/strike
+  // colors in the cascade (bold/italic/code rendered flat in the list color).
+  // List content stays prose; the bullet marker gets its accent from the
+  // ixora `.cm-list-bullet` widget (style.css) instead.
   { tag: t.monospace, color: 'var(--code-property)', fontFamily: 'ui-monospace, monospace' },
 
   // Generic code-block tokens (the fenced-code parser inherits from this when

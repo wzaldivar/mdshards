@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
-import { Autolink, Strikethrough, Table, TaskList } from '@lezer/markdown'
+import { Autolink, Strikethrough, Subscript, Superscript, Table, TaskList } from '@lezer/markdown'
 import { blockquote, codeblock, hideMarks, htmlBlock, lists } from '@retronav/ixora'
 import { markdownLive } from '../markdown-live'
+import { Highlight } from '../md-highlight'
 import { Wikilink } from '../wikilink'
 
 /*
@@ -26,7 +27,9 @@ function mountWith(doc: string, selection?: number): EditorView {
     doc,
     selection: selection !== undefined ? EditorSelection.cursor(selection) : undefined,
     extensions: [
-      markdown({ extensions: [Table, TaskList, Strikethrough, Autolink, Wikilink] }),
+      markdown({
+        extensions: [Table, TaskList, Strikethrough, Subscript, Superscript, Highlight, Autolink, Wikilink],
+      }),
       hideMarks(),
       lists(),
       blockquote(),
@@ -169,6 +172,22 @@ describe('GFM table widget rendering', () => {
     expect(document.querySelector('.cm-md-table-cell > strong')?.textContent).toBe('bold')
     expect(document.querySelector('.cm-md-table-cell > em')?.textContent).toBe('italic')
     expect(document.querySelector('.cm-md-table-cell > del')?.textContent).toBe('strike')
+  })
+
+  it('superscript/subscript/highlight inside a cell render with their classes, delimiters hidden', () => {
+    const doc = '| x^2^ | H~2~O | ==hi== |\n|---|---|---|\n| a | b | c |\n\nbelow\n'
+    mountWith(doc, doc.length)
+    // Same cm-md-* classes as the non-table live-preview path.
+    expect(document.querySelector('.cm-md-table-cell .cm-md-sup')?.textContent).toBe('2')
+    expect(document.querySelector('.cm-md-table-cell .cm-md-sub')?.textContent).toBe('2')
+    expect(document.querySelector('.cm-md-table-cell .cm-md-mark')?.textContent).toBe('hi')
+    // The `^` / `~` / `==` delimiters must not survive as literal text.
+    const header = document.querySelector('.cm-md-table-header')?.textContent ?? ''
+    expect(header).toContain('x2') // x + superscript 2
+    expect(header).toContain('H2O') // H + subscript 2 + O
+    expect(header).not.toContain('^')
+    expect(header).not.toContain('~')
+    expect(header).not.toContain('==')
   })
 
   it('underscore-style bold (__x__) and italic (_x_) also render', () => {

@@ -124,6 +124,64 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
   })
 })
 
+/*
+ * DEMO GUARD — the touch surface must not become a second, unguarded way in.
+ *
+ * The `Create "…"` row is a real button (tap target), so on a phone it, not
+ * Shift-Enter, is the create gesture. It therefore has to clear exactly the
+ * same demo restrictions the keyboard path does: the 30-char vault path cap
+ * (`MAX_VAULT_PATH_LEN`) and the backend's `attachments/` 403. These tests
+ * exist so a future touch change can't quietly reopen either.
+ */
+describe('QuickSwitcher create — touch path honours the demo restrictions', () => {
+  it('the create row is a real button, so tapping is a create gesture', async () => {
+    const posts = stubFetch(201)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'tapped' } })
+    const row = await screen.findByRole('button', { name: /^Create/ })
+    fireEvent.click(row)
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/tapped'))
+    expect(posts[0].body).toEqual({ path: 'tapped' })
+  })
+
+  it('an over-cap path is refused on the tap path too — nothing is POSTed', async () => {
+    const posts = stubFetch()
+    renderSwitcher()
+    const input = await switcherInput()
+    // 31 chars — one past MAX_VAULT_PATH_LEN. Set on the element directly:
+    // the input carries maxLength=30, which is the FIRST guard; this bypasses
+    // it deliberately to prove validateVaultPath is a real second one.
+    fireEvent.change(input, { target: { value: 'x'.repeat(31) } })
+    const row = await screen.findByRole('button', { name: /^Create/ })
+    fireEvent.click(row)
+    await screen.findByText(/too long/i)
+    expect(posts).toHaveLength(0)
+  })
+
+  it('caps the typed path at the demo maximum', async () => {
+    renderSwitcher()
+    const input = await switcherInput()
+    // The native maxLength is the first line of defence, so a phone user
+    // simply cannot type past the cap.
+    expect(input.maxLength).toBe(30)
+  })
+
+  it('surfaces the backend attachments/ refusal rather than pretending it worked', async () => {
+    // `attachments/` is seeded demo content — the backend 403s any create or
+    // move into it. The frontend does not mirror that rule, so the tap path
+    // must show the refusal, not navigate as if it had succeeded.
+    stubFetch(403)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'attachments/x.md' } })
+    const row = await screen.findByRole('button', { name: /^Create/ })
+    fireEvent.click(row)
+    await screen.findByText(/create failed: 403/i)
+    expect(screen.getByTestId('loc').textContent).toBe('/existing')
+  })
+})
+
 describe('App route table', () => {
   it('redirects /index to the canonical root', async () => {
     stubFetch()

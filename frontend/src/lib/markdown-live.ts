@@ -284,6 +284,9 @@ type CellRun =
   | { k: 'bold'; runs: CellRun[] }
   | { k: 'italic'; runs: CellRun[] }
   | { k: 'strike'; runs: CellRun[] }
+  | { k: 'sup'; runs: CellRun[] }
+  | { k: 'sub'; runs: CellRun[] }
+  | { k: 'mark'; runs: CellRun[] }
 
 /** Walk `parent`'s children within `[from, to)` and emit a flat list of
  *  CellRuns. Marker nodes (`EmphasisMark`, `CodeMark`, `StrikethroughMark`)
@@ -291,8 +294,17 @@ type CellRun =
  *  nodes recurse so nested emphasis works. Implicit text (the gaps between
  *  explicit nodes) is emitted as plain `text` runs. */
 // Marker nodes contribute no run — they're the `**`/`*`/`` ` ``/`~~`/`[` `]`
-// delimiters, whose source chars are skipped.
-const INLINE_MARKER_NAMES = new Set(['EmphasisMark', 'CodeMark', 'StrikethroughMark', 'LinkMark'])
+// delimiters plus the extended-syntax `^`/`~`/`==` delimiters, whose source
+// chars are skipped so only the wrapped content renders.
+const INLINE_MARKER_NAMES = new Set([
+  'EmphasisMark',
+  'CodeMark',
+  'StrikethroughMark',
+  'LinkMark',
+  'SuperscriptMark',
+  'SubscriptMark',
+  'HighlightMark',
+])
 
 /** Text of an InlineCode node between its boundary CodeMark delimiters. */
 function inlineCodeText(node: SyntaxNode, doc: Text): string {
@@ -313,6 +325,9 @@ function childRun(child: SyntaxNode, doc: Text): CellRun {
   if (child.name === 'StrongEmphasis') return { k: 'bold', runs: inner() }
   if (child.name === 'Emphasis') return { k: 'italic', runs: inner() }
   if (child.name === 'Strikethrough') return { k: 'strike', runs: inner() }
+  if (child.name === 'Superscript') return { k: 'sup', runs: inner() }
+  if (child.name === 'Subscript') return { k: 'sub', runs: inner() }
+  if (child.name === 'Highlight') return { k: 'mark', runs: inner() }
   if (child.name === 'InlineCode') return { k: 'code', text: inlineCodeText(child, doc) }
   // `\X` — drop the backslash, keep the escaped character.
   if (child.name === 'Escape') return { k: 'text', text: doc.sliceString(child.from + 1, child.to) }
@@ -366,6 +381,18 @@ function runsToDom(runs: readonly CellRun[]): DocumentFragment {
         const del = document.createElement('del')
         del.appendChild(runsToDom(run.runs))
         frag.appendChild(del)
+        break
+      }
+      // Extended-syntax wrappers reuse the same CSS classes as the non-table
+      // live-preview path (INLINE_CLASS_NODES) so `x^2^`, `H~2~O`, and
+      // `==highlight==` look identical inside and outside a table cell.
+      case 'sup':
+      case 'sub':
+      case 'mark': {
+        const span = document.createElement('span')
+        span.className = { sup: 'cm-md-sup', sub: 'cm-md-sub', mark: 'cm-md-mark' }[run.k]
+        span.appendChild(runsToDom(run.runs))
+        frag.appendChild(span)
         break
       }
     }
@@ -566,10 +593,11 @@ function tableRowCellRuns(child: SyntaxNode, doc: Text): CellRun[][] | null {
  *      TableDelimiter    (the `|---|---|` separator row, top-level)
  *      TableRow*         (each data row, same shape as TableHeader)
  *
- *  Returns true always: cell content is rendered by the widget straight from
- *  the source slice, so there's nothing for inline handlers to do inside — we
- *  stop iterate from descending. (Inline formatting inside rendered cells is
- *  therefore plain text — an explicit trade-off until the widget parses it.) */
+ *  Returns true always: the widget renders each cell's inline content itself
+ *  from a pre-parsed `CellRun[]` (see `parseInlineRuns` / `runsToDom` — bold,
+ *  italic, strike, code, super/subscript, highlight, escape), so there's
+ *  nothing for the inline handlers to do inside — we stop iterate from
+ *  descending. */
 /** Decorate one direct child of a Table node: a header/data row becomes a
  *  populated `TableRowWidget`, the top-level `|---|---|` becomes a separator
  *  widget. Anything else (or a row under the cursor) is left raw. */
@@ -719,6 +747,81 @@ function decorateLink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
     }).range(node.from + 1, closeBracket),
   )
   ctx.pushAtomic(Decoration.replace({}).range(closeBracket, node.to))
+  ctx.visited.add(node.from)
+  return true
+}
+
+// Deterministic (no catastrophic backtracking): the domain is dot-separated
+// labels that each EXCLUDE the dot, so there's no ambiguous split over a `.`
+// that also matches the label class. Requires at least one dot in the domain.
+const AUTOLINK_EMAIL_RE = /^[^\s@]+@[^\s.@]+(?:\.[^\s.@]+)+$/
+
+/** The href for an autolinked token, or null to leave it as plain text.
+ *  Mirrors the GFM autolink set the parser recognizes: `http(s)://` (and an
+ *  already-schemed `mailto:`/`xmpp:`) passes through, a bare email gains a
+ *  `mailto:` scheme, a bare `www.` host gains `https://`. */
+function autolinkHref(text: string): string | null {
+  if (/^(?:https?|mailto|xmpp):/i.test(text)) return text
+  if (/^www\./i.test(text)) return `https://${text}`
+  if (AUTOLINK_EMAIL_RE.test(text)) return `mailto:${text}`
+  return null
+}
+
+/** Autolinks the `Autolink` parser extension surfaces:
+ *   - a standalone `URL` node — a GFM *bare* autolink (`https://x`, `www.x`,
+ *     `a@b.c`) sitting inline in a paragraph; nothing to hide, so we just mark
+ *     the run clickable; or
+ *   - an angle autolink `<https://x>` / `<a@b.c>` (base-parser `Autolink` node),
+ *     whose `<` `>` LinkMarks we hide around the clickable inner URL.
+ *  Either way the visible URL/email becomes a `.cm-md-link` (opened by the
+ *  shared click handler — new tab for the web, mail client for `mailto:`).
+ *  Cursor-touched → left raw so it stays editable (the touch convention).
+ *
+ *  `URL` is the same node name used for the `(url)` of a link/image and the
+ *  target of a `[ref]: url` definition; those parents are fully handled (and
+ *  stop descent) elsewhere, so we skip a `URL` whose parent is one of them —
+ *  only a genuine standalone autolink reaches us. */
+/** The `URL` node names shared with link/image/reference targets — those are
+ *  fully handled (and stop descent) by their own decorators, so a `URL` under
+ *  one of them is never a standalone autolink. */
+const NON_AUTOLINK_URL_PARENTS = new Set(['Link', 'Image', 'LinkReference', 'Autolink'])
+
+/** Standalone `URL` node — a GFM *bare* autolink (`https://x`, `www.x`,
+ *  `a@b.c`). Nothing to hide, so just mark the run clickable. Cursor-touched →
+ *  left raw (editable) per the touch convention. */
+function decorateBareUrl(node: SyntaxNodeRef, ctx: DecoContext): void {
+  if (node.name !== 'URL' || NON_AUTOLINK_URL_PARENTS.has(node.node.parent?.name ?? '')) return
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return
+  const href = autolinkHref(ctx.doc.sliceString(node.from, node.to))
+  if (!href) return
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+      node.from,
+      node.to,
+    ),
+  )
+}
+
+/** Angle autolink `<https://x>` / `<a@b.c>` (base-parser `Autolink` node): hide
+ *  the `<` `>` LinkMarks and mark the inner URL/email clickable. */
+function decorateAngleAutolink(node: SyntaxNodeRef, ctx: DecoContext): boolean {
+  if (node.name !== 'Autolink') return false
+  if (rangesOverlap(node.from, node.to, ctx.selFrom, ctx.selTo)) return false
+  let urlChild: SyntaxNode | null = null
+  for (let c = node.node.firstChild; c; c = c.nextSibling) {
+    if (c.name === 'URL') urlChild = c.node
+  }
+  if (!urlChild) return false
+  const href = autolinkHref(ctx.doc.sliceString(urlChild.from, urlChild.to))
+  if (!href) return false
+  ctx.pushAtomic(Decoration.replace({}).range(node.from, urlChild.from)) // hide `<`
+  ctx.ranges.push(
+    Decoration.mark({ class: 'cm-md-link', attributes: { 'data-href': href } }).range(
+      urlChild.from,
+      urlChild.to,
+    ),
+  )
+  ctx.pushAtomic(Decoration.replace({}).range(urlChild.to, node.to)) // hide `>`
   ctx.visited.add(node.from)
   return true
 }
@@ -907,6 +1010,8 @@ function buildDecorations(view: EditorView, opts: BuildOpts): BuiltDecorations {
       if (decorateLink(node, ctx)) return false
       if (decorateWikilink(node, ctx)) return false
       if (decorateImage(node, ctx)) return false
+      decorateBareUrl(node, ctx)
+      if (decorateAngleAutolink(node, ctx)) return false
       decorateInlineClass(node, ctx)
       decorateEmoji(node, ctx)
       decorateMark(node, ctx)
@@ -946,7 +1051,13 @@ function makeClickHandler(onNavigate: (target: string) => void) {
       // backendUrl so a sub-path mount's prefix is applied. Relative hrefs
       // resolve against the current note URL, which already carries it.
       const openHref = href.startsWith('/') && !href.startsWith('//') ? backendUrl(href) : href
-      window.open(openHref, '_blank', 'noopener,noreferrer')
+      if (/^(?:mailto|xmpp):/i.test(openHref)) {
+        // Hand a mail/chat scheme to the OS handler in place — `window.open`
+        // would leave a stray blank tab.
+        window.location.href = openHref
+      } else {
+        window.open(openHref, '_blank', 'noopener,noreferrer')
+      }
       return true
     },
   })

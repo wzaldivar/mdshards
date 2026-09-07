@@ -26,7 +26,7 @@ Reference: [markdownguide.org/basic-syntax](https://www.markdownguide.org/basic-
 - Escape sequences (`\X` for any punctuation).
 - Inline links `[text](url)` — clickable; external URLs open in a new tab, in-vault links navigate via the SPA router.
 - Link titles `[text](url "hover")` — surfaced as the `title=` attribute (browser tooltip).
-- Autolinks for URLs and emails (`<https://...>`, `<a@b.c>`).
+- Autolinks for URLs and emails (`<https://...>`, `<a@b.c>`) — the `< >` are hidden and the URL/email renders as a clickable inline link.
 - Bold/italic/code wrapping a link.
 - Reference-style links: full form `[text][label]` + `[label]: url "title"`, and the shortcut form `[label]` + `[label]: url`. Labels match case-insensitively, with whitespace trimmed.
 - Images `![alt](src)` — vault-relative paths resolve against the containing note's directory; absolute and external URLs pass through unchanged. Empty alt (`![](src)`) is fully supported, standalone or inline mid-sentence.
@@ -47,12 +47,12 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Tables — rendered as a CSS-grid widget per row when the cursor is elsewhere; the row containing the cursor falls back to raw `| col | col |` markdown for editing. Header row is `surface0` background + lavender bold + slightly larger font; separator row collapses to a thin accent stripe but stays arrow-navigable.
-- Table cell formatting — bold/italic/inline-code/strikethrough/escape inside cells, driven by the lezer-markdown parser (no regex), so the GFM rules for intra-word underscores etc. are honored.
+- Table cell formatting — bold/italic/inline-code/strikethrough/escape plus the extended-syntax wrappers superscript (`x^2^`), subscript (`H~2~O`), and highlight (`==text==`) inside cells, driven by the lezer-markdown parser (no regex), so the GFM rules for intra-word underscores etc. are honored. In-cell inline runs reuse the same `cm-md-*` classes as prose, so a cell looks identical to the same markup outside a table.
 - Fenced code blocks (` ``` ` and ` ~~~ `).
 - Syntax highlighting in fenced code blocks — `@codemirror/language-data` lazily loads per-language packs (~50 languages: JS, TS, Python, Rust, Go, JSON, HTML, CSS, SQL, YAML, Bash, Java, C/C++, PHP, Ruby, and more) and the `catppuccinHighlight` style colors the tokens.
 - Strikethrough (`~~text~~`).
 - Task lists (`- [x]` / `- [ ]`).
-- Automatic URL linking (autolink extension).
+- Automatic URL linking (autolink extension) — bare `http(s)://…` URLs, `www.…` hosts, and bare emails render as clickable inline links (email → `mailto:`, `www.` → `https://`); the raw text stays untouched on disk and is revealed for editing when the cursor is on it.
 - Disabling auto-link by wrapping in backticks (`` `https://x.com` ``).
 - Highlight (`==text==`) — custom inline extension (`lib/md-highlight.ts`, mirrors lezer's Strikethrough rules: exactly two `=`, emphasis-style flanking); renders with a translucent yellow background, marks hidden cursor-aware.
 - Subscript (`H~2~O`) — `@lezer/markdown`'s `Subscript` extension; rendered via `vertical-align: sub`, marks hidden cursor-aware.
@@ -64,7 +64,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Table alignment (`:---`, `:---:`, `---:`) — separator colons aren't parsed; cells default to left-aligned.
 
 - Footnotes (`[^1]` and `[^1]: text`) — no parser extension shipped with `@lezer/markdown`; would need a custom inline parser + a reference-style resolution pass.
-- Heading IDs (`### Title {#custom-id}`) — would need both parsing and integration with the URL/anchor system.
+- Heading IDs (`### Title {#custom-id}`) — would need both parsing and integration with the URL/anchor system. (Section *anchors* — `[[#Heading]]` / `[[note#Heading]]` — are supported; see the project-specific syntax below. What's missing is authoring an explicit custom id on a heading.)
 - Definition lists (`Term\n: Def`) — no parser extension shipped; non-trivial render.
 
 **Out of scope (will not be added)**
@@ -76,6 +76,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Wiki links — `[[target]]` and `[[target|alias]]`. Clickable; navigates intra-app via the SPA router (no full reload). Dashed-underline visual to distinguish from regular `[text](url)` links. The target is the doc-id form (no `.md` suffix, no leading `/`); resolution follows the backend's md-wins / asset-fallback rule.
+- Wiki section links — `[[#Heading]]` jumps to a heading in the **current** note; `[[note#Heading]]` (and the aliased `[[note#Heading|label]]`) opens another note and scrolls to its heading. Matches all six ATX levels plus Setext headings; the match is case- and whitespace-insensitive on the heading text (the `#`/underline markup is ignored). The jump places the cursor on the target heading and scrolls it into view — it does **not** change the URL (no `#fragment`), so it isn't bookmarkable. Cross-note jumps wait for the destination note's CRDT content to load before scrolling (`lib/pending-anchor.ts`, `lib/heading-nav.ts`). Only heading anchors are resolved — block references (`[[note#^blockid]]`) are out of scope.
 - Wiki-link image embeds — `![[pic.png]]` and `![[pic.png|alt]]` (Obsidian's default embed syntax). The browser makes **one request** (`GET /api/embed?note=…&target=…`) and the server resolves the target at request time: **adjacent to the note first** (a folder next to the note overshadows a same-named one at the vault root), vault root second — two `stat()` calls, always fresh, no wasted 404 round-trip. `..` segments are allowed while the result stays inside the vault. No shortest-unique-path search beyond that: an Obsidian vault set to "New link format: Absolute path in vault" or "Relative to file" round-trips; the default "shortest path" resolves only when the bare name lives next to the note or at the root. Non-image targets (`![[note]]` transclusion) stay raw — out of scope.
 
 ## Editor
@@ -92,7 +93,8 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
   - Everything else (PDF, plain text, etc.) — iframe fallback to the browser's built-in viewer.
 - Backend file-existence disambiguation — `.md` always wins. URL `/foo.jpg` resolves to `<vault>/foo.jpg.md` if it exists; otherwise to `<vault>/foo.jpg`.
 - Upload dispatch by source file — `Cmd+U` opens the OS file picker first; if the source filename ends in `.md` it's stored as a markdown note (with the user's typed extension becoming part of the doc-id basename), otherwise it's stored as an asset at the literal target path.
-- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for four local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere), and **Center current line** (typewriter scrolling — keeps the cursor line vertically centered, except near the top/bottom of the file where it clamps naturally). While the panel is open, `⌥V` / `⌥N` / `⌥R` / `⌥C` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event.
+- Touch / mobile support — on a phone or tablet the editor swaps in a tap-driven UI: an action bar for the shortcuts, tappable equivalents for the modifier-key gestures, and Back closes an open dialog. See [Touch & mobile](#touch--mobile) below.
+- Editor options panel (`Cmd/Ctrl-Alt-O`) — checkboxes for four local, remembered preferences: **Vim mode** (optional `@replit/codemirror-vim` keymap, with a NORMAL/INSERT/VISUAL mode badge), **Show line numbers**, **Relative line numbers** (hybrid: absolute on the cursor line, distance elsewhere), and **Center current line** (typewriter scrolling — keeps the cursor line vertically centered, except near the top/bottom of the file where it clamps naturally). While the panel is open, `⌥V` / `⌥N` / `⌥R` / `⌥C` toggle the rows without the mouse. All off by default and persisted in `localStorage` (`mdshards:*`, see `frontend/src/lib/editor-prefs.ts`); changes also propagate live across open tabs via the `storage` event. Two of the four are hidden on touch — see [Touch & mobile](#touch--mobile).
 
 ### Keyboard shortcuts (global)
 
@@ -105,9 +107,60 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 | `Cmd/Ctrl-E` | Emoji picker — search by name/description; Enter inserts `:shortcode:`, Shift-Enter inserts the literal glyph, at the cursor (md notes only). |
 | `Cmd/Ctrl-Alt-O` | Editor options panel — vim mode, line numbers, relative line numbers, center current line (all remembered locally). |
 | `Enter` (inside quick switcher) | Open the highlighted existing note. Never creates — a no-op when nothing matches. |
-| `Shift+Enter` (inside quick switcher) | Create a note at the typed text (the only way to create). Works whether or not matches are highlighted. |
+| `Shift+Enter` (inside quick switcher) | Create a note at the typed text. Works whether or not matches are highlighted. The `Create "…"` row is also a button, so a click or tap does the same. |
 
 Shortcuts work in the editor, in the asset viewer (re-bound inside the iframe's `contentDocument` for same-origin assets), and on the NotFound page.
+
+### Touch & mobile
+
+The app is keyboard-first, and a phone can't produce a `Cmd`/`Ctrl` chord — so on a
+touch device the same actions are exposed as tap targets. Detection is one media
+query, `(pointer: coarse) and (hover: none)` (`frontend/src/lib/touch.ts`): the
+primary pointer is a finger *and* it can't hover. Both halves matter — `coarse`
+alone also matches a touchscreen laptop, where the keyboard is right there and
+nothing should change.
+
+**Action bar.** A bar along the bottom exposes every global shortcut: open/create,
+emoji, upload, rename, delete, options. It drives the same handlers as the keymap,
+so behavior is identical to the desktop path. It rides above the software keyboard
+(via `visualViewport`), clears the home indicator (via `env(safe-area-inset-bottom)`),
+and greys out actions that don't apply to the current path — rename/delete on a
+missing file, emoji on a non-markdown one.
+
+**Gestures needing a modifier get a tappable equivalent.** A software keyboard's
+Shift only changes letter case, so `Shift+Enter` is unreachable — and the flows
+behind it were dead ends, not merely awkward:
+
+| Gesture | Keyboard | Touch |
+|---|---|---|
+| Create a note | `Shift+Enter` in the quick switcher | tap the `Create "…"` row (a real button on every pointer type) |
+| Insert a literal emoji glyph | `Shift+Enter` in the emoji picker | arm the `:code:` / `glyph` toggle, then tap a row (defaults to `:code:`, resets each open) |
+| Confirm a delete | press `Enter` again | tap the armed row again — the prompt reads `(tap again)`, not `(Enter)` |
+
+**Back closes dialogs.** On a phone, Back is the universal dismiss gesture, but a
+dialog here is application state rather than a route — so Back would leave the note
+entirely. An open dialog now consumes one Back press to close itself, leaving the
+URL untouched; a dialog dismissed any other way gives that press back, so Back
+never appears to do nothing.
+
+**Preferences that presuppose a desktop are hidden and clamped off** — the stored
+value is untouched, so the same browser profile still gets them on a desktop:
+
+- **Vim mode** — modal editing needs `Escape`, `:` and `hjkl`; a buffer stuck in
+  NORMAL swallows every keystroke and just looks broken.
+- **Center current line** — typewriter scrolling centers within the editor's
+  scroller, which is sized by the *layout* viewport, while the software keyboard
+  shrinks only the *visual* one. The centered line lands under the keyboard, and
+  re-centering on every tap fights the browser's own caret scrolling.
+
+**Sizing.** 44px minimum tap targets; picker rows and editor line height sized for a
+finger; 16px modal inputs (below that iOS zooms the page on focus and never zooms
+back); `100dvh` so mobile browser chrome stops hiding the bottom of the buffer.
+
+Verified on Chromium and WebKit under mobile emulation — iOS Safari being where
+this UI is actually met. Mobile Firefox is untested rather than unsupported:
+Playwright's Firefox backend can't emulate a touch device, so it's excluded from
+the matrix; nothing here is engine-specific and it is expected to work.
 
 ### Out of scope (will not be added)
 

@@ -3,7 +3,20 @@ import { getEditorPrefs, setEditorPref, subscribeEditorPrefs } from '../editor-p
 
 afterEach(() => {
   localStorage.clear()
+  vi.unstubAllGlobals()
 })
+
+/** Pretend the browser is a keyboardless touch device (see lib/touch.ts). */
+function stubTouchPrimary(matches: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  )
+}
 
 describe('editor-prefs', () => {
   it('defaults every preference to off', () => {
@@ -69,5 +82,40 @@ describe('editor-prefs', () => {
     window.dispatchEvent(new StorageEvent('storage', { key: 'some-other-app-key' }))
     expect(fn).not.toHaveBeenCalled()
     unsub()
+  })
+})
+
+describe('editor-prefs on a keyboardless touch device', () => {
+  it('clamps the desktop-only prefs off without touching the stored values', () => {
+    setEditorPref('vim', true)
+    setEditorPref('centerLine', true)
+    stubTouchPrimary(true)
+    // vim: a buffer stuck in NORMAL swallows every keystroke from a software
+    // keyboard and reads as a broken editor.
+    expect(getEditorPrefs().vim).toBe(false)
+    // centerLine: the software keyboard covers the region the cursor line
+    // would be centered into, so centering is meaningless on a phone.
+    expect(getEditorPrefs().centerLine).toBe(false)
+    // ...but the user's choices survive, so the same profile on a desktop
+    // (or a tablet docked to a keyboard) gets both back.
+    expect(localStorage.getItem('mdshards:vim')).toBe('1')
+    expect(localStorage.getItem('mdshards:centerLine')).toBe('1')
+    vi.unstubAllGlobals()
+    expect(getEditorPrefs().vim).toBe(true)
+    expect(getEditorPrefs().centerLine).toBe(true)
+  })
+
+  it('leaves the pointer-agnostic preferences alone', () => {
+    setEditorPref('lineNumbers', true)
+    setEditorPref('relativeLineNumbers', true)
+    setEditorPref('centerLine', true)
+    stubTouchPrimary(true)
+    expect(getEditorPrefs()).toEqual({
+      vim: false,
+      // The line-number gutter works the same under any pointer.
+      lineNumbers: true,
+      relativeLineNumbers: true,
+      centerLine: false,
+    })
   })
 })
