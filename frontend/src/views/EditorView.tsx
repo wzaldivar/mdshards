@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
 import { AssetViewer } from '../components/AssetViewer'
 import { Editor, type EditorApi } from '../components/Editor'
@@ -9,9 +9,12 @@ import { DeleteSwitcher } from '../components/DeleteSwitcher'
 import { RenameSwitcher } from '../components/RenameSwitcher'
 import { UploadSwitcher } from '../components/UploadSwitcher'
 import { OptionsPanel } from '../components/OptionsPanel'
+import { TouchBar } from '../components/TouchBar'
 import { routeToDocId } from '../router'
 import { encodePathToUrl } from '../lib/paths'
 import { bindGlobalShortcuts, type ShortcutHandlers } from '../lib/shortcuts'
+import { useTouchPrimary } from '../lib/touch'
+import { consumeModalSentinel, pushModalSentinel } from '../lib/modal-history'
 import { useResolve } from '../lib/use-resolve'
 import styles from './EditorView.module.css'
 
@@ -19,6 +22,11 @@ export function EditorView() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
+
+  // Keyboardless environment? The Cmd/Ctrl chords are unreachable, so the
+  // TouchBar renders the same actions as tap targets (and vim is clamped off
+  // in editor-prefs). Desktop keeps its uncluttered chrome.
+  const touchPrimary = useTouchPrimary()
 
   const docId = useMemo(() => routeToDocId(params['*']), [params])
   const resolved = useResolve(docId)
@@ -65,20 +73,49 @@ export function EditorView() {
     navigate('/')
   }
 
+  // Every modal's open flag lives here, so dismissing them all is one call.
+  // `useCallback` because the back-button effect below depends on its identity.
+  const closeAll = useCallback((): void => {
+    setQuickOpen(false)
+    setDeleteOpen(false)
+    setRenameOpen(false)
+    setUploadOpen(false)
+    setEmojiOpen(false)
+    setOptionsOpen(false)
+  }, [])
+
+  const anyModalOpen =
+    quickOpen || deleteOpen || renameOpen || uploadOpen || emojiOpen || optionsOpen
+
+  // Back-button dismissal. A modal is React state, not a route, so without a
+  // history entry to pop, Back would navigate away from the note instead of
+  // closing the dialog — the wrong outcome on a phone, where Back IS the
+  // dismiss gesture. Push a sentinel while any modal is open and close on
+  // `popstate`; the cleanup removes the sentinel again when the modal was
+  // dismissed some other way (scrim tap, commit). See lib/modal-history.ts.
+  //
+  // Touch-only: on desktop Escape already dismisses, and silently changing
+  // what Back does there would be a surprise nobody asked for.
+  //
+  // Switching modal A -> B keeps `anyModalOpen` true across the batched state
+  // update, so the effect doesn't re-run and only one sentinel ever exists.
+  useEffect(() => {
+    if (!touchPrimary || !anyModalOpen) return
+    pushModalSentinel()
+    const onPopState = (): void => closeAll()
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      consumeModalSentinel()
+    }
+  }, [touchPrimary, anyModalOpen, closeAll])
+
   // Memoize the handler bag — its identity is the dep used by AssetViewer's
   // iframe re-bind effect, and we don't want to thrash the listener on every
   // render. `setX` state setters are stable refs; the closures depend on
   // `docId` (rename root guard) and `exists` (delete/rename presupposes a
   // real file).
   const shortcutHandlers = useMemo<ShortcutHandlers>(() => {
-    const closeAll = (): void => {
-      setQuickOpen(false)
-      setDeleteOpen(false)
-      setRenameOpen(false)
-      setUploadOpen(false)
-      setEmojiOpen(false)
-      setOptionsOpen(false)
-    }
     return {
       openQuickSwitcher: () => {
         closeAll()
@@ -117,7 +154,7 @@ export function EditorView() {
         setOptionsOpen(true)
       },
     }
-  }, [docId, exists, currentIsMd])
+  }, [docId, exists, currentIsMd, closeAll])
 
   useEffect(() => {
     return bindGlobalShortcuts(shortcutHandlers)
@@ -248,6 +285,13 @@ export function EditorView() {
         }}
       />
       <OptionsPanel open={optionsOpen} onClose={() => setOptionsOpen(false)} />
+      {touchPrimary && (
+        <TouchBar
+          handlers={shortcutHandlers}
+          exists={exists}
+          currentIsMd={currentIsMd}
+        />
+      )}
       <input
         ref={fileInputRef}
         type="file"

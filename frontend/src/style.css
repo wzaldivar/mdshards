@@ -471,3 +471,63 @@ body {
 .cm-list-line .cm-list-mark {
   color: var(--list-marker-color);
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Touch / mobile
+ * ---------------------------------------------------------------------------
+ * Scoped to `(pointer: coarse) and (hover: none)` — the same "primary pointer
+ * is a finger, no keyboard" signal `lib/touch.ts` gates the TouchBar on. Keep
+ * the two in lockstep: a rule that lands here should be one the TouchBar's
+ * presence implies, and vice versa.
+ *
+ * Plain `max-width` breakpoints stay separate on purpose — a narrow desktop
+ * window is a small screen, not a touch device.
+ */
+
+/* iOS inflates text in "text-size adjustment" mode on rotate, which desyncs
+   CodeMirror's measured line heights from what's painted. Pin it. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Mobile browser chrome (URL bar, tab strip) is *inside* the 100vh layout
+   viewport, so a `height: 100%` chain hides the bottom of the editor behind
+   it. `dvh` tracks the chrome as it collapses on scroll. Declared after the
+   `height: 100%` rule above so it simply wins where supported. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #app {
+    height: 100dvh;
+  }
+}
+
+@media (pointer: coarse) and (hover: none) {
+  /* Keep the last lines of the note reachable above the TouchBar (~56px plus
+     whatever the notch/home-indicator inset adds). Padding rather than a
+     margin so CodeMirror's scroll height accounts for it. */
+  .cm-content {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Fingers need bigger hit areas than a mouse pointer: a tap has to land the
+     cursor on the intended line, and a cramped line box makes that a coin
+     flip. Also widens the gap between adjacent tappable links.
+
+     This deliberately overrides the `max-width: 700px` rule above, which
+     drops to 14px — that breakpoint is for a narrow *desktop* window, where a
+     mouse can hit a 14px line precisely. A phone matches both queries and
+     must land on 16px, so this block has to stay LATER in the file. */
+  .cm-editor {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  /* Rendered table rows are tap targets too (tapping one drops the widget and
+     reveals the raw row for editing) — give them a real height to aim at. */
+  .cm-md-table-cell,
+  .cm-md-table-separator {
+    min-height: 32px;
+  }
+}

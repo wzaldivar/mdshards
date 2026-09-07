@@ -2,6 +2,7 @@ import { apiUrl } from '../lib/backend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { isViewableAsset } from '../lib/asset-kind'
+import { hasModalSentinel } from '../lib/modal-history'
 import { encodePathToUrl, validateVaultPath } from '../lib/paths'
 import { finalizeUploadPath } from '../lib/upload-path'
 import { SwitcherShell } from './SwitcherShell'
@@ -90,7 +91,7 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Rea
     })
     if (r.ok) {
       onClose()
-      navigate('/' + encodePathToUrl(docPath))
+      navigate('/' + encodePathToUrl(docPath), { replace: hasModalSentinel() })
     } else if (r.status === 409) {
       // Existing note: same accept-or-rename prompt as assets. On disk it
       // stays lowercase `.md` regardless of the source file's casing.
@@ -114,7 +115,8 @@ export function UploadSwitcher({ open, currentDocId, initialFile, onClose }: Rea
       // Auto-navigate only when the asset's URL shows something — media or an
       // iframe-renderable document. Anything else (.zip, .tar…) would just
       // bounce back as a download (blank page inside the sandbox), so stay put.
-      if (isViewableAsset(resolved)) navigate('/' + encodePathToUrl(resolved))
+      if (isViewableAsset(resolved))
+        navigate('/' + encodePathToUrl(resolved), { replace: hasModalSentinel() })
     } else if (r.status === 409) {
       // Collision: require acceptance or renaming, never silent replace.
       setCollidingPath(resolved)

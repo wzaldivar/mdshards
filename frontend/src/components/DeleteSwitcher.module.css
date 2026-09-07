@@ -33,3 +33,20 @@
   color: var(--danger-color);
   font-size: 13px;
 }
+
+/* Touch / mobile — see Switcher.module.css. Picker rows are the primary
+   tap targets once there's no keyboard to drive the selection. */
+@media (pointer: coarse) and (hover: none) {
+  .list {
+    /* The software keyboard eats roughly half the screen; a 50vh list would
+       be entirely behind it. */
+    max-height: 38vh;
+  }
+  .item {
+    /* 44px comfortable tap target, and 15px so a long vault path stays
+       legible at arm's length. */
+    min-height: 44px;
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+}

@@ -5,7 +5,7 @@
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=wzaldivar_mdshards&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=wzaldivar_mdshards)
 [![Known Vulnerabilities](https://snyk.io/test/github/wzaldivar/mdshards/badge.svg)](https://snyk.io/test/github/wzaldivar/mdshards)
 
-A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket.
+A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket. Keyboard-first on the desktop, and fully usable by touch on a phone or tablet — no keyboard required.
 
 **Live demo:** <https://mdshards-demo.wzaldivar.me> — a locked-down, ephemeral public instance (read-only home page, uploads disabled, resets periodically). It's for a quick look, not real use; for that, run the image below.
 
@@ -21,7 +21,10 @@ See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory
 
 - **I want a simple tool to edit the notes that live on my LAN server** —
   without sharing them over SMB. I already serve HTTP there; the notes should
-  just be one more thing the browser can reach.
+  just be one more thing the browser can reach, from whatever device is in my
+  hand. A browser is the one client every phone, tablet and laptop already has,
+  so the phone case is a first-class one rather than a scaled-down afterthought
+  (see [Touch & mobile](./FEATURES.md#touch--mobile)).
 - **I want my data to survive any environment.** Plain text (markdown) does
   it flawlessly: no database, no proprietary format, nothing to export. The
   vault is just `.md` files any tool can read.
@@ -221,6 +224,11 @@ with disk-flush verification, in-note images, the switcher shortcuts
 (go-to/create, rename, delete, emoji), sub-path (`BASE_URL`) containment, and
 split-mount permissions. WebKit gives real Safari-engine coverage. Nothing runs
 on a host browser.
+
+Touch journeys (`e2e/test_touch.py`) run the same way under Playwright's
+`is_mobile` emulation, on Chromium and WebKit only — Firefox's backend rejects
+touch emulation, and WebKit is the one that matters since iOS Safari is where
+that UI is actually met.
 
 CI (GitHub Actions) runs both suites with coverage on every push and PR and
 reports to Codecov, SonarCloud, and Snyk. Linking those services is a one-time

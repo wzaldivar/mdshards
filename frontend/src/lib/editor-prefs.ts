@@ -15,6 +15,8 @@
  * in lockstep.
  */
 
+import { isTouchPrimary, subscribeTouchPrimary } from './touch'
+
 export interface EditorPrefs {
   vim: boolean
   lineNumbers: boolean
@@ -37,12 +39,32 @@ function read(key: string): boolean {
   }
 }
 
+/**
+ * The user's preferences as they'll actually be applied.
+ *
+ * Two prefs are clamped off on a keyboardless touch device (see `lib/touch.ts`)
+ * because they presuppose a desktop:
+ *   - `vim` — modal editing needs Escape, `:`, and hjkl, none of which a
+ *     software keyboard offers, and a buffer stuck in NORMAL swallows every
+ *     keystroke, so the editor just looks broken.
+ *   - `centerLine` — typewriter scrolling centers within the CodeMirror
+ *     scroller, which is sized by the LAYOUT viewport; the software keyboard
+ *     only shrinks the VISUAL one. So the "centered" line lands under the
+ *     keyboard, and re-centering on every tap fights the browser's own caret
+ *     scrolling. On a phone-sized screen it costs vertical space and yanks the
+ *     viewport around for no benefit (user call, 2026-09-07).
+ *
+ * Both clamps are applied on READ, never by writing storage, so the stored
+ * choice survives: the same browser profile on a desktop (or a tablet docked to
+ * a keyboard) gets both back.
+ */
 export function getEditorPrefs(): EditorPrefs {
+  const touch = isTouchPrimary()
   return {
-    vim: read(KEYS.vim),
+    vim: read(KEYS.vim) && !touch,
     lineNumbers: read(KEYS.lineNumbers),
     relativeLineNumbers: read(KEYS.relativeLineNumbers),
-    centerLine: read(KEYS.centerLine),
+    centerLine: read(KEYS.centerLine) && !touch,
   }
 }
 
@@ -77,4 +99,9 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e: StorageEvent) => {
     if (e.key === null || ownKeys.has(e.key)) notify()
   })
+  // The clamps above are a function of the pointer capability, so a change in
+  // it changes the effective prefs even though storage didn't move. Fan it out
+  // on the same channel so the live editor reconfigures its vim / centre-line
+  // compartments (e.g. a tablet docked to / undocked from a keyboard case).
+  subscribeTouchPrimary(notify)
 }

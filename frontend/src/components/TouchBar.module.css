@@ -1,0 +1,56 @@
+/* The keyboardless action bar (TouchBar.tsx). Mounted only on touch-primary
+ * devices, so no media query is needed here — the gate is in EditorView. */
+
+.bar {
+  position: fixed;
+  /* `bottom` is set inline: 0 normally, lifted by the software keyboard's
+     height while it's up (see useKeyboardInset). */
+  left: 0;
+  right: 0;
+  z-index: 900; /* under the switcher backdrop (1000) and banners (1100) */
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  /* Clear the home indicator / rounded corners on notched phones. Needs
+     `viewport-fit=cover` in the viewport meta for env() to be non-zero. */
+  padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-alt);
+  border-top: 1px solid var(--bg-surface);
+  box-shadow: 0 -4px 16px rgb(var(--ctp-crust), 40%);
+  /* The bar is chrome, not content — a drag on it should never rubber-band
+     the page or start a text selection. */
+  touch-action: none;
+  user-select: none;
+}
+
+.button {
+  flex: 1 1 0;
+  /* 44px is the platform minimum comfortable tap target (iOS HIG / Material);
+     anything smaller gets mis-tapped on a phone. */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  /* Suppress the grey flash iOS paints over tapped controls; :active below is
+     the deliberate replacement. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button:active:not(:disabled) {
+  background: var(--bg-surface-elev);
+}
+
+.button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
