@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
         settings.vault_dir,
         settings.grace_period_seconds,
         settings.cache_dir,
+        cache_max_age_seconds=settings.cache_max_age_seconds,
     )
     # Files deleted while the server was offline leave behind orphan cache
     # entries; clear them so the next acquire doesn't resurrect old CRDT state.

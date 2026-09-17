@@ -109,9 +109,21 @@ class DocumentManager:
         vault_dir: Path,
         grace_period_seconds: float,
         cache_dir: Path,
+        cache_max_age_seconds: float | None = None,
     ) -> None:
         self._vault_dir = vault_dir
         self._grace = grace_period_seconds
+        # Cold-open cache validity window. Past it, every client that could
+        # still hold matching CRDT items has been dismissed (the client-side
+        # threshold is pinned to the grace period), so the cache is worthless
+        # and disk is simply the truth. Defaults to the grace period; may be
+        # configured longer for more item-ID continuity, never shorter — a
+        # shorter-lived cache would reintroduce the double-merge after a quick
+        # server restart, the one thing the cache exists to prevent.
+        self._cache_max_age = max(
+            grace_period_seconds,
+            cache_max_age_seconds if cache_max_age_seconds is not None else 0.0,
+        )
         # One bucket per vault, hashed so two vaults at different paths can't
         # collide on cache files when their internal layouts overlap.
         vault_hash = hashlib.sha256(str(vault_dir.resolve()).encode()).hexdigest()[:16]
@@ -172,18 +184,32 @@ class DocumentManager:
         authoritative: str
         cached_update: bytes | None = None
         if cache_path.exists():
-            try:
-                cached_update = cache_path.read_bytes()
-            except OSError:
-                # Unreadable cache (mount permissions) — the cache is an
-                # optimization, so degrade to a fresh disk load instead of
-                # refusing to open the note at all.
-                logger.warning(
-                    "CRDT cache unreadable at %s — loading %s fresh from disk",
-                    cache_path,
+            if self._cache_is_stale(cache_path):
+                # Older than the validity window: any client that saw these
+                # CRDT items disconnected past the dismiss threshold and has
+                # thrown its local doc away, so there's nothing left to
+                # double-merge against. Drop the cache and let disk win
+                # wholesale — no conflict file; an idle note edited externally
+                # (Obsidian/Syncthing) must reopen showing the disk content.
+                logger.info(
+                    "CRDT cache for %s is older than %.0fs — dropping it; disk is the truth",
                     disk_path,
-                    exc_info=True,
+                    self._cache_max_age,
                 )
+                self._unlink_cache(cache_path)
+            else:
+                try:
+                    cached_update = cache_path.read_bytes()
+                except OSError:
+                    # Unreadable cache (mount permissions) — the cache is an
+                    # optimization, so degrade to a fresh disk load instead of
+                    # refusing to open the note at all.
+                    logger.warning(
+                        "CRDT cache unreadable at %s — loading %s fresh from disk",
+                        cache_path,
+                        disk_path,
+                        exc_info=True,
+                    )
         if cached_update is not None:
             # Restore the prior CRDT state with all its original item IDs so
             # clients still holding a Y.Doc from before can sync against the
@@ -362,9 +388,34 @@ class DocumentManager:
             state.flush_task.cancel()
             with suppress(asyncio.CancelledError):
                 await state.flush_task
+        # Drop the blob cache too (after the flush task is gone, so nothing can
+        # rewrite it): it still holds the web-side text we just moved to the
+        # conflict file. Left behind, the next _load would restore the kicked
+        # doc from cache, see the canonical FS version as divergence, and
+        # conflict-file IT — inverting FS-is-king. Best-effort, like all cache
+        # maintenance: a failure must not abort the kick.
+        try:
+            self._unlink_cache(self._cache_path(state.disk_path))
+        except OSError:
+            logger.warning(
+                "could not drop the CRDT cache for conflicted %s — the next "
+                "open may resurrect the pre-conflict web text",
+                state.disk_path,
+                exc_info=True,
+            )
         signal = KickSignal(code=DOC_MOVED_CODE, reason=conflict_id)
         for q in state.subscribers:
             q.put_nowait(signal)
+
+    def _cache_is_stale(self, cache_path: Path) -> bool:
+        """Whether a cold-open should trust `cache_path`. Age is time since the
+        last cache write (every flush rewrites it, including eviction's final
+        one), so it measures how long the doc has been unloaded. A stat failure
+        counts as stale — degrading to a fresh disk load is the safe direction."""
+        try:
+            return (time.time() - cache_path.stat().st_mtime) > self._cache_max_age
+        except OSError:
+            return True
 
     def _write_cache(self, state: _DocState) -> None:
         # Persist the binary CRDT state so the next load rehydrates items with

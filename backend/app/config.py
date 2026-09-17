@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     # the vault so the vault itself stays strictly plain `.md`. Overridable
     # via CACHE_DIR; `~` is expanded so `CACHE_DIR=~/.local/share/...` works.
     cache_dir: Path = Path("~/.cache/mdshards").expanduser()
+    # How long a `.yjs` cache entry stays valid on a cold open. Past this age
+    # every client that could still hold matching CRDT items has already been
+    # dismissed (the client-side read-only/dismiss threshold is pinned to the
+    # grace period), so the cache's only purpose — preventing a double-merge —
+    # is gone: it's dropped and disk seeds the doc fresh, no conflict file.
+    # Defaults to the grace period; may be configured LONGER for more item-ID
+    # continuity (values below the grace period are clamped up to it — a
+    # shorter-lived cache would reintroduce the double-merge after a quick
+    # server restart). Overridable via CACHE_MAX_AGE_SECONDS.
+    cache_max_age_seconds: float | None = None
     # Interface + port uvicorn binds to. Internal to the process — these are
     # NOT the public-facing URL when running behind a reverse proxy; use the
     # `base_url` setting below for a sub-path mount.

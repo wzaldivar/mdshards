@@ -82,7 +82,8 @@ async def test_eviction_persists_and_drops(tmp_path: Path) -> None:
         # Re-acquire should give a different state instance...
         b = await mgr.acquire("foo")
         assert b is not a
-        # ...but with the cache in place, the rebuilt Doc holds the same text.
+        # ...holding the same text — from the cache if still within the
+        # validity window, else seeded fresh from the just-flushed disk file.
         assert str(b.doc.get(TEXT_KEY, type=Text)) == "persisted"
     finally:
         await mgr.shutdown()
@@ -460,8 +461,11 @@ async def test_cache_preserves_item_ids_across_manager_recreate(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -> None:
-    """Cache says one thing, disk says another → conflict file from disk,
-    Doc keeps the cached text."""
+    """The WITHIN-validity-window case (default grace keeps the cache fresh
+    here): a reconnecting client may still hold matching CRDT items, so the
+    cache is restored — Doc keeps the cached text and the diverged disk
+    content is preserved as a conflict file. The stale-cache case is the
+    opposite: see test_stale_cache_is_dropped_and_disk_wins."""
     mgr1 = _mgr(tmp_path)
     try:
         s = await mgr1.acquire("foo")
@@ -483,6 +487,78 @@ async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -
         assert conflicts[0].read_text() == "from disk"
     finally:
         await mgr2.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_stale_cache_is_dropped_and_disk_wins(tmp_path: Path) -> None:
+    """Cold open with a cache older than the validity window: every client
+    that could still hold matching CRDT items has been dismissed (client-side
+    threshold = grace), so the cache is dropped and disk seeds the doc fresh —
+    no stale text, no spurious conflict file. This is the idle-note path of
+    the primary flow: edit in the web, leave it, edit in Obsidian (the watcher
+    skips idle notes by design), reopen in the web days later."""
+    mgr1 = _mgr(tmp_path)
+    try:
+        s = await mgr1.acquire("foo")
+        s.doc.get(TEXT_KEY, type=Text).__iadd__("from the editor")
+        await _persist(mgr1, s)
+    finally:
+        await mgr1.shutdown()
+
+    (tmp_path / "foo.md").write_text("from disk")  # external edit while idle
+
+    await asyncio.sleep(0.2)  # let the cache age past mgr2's validity window
+    mgr2 = _mgr(tmp_path, grace_period_seconds=0.05)
+    try:
+        s2 = await mgr2.acquire("foo")
+        assert str(s2.doc.get(TEXT_KEY, type=Text)) == "from disk"
+        assert not list(tmp_path.glob("*conflict*"))
+    finally:
+        await mgr2.shutdown()
+
+
+def test_cache_max_age_defaults_to_grace_and_clamps_up(tmp_path: Path) -> None:
+    """Unset → the grace period. Longer → honored (more item-ID continuity,
+    still safe: dismissal is client-side regardless). Shorter → clamped up,
+    or a quick server restart would reintroduce the double-merge the cache
+    exists to prevent."""
+    cache = tmp_path / "cache"
+    assert DocumentManager(tmp_path, 30.0, cache)._cache_max_age == 30.0
+    assert (
+        DocumentManager(tmp_path, 30.0, cache, cache_max_age_seconds=300.0)._cache_max_age == 300.0
+    )
+    assert DocumentManager(tmp_path, 30.0, cache, cache_max_age_seconds=5.0)._cache_max_age == 30.0
+
+
+@pytest.mark.asyncio
+async def test_conflict_purges_cache_so_reopen_gets_fs_version(tmp_path: Path) -> None:
+    """The conflict kick must drop the blob cache along with the doc: the cache
+    still holds the web-side text that just moved to the conflict file, and
+    restoring it on the next open would demote the canonical FS version into a
+    SECOND conflict file — inverting FS-is-king."""
+    (tmp_path / "foo.md").write_text("baseline")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        await _persist(mgr, state)  # cache now holds the web-side state
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")  # ours diverges
+        (tmp_path / "foo.md").write_text("external write")  # theirs, same region
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        assert not mgr._cache_path(tmp_path / "foo.md").exists()
+
+        s2 = await mgr.acquire("foo")
+        assert str(s2.doc.get(TEXT_KEY, type=Text)) == "external write"  # FS canonical
+        # exactly the one conflict file from the kick — reopening created no second
+        assert len(list(tmp_path.glob("foo.mdshards-conflict-*.md"))) == 1
+    finally:
+        await mgr.shutdown()
 
 
 @pytest.mark.asyncio
