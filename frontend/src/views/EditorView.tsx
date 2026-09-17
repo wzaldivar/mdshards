@@ -50,6 +50,13 @@ export function EditorView() {
   const editorApiRef = useRef<EditorApi | null>(null)
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
   const [movedTo, setMovedTo] = useState<string | null>(null)
+  // The moved/conflict banner is about the doc it arrived on. EditorView never
+  // remounts (it's the single catch-all route), so navigating to another note
+  // must clear it explicitly — otherwise the banner overlays the new note and
+  // Dismiss yanks the user home off a page they deliberately opened.
+  useEffect(() => {
+    setMovedTo(null)
+  }, [docId])
   // True while a lost server connection has outlasted the grace window and the
   // editor is locked read-only. Reset automatically when the Editor unmounts
   // (docId change) or reconnects.

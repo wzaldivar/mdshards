@@ -77,7 +77,11 @@ async def move_file(req: MoveFileRequest, request: Request) -> dict:
         raise HTTPException(403, detail="cannot rename to index.md")
     if not src_path.exists():
         raise HTTPException(404, detail="source not found")
-    if dst_path.exists():
+    # On a case-insensitive filesystem a case-only rename (foo → Foo) sees its
+    # own inode at the destination — that's not a collision. Mirrors the same
+    # carve-out on /api/assets/move; without it the casing of a note could
+    # never be fixed through the UI on macOS/Windows.
+    if dst_path.exists() and not dst_path.samefile(src_path):
         raise HTTPException(409, detail="destination already exists")
     # Order matters (same reasoning as delete): kick + move cache before the
     # disk move, so a racing flush can't recreate the source.

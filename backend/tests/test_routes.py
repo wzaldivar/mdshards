@@ -463,6 +463,19 @@ def test_move_renames_file_and_prunes_source_dirs(client) -> None:
     assert not (vault / "old").exists()
 
 
+def test_move_allows_case_only_rename(client) -> None:
+    """A case-only rename (casefix → CaseFix) resolves to the same inode on a
+    case-insensitive filesystem — that's the sanctioned casing repair, not a
+    collision (same carve-out as /api/assets/move). On a case-sensitive
+    filesystem the destination simply doesn't exist. Both worlds: success."""
+    c, vault = client
+    (vault / "casefix.md").write_text("body")
+    r = c.post("/_mdshards/api/files/move", json={"src": "casefix", "dst": "CaseFix"})
+    assert r.status_code == 200
+    assert "CaseFix.md" in [p.name for p in vault.iterdir()]
+    assert (vault / "CaseFix.md").read_text() == "body"
+
+
 def test_move_rejects_existing_destination(client) -> None:
     c, vault = client
     (vault / "a.md").write_text("")

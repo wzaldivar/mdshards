@@ -82,6 +82,30 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     expect(posts[0].body).toEqual({ path: 'brand/new note' })
   })
 
+  it('strips leading slashes so "/brand/new" creates brand/new and navigates cleanly', async () => {
+    // Unstripped, '/' + '/brand/new' would navigate to the scheme-relative
+    // '//brand/new' — pushState rejects it and react-router escalates to a
+    // full page load toward host "brand". The create must land at the
+    // vault-relative path and the URL must carry a single slash.
+    const posts = stubFetch(201)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: '/brand/new' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/brand/new'))
+    expect(posts[0].body).toEqual({ path: 'brand/new' })
+  })
+
+  it('Shift-Enter on "/index" navigates home instead of creating', async () => {
+    const posts = stubFetch()
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: '/index' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+    expect(posts).toHaveLength(0)
+  })
+
   it('surfaces a create failure without navigating', async () => {
     stubFetch(409)
     renderSwitcher()

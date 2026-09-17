@@ -98,6 +98,21 @@ describe('RenameSwitcher', () => {
     expect(pendingRenames.has('notes/tomorrow')).toBe(true)
   })
 
+  it('strips a leading slash from the target before renaming and navigating', async () => {
+    // '/' + '/notes/tomorrow' would navigate to the scheme-relative
+    // '//notes/tomorrow' AFTER the rename already landed on disk — pushState
+    // rejects it and react-router escalates to a full page load. The stripped
+    // vault-relative form must be what the request, the suppression entry,
+    // and the navigation all use.
+    const calls = stubFetch(200, { from: 'notes/today', to: 'notes/tomorrow' })
+    renderRename('notes/today', true)
+    const input = await typeTarget('/notes/tomorrow')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/notes/tomorrow'))
+    expect(calls[0].body).toEqual({ src: 'notes/today', dst: 'notes/tomorrow' })
+    expect(pendingRenames.has('notes/tomorrow')).toBe(true)
+  })
+
   it('cleans up pendingRenames and surfaces the error on failure, without navigating', async () => {
     stubFetch(409, { detail: 'destination already exists' })
     renderRename('notes/today', true)

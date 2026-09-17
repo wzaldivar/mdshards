@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 
 /*
  * Server-initiated kicks (same FakeProvider harness as
@@ -150,6 +150,37 @@ describe('server-initiated kicks', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loc').textContent).toBe('/renamed/elsewhere'),
     )
+  })
+
+  it('the follow banner does not survive navigating to another note', async () => {
+    // The banner is about the doc it arrived on; EditorView never remounts
+    // (single catch-all route), so it must reset the banner on docId change —
+    // otherwise it overlays the next note and its Dismiss navigates home off
+    // a page the user deliberately opened.
+    function NavElsewhere() {
+      const navigate = useNavigate()
+      return (
+        <button type="button" onClick={() => navigate('/other/note')}>
+          go-elsewhere
+        </button>
+      )
+    }
+    stubResolveMd()
+    render(
+      <MemoryRouter initialEntries={['/notes/today']}>
+        <Routes>
+          <Route path="*" element={<EditorView />} />
+        </Routes>
+        <NavElsewhere />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(document.querySelector('.cm-editor')).not.toBeNull())
+    close(4002, 'renamed/elsewhere')
+    await screen.findByText(/was moved to/i)
+    fireEvent.click(screen.getByRole('button', { name: /go-elsewhere/i }))
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/other/note'))
+    await waitFor(() => expect(screen.queryByText(/was moved to/i)).toBeNull())
   })
 
   it('bare 1006 (Safari) learns the destination from /api/moved and offers follow', async () => {

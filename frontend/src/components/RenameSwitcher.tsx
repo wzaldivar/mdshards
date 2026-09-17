@@ -39,7 +39,10 @@ export function RenameSwitcher({ open, currentDocId, currentIsMd, onClose }: Rea
   }, [open, currentDocId])
 
   async function commit(): Promise<void> {
-    const dst = target.trim()
+    // Strip leading slashes: validateVaultPath tolerates them (and the backend
+    // lstrips), but navigating '/' + '/foo' would build the scheme-relative
+    // '//foo' and blow up pushState — see QuickSwitcher.commit for the story.
+    const dst = target.trim().replace(/^\/+/, '')
     if (!dst || dst === currentDocId) {
       onClose()
       return
