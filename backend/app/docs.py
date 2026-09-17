@@ -23,6 +23,19 @@ from pycrdt import Doc, Subscription, Text, create_update_message
 from .files import read_md, write_bytes_atomic, write_md_atomic
 from .vault import VaultPathError, assert_inside, resolve_md
 
+# A panic in pycrdt's Rust layer (e.g. a Y.Text splice landing inside a
+# multibyte UTF-8 sequence) surfaces as pyo3's PanicException, which subclasses
+# BaseException, NOT Exception — a bare `except Exception` lets it kill the
+# flush loop permanently, turning one bad splice into silent, total write loss
+# for that doc. Catch it wherever a doc mutation must not take the loop down.
+try:
+    from pyo3_runtime import PanicException as _RustPanic
+except ImportError:  # pragma: no cover — pyo3_runtime ships with pycrdt
+
+    class _RustPanic(BaseException):
+        pass
+
+
 logger = logging.getLogger("mdshards.docs")
 
 FLUSH_QUIET_SECONDS = 0.5
@@ -229,7 +242,7 @@ class DocumentManager:
                     moved = await self._flush_out(state)
                 if moved:
                     return  # doc was moved to a conflict file; this loop is done
-            except Exception:
+            except Exception, _RustPanic:
                 logger.exception(
                     "flush of %s FAILED — the vault did not receive this "
                     "change; will retry on the next edit. Check mount "
@@ -440,17 +453,32 @@ class DocumentManager:
         """Transform the live `Y.Text` from `current` into `target` by replaying
         `SequenceMatcher` opcodes as splices in one transaction, in reverse
         (EOF→0) so each edit's indices stay valid — a splice only shifts
-        positions at or after it, and later opcodes hold higher indices."""
+        positions at or after it, and later opcodes hold higher indices.
+
+        pycrdt's `Text` indexes by UTF-8 BYTE offset (yrs's native addressing),
+        while the opcodes carry Python code-point indices. Any multibyte
+        character before a splice point skews every later index — even a pure
+        ASCII edit gets misapplied below an `é` — so translate through a
+        prefix-sum table before splicing. A misaligned splice doesn't just
+        garble text: landing inside a multibyte sequence panics the Rust layer,
+        and pyo3 panics are BaseException (see the flush-loop guard)."""
         text = state.doc.get(TEXT_KEY, type=Text)
         opcodes = difflib.SequenceMatcher(a=current, b=target, autojunk=False).get_opcodes()
+        if current.isascii():
+            byte_at = None  # byte offsets == code-point indices; skip the table
+        else:
+            byte_at = [0] * (len(current) + 1)
+            for i, ch in enumerate(current):
+                byte_at[i + 1] = byte_at[i] + len(ch.encode("utf-8"))
         with state.doc.transaction():
             for tag, i1, i2, j1, j2 in reversed(opcodes):
                 if tag == "equal":
                     continue
+                b1, b2 = (i1, i2) if byte_at is None else (byte_at[i1], byte_at[i2])
                 if tag in ("replace", "delete"):
-                    del text[i1:i2]
+                    del text[b1:b2]
                 if tag in ("replace", "insert"):
-                    text.insert(i1, target[j1:j2])
+                    text.insert(b1, target[j1:j2])
 
     async def rename(self, src_doc_id: str, dst_doc_id: str) -> None:
         """Kick everyone attached to `src` (so they stop editing into a Doc
@@ -618,7 +646,7 @@ class DocumentManager:
         try:
             async with state.io_lock:
                 await self._flush_out(state)
-        except Exception:
+        except Exception, _RustPanic:
             # The final flush is best-effort: raising here would abort
             # eviction (leaking the doc) or cut a shutdown loop short,
             # dropping OTHER docs' final flushes with it.

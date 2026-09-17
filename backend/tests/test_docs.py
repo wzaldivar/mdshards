@@ -125,6 +125,80 @@ async def test_self_write_event_is_a_noop(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reconcile_external_is_multibyte_safe(tmp_path: Path) -> None:
+    """The ghost merge translates SequenceMatcher's code-point indices into
+    the UTF-8 byte offsets pycrdt's Text actually speaks. Regression: a pure
+    ASCII external edit BELOW a multibyte character (é/ö) used to land skewed
+    ('second li changedne') because every byte offset past the é was off by
+    the multibyte surplus."""
+    (tmp_path / "foo.md").write_text("héllo wörld\nsecond line\n")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        (tmp_path / "foo.md").write_text("héllo wörld\nsecond line changed\n")
+        await mgr.reconcile_external(tmp_path / "foo.md")
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == "héllo wörld\nsecond line changed\n"
+        assert not list(tmp_path.glob("*conflict*"))
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_disjoint_merge_combines_with_multibyte_on_both_sides(tmp_path: Path) -> None:
+    """Disjoint live + external edits combine in a doc holding 2-byte (í) and
+    4-byte (emoji) characters: the external hunk splices at its correct
+    position even though the live doc has already diverged further down."""
+    baseline = "títle\n\nmiddle ✏️ line\n\nend\n"
+    (tmp_path / "foo.md").write_text(baseline)
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        # Pause the auto-flush so the baseline stays put while both sides diverge.
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__("appended (web)\n")  # ours: EOF
+        (tmp_path / "foo.md").write_text("títle!\n\nmiddle ✏️ line\n\nend\n")  # theirs: line 1
+
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        merged = "títle!\n\nmiddle ✏️ line\n\nend\nappended (web)\n"
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == merged
+        assert not list(tmp_path.glob("*conflict*"))
+        await _persist(mgr, state)
+        assert (tmp_path / "foo.md").read_text() == merged
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flush_loop_survives_rust_panic(tmp_path: Path) -> None:
+    """A pyo3 panic is BaseException, not Exception — the flush loop's guard
+    must catch it and keep the loop alive (log-and-retry), or one bad splice
+    turns into silent, total write loss for the doc."""
+    from app.docs import FLUSH_QUIET_SECONDS, _RustPanic
+
+    (tmp_path / "foo.md").write_text("content")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+
+        async def boom(_state) -> bool:
+            raise _RustPanic("simulated Rust panic")
+
+        mgr._flush_out = boom  # type: ignore[method-assign]
+        state.flush_pending.set()
+        await asyncio.sleep(FLUSH_QUIET_SECONDS + 0.2)
+        assert state.flush_task is not None and not state.flush_task.done()
+    finally:
+        mgr._flush_out = type(mgr)._flush_out.__get__(mgr)  # restore for shutdown
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_rename_moves_the_binary_cache(tmp_path: Path) -> None:
     """rename() must carry the .yjs cache to the destination so re-acquires
     preserve CRDT item IDs across the move."""
