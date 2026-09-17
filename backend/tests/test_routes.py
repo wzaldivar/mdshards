@@ -606,6 +606,42 @@ def test_asset_upload_case_variant_is_not_a_collision(client) -> None:
     assert (vault / "pic.png").read_bytes() == b"lower"
 
 
+def test_asset_upload_rejects_dangling_symlink_escape(client, tmp_path) -> None:
+    """A dangling symlink planted in the vault (e.g. synced in by an external
+    writer — the HTTP API can't create one) must not turn an upload into a
+    write outside the vault: `exists()` follows the link and reports False, so
+    there's no 409 to stop it — containment itself has to see through the leaf."""
+    c, vault = client
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (vault / "evil.png").symlink_to(outside / "pwned.txt")  # target doesn't exist
+    r = c.post(
+        "/_mdshards/api/assets",
+        data={"path": "evil.png"},
+        files={"file": ("evil.png", b"attacker bytes", "image/png")},
+    )
+    assert r.status_code == 400
+    assert not (outside / "pwned.txt").exists()
+
+
+def test_asset_upload_through_in_vault_symlink_stays_contained(client) -> None:
+    """An in-vault symlink is a legitimate alias (same stance as the tree
+    walker): resolve_asset resolves through it, so the upload lands on the
+    RESOLVED target — inside the vault, containment-checked — and the alias
+    keeps pointing at it."""
+    c, vault = client
+    (vault / "real.png").write_bytes(b"original")
+    (vault / "alias.png").symlink_to(vault / "real.png")
+    r = c.post(
+        "/_mdshards/api/assets",
+        data={"path": "alias.png", "overwrite": "true"},
+        files={"file": ("alias.png", b"new bytes", "image/png")},
+    )
+    assert r.status_code == 201
+    assert (vault / "real.png").read_bytes() == b"new bytes"
+    assert (vault / "alias.png").is_symlink()
+
+
 def test_asset_upload_rejects_no_extension(client) -> None:
     c, _ = client
     r = c.post(

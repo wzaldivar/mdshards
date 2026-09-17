@@ -147,3 +147,37 @@ def test_assert_inside_rejects_absolute_path_outside(tmp_path: Path) -> None:
     outside = Path("/etc/passwd")
     with pytest.raises(VaultPathError):
         assert_inside(outside, tmp_path)
+
+
+def test_assert_inside_rejects_dangling_symlink_leaf(tmp_path: Path) -> None:
+    """A dangling symlink is the crack between assert_inside's two cases:
+    `exists()` follows the link and reports False, so the old code re-attached
+    the leaf UNRESOLVED and containment passed — then a follow-semantics write
+    (`open("wb")`) created the link's target outside the vault. The link must
+    be resolved like any other existing component."""
+    outside = tmp_path.parent / f"outside_{tmp_path.name}"
+    outside.mkdir(exist_ok=True)
+    (tmp_path / "evil.png").symlink_to(outside / "pwned.txt")  # target doesn't exist
+    with pytest.raises(VaultPathError):
+        assert_inside(tmp_path / "evil.png", tmp_path)
+
+
+def test_assert_inside_rejects_dangling_symlink_ancestor(tmp_path: Path) -> None:
+    """Same crack one level up: a dangling symlink as a not-yet-created
+    ancestor. `mkdir(parents=True)` through it would create the link's target
+    dir outside the vault, so the walk-up must stop at the link and resolve it
+    rather than treating it as missing."""
+    outside = tmp_path.parent / f"outside_{tmp_path.name}"
+    outside.mkdir(exist_ok=True)
+    (tmp_path / "danglink").symlink_to(outside / "not_yet")  # target doesn't exist
+    with pytest.raises(VaultPathError):
+        assert_inside(tmp_path / "danglink" / "sub" / "file.md", tmp_path)
+
+
+def test_assert_inside_accepts_dangling_symlink_staying_inside(tmp_path: Path) -> None:
+    """Containment is about escape, not about symlinks per se (same stance as
+    the tree walker): a dangling link whose target resolves inside the root
+    passes."""
+    (tmp_path / "alias.png").symlink_to(tmp_path / "future.png")  # target doesn't exist
+    resolved = assert_inside(tmp_path / "alias.png", tmp_path)
+    assert resolved.is_relative_to(tmp_path.resolve())

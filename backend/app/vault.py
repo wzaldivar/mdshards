@@ -62,10 +62,18 @@ def _resolve_nonexistent(path: Path) -> Path:
     """Resolve a path whose final component(s) may not exist yet. Walks up to
     the nearest existing ancestor, resolves THAT (following any symlinks in
     the existing prefix), then re-attaches the missing tail. This is what lets
-    `assert_inside` catch symlinks planted at not-yet-created parent dirs."""
+    `assert_inside` catch symlinks planted at not-yet-created parent dirs.
+
+    A DANGLING symlink must stop the walk too: `exists()` follows the link and
+    reports False, but the component is very much there — treating it as
+    missing would re-attach it unresolved, containment would pass, and a later
+    follow-semantics write (`open("wb")`, `mkdir(parents=True)`) would create
+    the link's target outside the root. `cur.resolve()` chases the link chain
+    (non-strict, so a missing final target still resolves lexically) and the
+    escape becomes visible to the caller's containment check."""
     missing: list[str] = []
     cur = path
-    while not cur.exists():
+    while not (cur.exists() or cur.is_symlink()):
         if cur.parent == cur:
             return path.resolve(strict=False)
         missing.append(cur.name)

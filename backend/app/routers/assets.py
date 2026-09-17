@@ -1,4 +1,3 @@
-import shutil
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -6,7 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import get_settings
-from ..files import delete_with_prune, move_with_prune
+from ..files import delete_with_prune, move_with_prune, write_stream_atomic
 from ..vault import VaultPathError, resolve_asset, resolve_md
 from .pages import asset_response
 
@@ -84,10 +83,10 @@ class MoveAssetRequest(BaseModel):
     dst: str
 
 
-# Sync `def` on purpose: the body does blocking file I/O
-# (`Path.open`/`copyfileobj`). FastAPI runs a sync path operation in its
-# threadpool, so the copy never blocks the event loop — the correct fix for
-# "sync I/O in an async function" here, rather than pulling in aiofiles.
+# Sync `def` on purpose: the body does blocking file I/O (the streamed
+# atomic write). FastAPI runs a sync path operation in its threadpool, so the
+# copy never blocks the event loop — the correct fix for "sync I/O in an
+# async function" here, rather than pulling in aiofiles.
 @router.post(
     "/assets",
     status_code=201,
@@ -124,9 +123,10 @@ def upload_asset(
         raise HTTPException(400, detail=".md paths are not assets; use /api/files")
     if target.exists() and not overwrite:
         raise HTTPException(409, detail="already exists")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    # Temp + os.replace (never a follow-semantics open on the target): a
+    # symlink at the destination is replaced, not written through, and an
+    # aborted upload leaves no truncated file behind.
+    write_stream_atomic(target, file.file, settings.vault_dir)
     return {"path": path}
 
 
