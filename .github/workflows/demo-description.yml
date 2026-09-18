@@ -26,6 +26,20 @@ jobs:
   describe:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate ref input
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          # Only the demo branch may be used for the demo description.
+          # Reject any other ref to prevent unauthorized content from reaching
+          # the public Docker Hub page without passing through protected-branch review.
+          if [ "$INPUT_REF" != "demo" ]; then
+            echo "::error::Refusing to sync description from ref '$INPUT_REF'."
+            echo "Only the 'demo' branch may be used for the demo Docker Hub description."
+            echo "Attempted ref: $INPUT_REF"
+            exit 1
+          fi
+          echo "OK: ref '$INPUT_REF' is authorized for demo description sync."
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}

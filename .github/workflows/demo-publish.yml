@@ -25,6 +25,20 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate ref input
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          # Only the demo branch may be published to the public demo image.
+          # Reject any other ref to prevent unauthorized code from reaching the
+          # trusted artifact without passing through protected-branch review.
+          if [ "$INPUT_REF" != "demo" ]; then
+            echo "::error::Refusing to publish ref '$INPUT_REF' to the demo image."
+            echo "Only the 'demo' branch may be published to wzaldivar/mdshards-demo:latest."
+            echo "Attempted ref: $INPUT_REF"
+            exit 1
+          fi
+          echo "OK: ref '$INPUT_REF' is authorized for demo publication."
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
