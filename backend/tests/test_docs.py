@@ -746,3 +746,59 @@ def test_cache_path_stays_inside_cache_root(tmp_path: Path) -> None:
     disk.write_text("x")
     cache_path = mgr._cache_path(disk)
     assert cache_path.is_relative_to(mgr._cache_root.resolve())
+
+
+def test_cache_is_stale_when_stat_fails(tmp_path: Path) -> None:
+    """A cache file we can't stat must read as STALE, not fresh: the fresh
+    branch keeps the cached doc and demotes disk into a conflict file, so
+    guessing "fresh" on an unreadable cache would invent conflicts. Degrading
+    to a plain disk load is the safe direction."""
+    mgr = _mgr(tmp_path)
+    assert mgr._cache_is_stale(mgr._cache_root / "never" / "written.yjs")
+
+
+@pytest.mark.asyncio
+async def test_conflict_kick_survives_an_unremovable_cache(tmp_path: Path) -> None:
+    """Dropping the blob cache is best-effort maintenance (a read-only CACHE_DIR
+    mount is the real-world case). An OSError there must be logged and stepped
+    over — never abort the kick, which would strand clients on a doc the server
+    has already conflicted away."""
+    (tmp_path / "foo.md").write_text("baseline")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        await _persist(mgr, state)
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        q: asyncio.Queue[bytes | KickSignal] = asyncio.Queue()
+        state.subscribers.add(q)
+
+        def _boom(_path: Path) -> None:
+            raise OSError("read-only cache mount")
+
+        mgr._unlink_cache = _boom  # type: ignore[method-assign]
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")
+        (tmp_path / "foo.md").write_text("external write")
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        # The kick still happened end to end: ours preserved, clients forwarded,
+        # doc dropped, FS left canonical.
+        conflicts = list(tmp_path.glob("foo.mdshards-conflict-*.md"))
+        assert len(conflicts) == 1
+        assert conflicts[0].read_text() == "baseline edited"
+        drained = []
+        while not q.empty():
+            drained.append(q.get_nowait())
+        kicks = [s for s in drained if isinstance(s, KickSignal)]
+        assert len(kicks) == 1
+        assert kicks[0].code == DOC_MOVED_CODE
+        assert kicks[0].reason == conflicts[0].stem
+        assert str(tmp_path.resolve() / "foo.md") not in mgr._docs
+        assert (tmp_path / "foo.md").read_text() == "external write"
+    finally:
+        await mgr.shutdown()
