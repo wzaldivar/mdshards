@@ -37,9 +37,10 @@ jobs:
         id: meta
         env:
           TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+            VERSION="$INPUT_VERSION"
           else
             VERSION="${GITHUB_REF_NAME#v}"   # strip leading v from the tag
           fi
