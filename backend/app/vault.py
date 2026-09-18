@@ -35,6 +35,21 @@ def _validate(url_path: str) -> str:
             raise VaultPathError(f"illegal path segment: {p!r}")
         if "\\" in p:
             raise VaultPathError("backslash in path segment")
+        # Windows filesystem operations normalize trailing spaces and periods.
+        # A component like ".. " or "foo." would pass the above checks but be
+        # interpreted as ".." or "foo" by Win32, enabling traversal or name
+        # collisions. Reject any component whose stripped form differs from the
+        # original or matches a traversal token after stripping.
+        stripped_component = p.rstrip(" .")
+        if stripped_component != p:
+            raise VaultPathError(
+                f"path segment {p!r} contains trailing spaces or periods "
+                "(normalized by Windows filesystem)"
+            )
+        if stripped_component in ("", ".", ".."):
+            raise VaultPathError(
+                f"path segment {p!r} normalizes to illegal segment {stripped_component!r}"
+            )
     return "/".join(parts)
 
 
