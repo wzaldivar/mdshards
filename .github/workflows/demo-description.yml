@@ -29,6 +29,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
+      - name: Reject symlink readme (security boundary)
+        run: |
+          README_PATH="./docs/dockerhub-demo-overview.md"
+          if [ -L "$README_PATH" ]; then
+            echo "::error::readme-filepath is a symlink. Symlinks can leak runner-readable files (checkout tokens, secrets) to the published Docker Hub page. The file must be a regular file in the repository."
+            exit 1
+          fi
+          if [ ! -f "$README_PATH" ]; then
+            echo "::error::readme-filepath does not exist or is not a regular file: $README_PATH"
+            exit 1
+          fi
       - uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
