@@ -137,6 +137,29 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     expect(screen.getByTestId('loc').textContent).toBe('/existing')
   })
 
+  it('tapping the Create row creates the note — the touch path to the only file-creating surface', async () => {
+    // Shift-Enter is unreachable on a software keyboard, so the hint row is a
+    // real button. Without it a phone could not create a note at all.
+    const posts = stubFetch(201)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'tapped/note' } })
+    const createBtn = await screen.findByRole('button', { name: /create .*tapped\/note/i })
+    fireEvent.click(createBtn)
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/tapped/note'))
+    expect(posts[0].body).toEqual({ path: 'tapped/note' })
+  })
+
+  it('offers no Create row once the typed path matches exactly', async () => {
+    stubFetch()
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'existing' } })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^create /i })).toBeNull(),
+    )
+  })
+
   it('clicking a row navigates to it', async () => {
     stubFetch()
     renderSwitcher()
