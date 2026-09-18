@@ -89,6 +89,8 @@ VOLUME ["/data"]
 
 EXPOSE 8000
 
+USER 1000
+
 # uvicorn binds 0.0.0.0:8000 — the only externally reachable surface. The
 # /api and /ws routers ride on the same port (they have to: the browser hits
 # them after loading the bundle), but there is no separately addressable
