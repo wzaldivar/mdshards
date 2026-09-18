@@ -26,8 +26,11 @@ jobs:
   describe:
     runs-on: ubuntu-latest
     steps:
+      # Read-only checkout: no job pushes back to the repo, so don't leave
+      # GITHUB_TOKEN in the runner's git config for later steps to read.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
       - uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
         with:
