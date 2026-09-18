@@ -28,10 +28,42 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Require manual approval via the `release` environment before publishing.
+    # This binds Docker Hub publication to an independent approval step, not just
+    # tag/ref selection authority. Configure the environment at Settings →
+    # Environments → release with required reviewers (at least one trusted
+    # maintainer who is NOT the workflow triggering actor). Without this
+    # protection, any actor with tag-creation or workflow-dispatch permission can
+    # publish arbitrary code under official version tags.
+    environment:
+      name: release
+      url: https://hub.docker.com/r/wzaldivar/mdshards/tags
     outputs:
       enabled: ${{ steps.meta.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
+
+      # Verify the checked-out commit matches the tag's target when triggered by
+      # a tag push. This prevents a race where the tag is moved between trigger
+      # and checkout. For workflow_dispatch, the user-selected ref is trusted
+      # (the environment approval gate is the authorization control for manual
+      # runs). Skip verification if git CLI is unavailable (fail-open for
+      # forward compatibility), but log the skip.
+      - name: Verify tag integrity
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ! command -v git >/dev/null 2>&1; then
+            echo "::warning::git not found — skipping tag-target verification (fail-open)."
+            exit 0
+          fi
+          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_SHA=$(git rev-parse "refs/tags/${TAG_NAME}^{commit}" 2>/dev/null || git rev-parse "refs/tags/${TAG_NAME}")
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          if [ "$TAG_SHA" != "$CHECKOUT_SHA" ]; then
+            echo "::error::Tag ${TAG_NAME} points to ${TAG_SHA} but HEAD is ${CHECKOUT_SHA}. The tag may have been moved after the workflow started. Refusing to publish a mismatched commit."
+            exit 1
+          fi
+          echo "Tag ${TAG_NAME} verified: ${TAG_SHA} matches checked-out HEAD."
 
       - name: Resolve version + credential state
         id: meta
