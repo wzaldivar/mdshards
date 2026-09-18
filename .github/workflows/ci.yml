@@ -40,7 +40,7 @@ jobs:
           name: backend-coverage
           path: backend/coverage.xml
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: backend/coverage.xml
           flags: backend
@@ -137,7 +137,7 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage
       - if: steps.guard.outputs.enabled == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5.3.2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
