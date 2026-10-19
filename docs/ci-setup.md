@@ -50,12 +50,15 @@ No token needed; Snyk polls the repo itself. (If you later prefer a CI-gated
 scan instead, add `snyk/actions` with a `SNYK_TOKEN` secret — not wired here
 on purpose, to keep the pipeline secret-light.)
 
-## Docker Hub release (`.github/workflows/release.yml`)
+## Docker Hub + GHCR release (`.github/workflows/release.yml`)
 
 Tagging `v*` (or running the workflow manually) builds the single-container
 image multi-arch and pushes four tags to Docker Hub: the rolling `X`, `X.Y`,
 and `latest` (overwritten each release to track the newest matching build) plus
-the immutable `X.Y.Z`. Two secrets are required:
+the immutable `X.Y.Z`. The same build is pushed with the same four tags to
+**`ghcr.io/wzaldivar/mdshards`** — one build, so both registries serve the
+same digest. GHCR needs no secret (the job's `GITHUB_TOKEN` has
+`packages: write`). Docker Hub needs two secrets:
 
 1. Create a Docker Hub **access token** (Docker Hub → Account Settings →
    Personal access tokens), read/write scope.
@@ -80,6 +83,19 @@ docker login -u wzaldivar
 docker buildx build --platform linux/amd64,linux/arm64 \
   -t wzaldivar/mdshards:1.0.0 -t wzaldivar/mdshards:latest --push .
 ```
+
+### GHCR backfill (`.github/workflows/ghcr-backfill.yml`)
+
+Versions released before GHCR mirroring can be copied over without a rebuild:
+*Actions → GHCR backfill → Run workflow* with the version, ticking **rolling**
+only for the newest release (it repoints ghcr's `X` / `X.Y` / `latest`).
+`imagetools create` copies the multi-arch index registry-to-registry, and the
+run fails unless the ghcr.io digest equals Docker Hub's.
+
+**One-time:** a package first published from Actions may start **private**.
+If an anonymous `docker pull ghcr.io/wzaldivar/mdshards` is denied, set it
+public under the package's *Package settings → Change visibility* (the API
+can't change container visibility).
 
 ### Docker Hub page description
 

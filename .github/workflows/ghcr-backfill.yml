@@ -1,0 +1,71 @@
+name: GHCR backfill
+
+# Copies an already-published release from Docker Hub to ghcr.io, for
+# versions released before release.yml mirrored to GHCR. Nothing is
+# rebuilt: `imagetools create` copies the multi-arch index and its blobs
+# registry-to-registry, so the ghcr.io digest is identical to Docker Hub's —
+# the same bytes, not a second build that merely shares a version number.
+#
+# Manual only (Actions → GHCR backfill → Run workflow). Needs no secret:
+# the source is a public Docker Hub image and the job's own GITHUB_TOKEN
+# (packages: write) pushes to GHCR. See docs/ci-setup.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to copy, e.g. 1.9.0"
+        required: true
+      rolling:
+        description: "Also point ghcr's rolling X / X.Y / latest tags at it (only for the newest release)"
+        type: boolean
+        default: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '$VERSION' is not X.Y.Z."
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy from Docker Hub
+        env:
+          VERSION: ${{ inputs.version }}
+          ROLLING: ${{ inputs.rolling }}
+        run: |
+          SRC="docker.io/wzaldivar/mdshards:${VERSION}"
+          DST="ghcr.io/wzaldivar/mdshards"
+          TAGS=(-t "${DST}:${VERSION}")
+          if [ "$ROLLING" = "true" ]; then
+            TAGS+=(-t "${DST}:${VERSION%%.*}" -t "${DST}:${VERSION%.*}" -t "${DST}:latest")
+          fi
+          # No --annotation here: altering the index would change its digest.
+          # The images already carry the org.opencontainers.image.source
+          # label, and a GITHUB_TOKEN push links the package to this repo.
+          docker buildx imagetools create "${TAGS[@]}" "$SRC"
+      - name: Verify digests match
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          src=$(docker buildx imagetools inspect "docker.io/wzaldivar/mdshards:${VERSION}" --format '{{json .Manifest.Digest}}')
+          dst=$(docker buildx imagetools inspect "ghcr.io/wzaldivar/mdshards:${VERSION}" --format '{{json .Manifest.Digest}}')
+          echo "docker.io: $src"
+          echo "ghcr.io:   $dst"
+          if [ -z "$src" ] || [ "$src" != "$dst" ]; then
+            echo "::error::Digest mismatch — the ghcr.io copy is not byte-identical to Docker Hub's."
+            exit 1
+          fi

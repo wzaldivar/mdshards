@@ -1,6 +1,7 @@
 name: Release
 
-# Publishes the single-container image (the repo-root Dockerfile) to Docker Hub.
+# Publishes the single-container image (the repo-root Dockerfile) to Docker Hub
+# and mirrors the same build to GitHub Container Registry (ghcr.io).
 # A release of X.Y.Z pushes four tags: the rolling `X`, `X.Y`, and `latest`
 # (overwritten every release so they track the newest matching build) plus the
 # immutable `X.Y.Z` (guarded against overwrite). Triggers on a v* tag, or run
@@ -10,7 +11,8 @@ name: Release
 #   DOCKERHUB_USERNAME  — Docker Hub account (wzaldivar)
 #   DOCKERHUB_TOKEN     — a Docker Hub access token (not the password)
 # Until they exist the job is a green no-op, so tagging a release before
-# wiring credentials never fails CI. See docs/ci-setup.md.
+# wiring credentials never fails CI. GHCR needs no secret: the job's own
+# GITHUB_TOKEN (packages: write) pushes there. See docs/ci-setup.md.
 
 on:
   push:
@@ -28,6 +30,10 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Least privilege: read the repo, push to ghcr.io. Nothing else.
+    permissions:
+      contents: read
+      packages: write
     outputs:
       enabled: ${{ steps.meta.outputs.enabled }}
     steps:
@@ -92,6 +98,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - if: steps.meta.outputs.enabled == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.meta.outputs.enabled == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -102,10 +114,18 @@ jobs:
             wzaldivar/mdshards:${{ steps.meta.outputs.minor }}
             wzaldivar/mdshards:${{ steps.meta.outputs.version }}
             wzaldivar/mdshards:latest
+            ghcr.io/wzaldivar/mdshards:${{ steps.meta.outputs.major }}
+            ghcr.io/wzaldivar/mdshards:${{ steps.meta.outputs.minor }}
+            ghcr.io/wzaldivar/mdshards:${{ steps.meta.outputs.version }}
+            ghcr.io/wzaldivar/mdshards:latest
           labels: |
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.source=https://github.com/wzaldivar/mdshards
             org.opencontainers.image.licenses=MIT
+          # GHCR links a multi-arch package to its repo from the INDEX
+          # annotation (the per-platform labels above don't reach it).
+          annotations: |
+            index:org.opencontainers.image.source=https://github.com/wzaldivar/mdshards
 
   # Sync the Docker Hub page after a successful publish. Delegated to the
   # reusable dockerhub-description workflow (single source of the description
