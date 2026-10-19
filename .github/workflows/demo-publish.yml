@@ -25,8 +25,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      # Read-only checkout: no job pushes back to the repo, so don't leave
+      # GITHUB_TOKEN in the runner's git config for later steps to read.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
