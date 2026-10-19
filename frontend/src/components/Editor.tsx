@@ -22,6 +22,7 @@ import { shortcodeTokenAt } from '../lib/emoji'
 import { EmojiShortcode } from '../lib/md-emoji'
 import { Highlight } from '../lib/md-highlight'
 import { markdownLive } from '../lib/markdown-live'
+import { mermaidDiagrams } from '../lib/mermaid'
 import { pendingRenames } from '../lib/pending-rename'
 import { setPendingAnchor, takePendingAnchor } from '../lib/pending-anchor'
 import { findHeadingPos, scrollToHeading } from '../lib/heading-nav'
@@ -560,6 +561,8 @@ function buildView(
       codeblock(),
       htmlBlock,
       markdownLive({ noteDocId: docId, onNavigate }),
+      // ` ```mermaid ` fences → SVG diagram while the cursor is elsewhere.
+      mermaidDiagrams(),
       yCollab(bundle.text, bundle.provider.awareness),
       EditorView.lineWrapping,
       // Cross-note section jump: the note's content arrives asynchronously over
