@@ -169,6 +169,23 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     fireEvent.click(row)
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
   })
+
+  it('Enter on the pinned "/" navigates home before the tree fetch lands', async () => {
+    // Regression: the `/` row is pinned (and preselected) before fetchTree
+    // resolves, but commit() used to require the path in the fetched tree —
+    // so an early Enter was a silent no-op (the 2026-10-19 e2e flake).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    )
+    const onClose = vi.fn()
+    renderSwitcher(onClose)
+    const input = await switcherInput()
+    expect(screen.getByRole('button', { name: '/' }).dataset.selected).toBe('true')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+    expect(onClose).toHaveBeenCalled()
+  })
 })
 
 describe('App route table', () => {
