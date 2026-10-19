@@ -17,6 +17,7 @@ from conftest import (
     WIKI_VAULT,
     click_editor,
     expect_editor_contains,
+    quick_switch,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -80,10 +81,7 @@ def test_vault_path_starting_with_prefix_segment(page: Page, browser_name: str):
     rel = f"wiki/foo-{browser_name}"
     page.goto(f"{WIKI_URL}/")
     click_editor(page)
-    page.keyboard.press("Control+k")
-    switcher = page.get_by_placeholder(re.compile("go to or create", re.I))
-    switcher.fill(rel)
-    switcher.press("Shift+Enter")
+    quick_switch(page, rel, create=True)
     expect(page).to_have_url(re.compile(rf"{re.escape(WIKI_PREFIX)}/{re.escape(rel)}$"))
     click_editor(page)
     marker = "shadow-segment-note"

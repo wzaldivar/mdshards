@@ -23,6 +23,7 @@ confirmed timing flakes (and the `CRDT_LOAD_TIMEOUT` mitigation).
 from __future__ import annotations
 
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -220,6 +221,52 @@ def expect_note_text(page: Page, text: str) -> None:
     `get_by_text` (e.g. a note whose raw markdown is hidden). Same CRDT-load
     headroom — the text still depends on the sync+render chain."""
     expect(page.get_by_text(text)).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+
+
+# ---- quick switcher ----
+
+GO_TO = re.compile("go to or create", re.I)
+
+
+def quick_switch(
+    page: Page, query: str, *, row: str | None = None, create: bool = False
+) -> None:
+    """Drive the quick switcher (Ctrl-K) to `query` and commit it, waiting on
+    every readiness signal before the commit keystroke — the switcher is
+    async in three ways, and pressing Enter early no-ops or misfires:
+
+    1. **Focus.** The input is focused on a microtask after the open effect
+       runs. Waiting for focus also proves that effect has run.
+    2. **Stale query.** The switcher stays mounted while closed, so the
+       previous query survives until the open effect resets it. If it was
+       the currently-open file, `/` is unpinned and Enter dismisses in place
+       — the 2026-10-19 asset-refresh flake. So assert the input holds
+       exactly `query` after filling.
+    3. **Tree fetch.** Rows arrive with an async `fetchTree`; Enter commits
+       the *highlighted* row, so wait until the intended row is rendered
+       AND selected (`data-selected`), not merely visible.
+
+    `row` is the row label to wait for (defaults to `query`; home is `"/"`).
+    `create=True` commits with Shift-Enter (create at the typed path) and
+    skips the row wait — a create has no existing row to select.
+
+    Returns once the switcher has closed; callers assert the destination."""
+    page.keyboard.press("Control+k")
+    switcher = page.get_by_placeholder(GO_TO)
+    expect(switcher).to_be_focused()
+    switcher.fill(query)
+    expect(switcher).to_have_value(query)
+    if create:
+        switcher.press("Shift+Enter")
+    else:
+        target = page.get_by_role(
+            "button", name=query if row is None else row, exact=True
+        )
+        expect(target).to_have_attribute(
+            "data-selected", "true", timeout=CRDT_LOAD_TIMEOUT
+        )
+        switcher.press("Enter")
+    expect(page.get_by_placeholder(GO_TO)).to_have_count(0)
 
 
 # ---- fixtures assets ----

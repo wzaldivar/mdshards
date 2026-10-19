@@ -17,17 +17,19 @@ import re
 from playwright.sync_api import Page, expect
 
 from conftest import (
+    CRDT_LOAD_TIMEOUT,
+    GO_TO,
     ROOT_URL,
     ROOT_VAULT,
     click_editor,
     expect_editor_contains,
     poll_until,
+    quick_switch,
     read_vault_file,
     seed_vault_file,
     wait_vault_file,
 )
 
-GO_TO = re.compile("go to or create", re.I)
 PICK_FILE = re.compile("pick a file to delete", re.I)
 RENAME_TO = re.compile("rename to", re.I)
 INSERT_EMOJI = re.compile("insert emoji", re.I)
@@ -41,14 +43,9 @@ def test_quick_switcher_navigates_to_existing_note(page: Page):
     page.goto(f"{ROOT_URL}/")
     expect(page.locator(".cm-content")).to_be_visible()
 
-    page.keyboard.press("Control+k")
-    switcher = page.get_by_placeholder(GO_TO)
-    switcher.fill("swq/target")
-    # plain Enter navigates to an existing MATCH — wait for the async tree
-    # fetch to surface the row (and thus select it) before pressing, or Enter
-    # fires against an empty match list and no-ops.
-    expect(page.get_by_role("button", name="swq/target")).to_be_visible()
-    switcher.press("Enter")
+    # plain Enter navigates to an existing MATCH (quick_switch waits for the
+    # row to be fetched AND selected before pressing it)
+    quick_switch(page, "swq/target")
 
     expect(page).to_have_url(re.compile(r"/swq/target$"))
     expect_editor_contains(page, "swq-target-body")
@@ -192,11 +189,13 @@ def test_shortcut_fires_from_inside_asset_iframe(page: Page):
     expect(page.locator(".cm-content")).to_be_visible()
 
     # in-app nav through the quick switcher mounts the AssetViewer
-    page.keyboard.press("Control+k")
-    page.get_by_placeholder(GO_TO).fill("swa/readme.txt")
-    expect(page.get_by_role("button", name="swa/readme.txt")).to_be_visible()
-    page.get_by_placeholder(GO_TO).press("Enter")
+    quick_switch(page, "swa/readme.txt")
 
+    # The iframe loads its document asynchronously — clicking its body before
+    # the asset text renders raced the load (the 2026-09-18 Firefox flake).
+    expect(page.frame_locator("iframe").locator("body")).to_contain_text(
+        "asset-iframe-body", timeout=CRDT_LOAD_TIMEOUT
+    )
     # focus goes into the iframe's document — the window binding no longer
     # sees the keydown; only the rebind on contentDocument does
     page.frame_locator("iframe").locator("body").click()
