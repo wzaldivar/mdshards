@@ -83,6 +83,12 @@ def main() -> int:
         if not overview.exists():
             failures.append(f"readme-filepath does not exist: {overview}")
             overview = None
+        elif overview.is_symlink():
+            failures.append(f"readme-filepath is a symlink (security: symlinks can leak runner files): {overview}")
+            overview = None
+        elif not overview.is_file():
+            failures.append(f"readme-filepath is not a regular file: {overview}")
+            overview = None
 
     if overview is not None:
         text = overview.read_text()
