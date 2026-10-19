@@ -222,7 +222,10 @@ function buildMermaid(state: EditorState): DecorationSet {
       const from = state.doc.lineAt(node.from).from
       const to = state.doc.lineAt(node.to).to
       ranges.push(
-        Decoration.replace({ widget: new MermaidWidget(source, dark), block: true }).range(from, to),
+        Decoration.replace({ widget: new MermaidWidget(source, dark), block: true }).range(
+          from,
+          to,
+        ),
       )
       return false
     },
