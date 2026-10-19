@@ -448,27 +448,22 @@ def test_direct_image_url_renders_pixels(page: Page):
     )
 
 
-_SHELL_FONT_HOSTS = ("fonts.googleapis.com", "fonts.gstatic.com")
-
-
 def test_mermaid_fence_renders_diagram_and_reveals_source(page: Page):
     """A ```mermaid fence renders as an SVG diagram while the cursor is
-    elsewhere; clicking it reveals the raw source for editing. mermaid is
-    bundled with the app, so every request it triggers must stay on the
-    app's own origin — never a CDN. (The shell's own Google Fonts link in
-    index.html predates mermaid and is excluded.)"""
+    elsewhere; clicking it reveals the raw source for editing.
+
+    Policy: no code is ever fetched from outside — mermaid is bundled with
+    the app and served from its own origin, never a CDN, so any off-origin
+    script request fails the test. Off-origin fonts are tolerated: the
+    shell's Google Fonts link is a preference with system-font fallbacks
+    (style.css), not a dependency."""
     from urllib.parse import urlsplit
 
     app_host = urlsplit(ROOT_URL).netloc
-    foreign: list[str] = []
+    scripts: list[str] = []
     page.on(
         "request",
-        lambda r: (
-            foreign.append(r.url)
-            if r.url.startswith("http")
-            and urlsplit(r.url).netloc not in (app_host, *_SHELL_FONT_HOSTS)
-            else None
-        ),
+        lambda r: scripts.append(r.url) if r.resource_type == "script" else None,
     )
     _open(
         page, "mermaid", "```mermaid\ngraph TD\n  Alpha --> Beta\n```\n\noutro line\n"
@@ -483,7 +478,10 @@ def test_mermaid_fence_renders_diagram_and_reveals_source(page: Page):
     page.locator(".cm-md-mermaid").click()
     _wait_text(page, "Alpha --> Beta")
     expect(page.locator(".cm-md-mermaid")).to_have_count(0)
-    assert foreign == [], foreign
+    foreign = [u for u in scripts if urlsplit(u).netloc != app_host]
+    assert foreign == [], f"off-origin scripts: {foreign}"
+    # Proves the listener saw the lazy chunk at all — it came from us.
+    assert any("/_mdshards/assets/mermaid" in u for u in scripts), scripts
     assert read_vault_file(ROOT_VAULT, "features/mermaid.md").startswith(
         "intro line\n\n```mermaid"
     )
