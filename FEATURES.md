@@ -85,6 +85,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Catppuccin Latte (light) and Mocha (dark) — auto-switch based on `prefers-color-scheme`.
+- Type on arrival — opening a note (page load, quick switcher, wikilink) focuses the editor, so you can start typing without clicking into it. Not on touch, where focusing would pop the software keyboard over a note you may only be reading.
 - Live preview — markdown structure rendered inline while editing; the source line under the cursor falls back to raw markup for editing. Applies per-line for tables, headings, links, images, HR, wiki-links.
 - Yjs CRDT sync — multi-client live collaboration via `y-websocket` and `y-codemirror.next`. The server holds the canonical Doc; clients exchange updates.
 - Asset viewer — for files visited via the URL bar:
@@ -153,6 +154,10 @@ value is untouched, so the same browser profile still gets them on a desktop:
   scroller, which is sized by the *layout* viewport, while the software keyboard
   shrinks only the *visual* one. The centered line lands under the keyboard, and
   re-centering on every tap fights the browser's own caret scrolling.
+
+**No autofocus on open.** On a desktop, opening a note puts the caret in the
+buffer; on touch it doesn't, so the software keyboard only appears when you tap
+into the text.
 
 **Sizing.** 44px minimum tap targets; picker rows and editor line height sized for a
 finger; 16px modal inputs (below that iOS zooms the page on focus and never zooms
