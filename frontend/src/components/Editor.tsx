@@ -34,6 +34,7 @@ import {
 import { parseWikilinkTarget, Wikilink } from '../lib/wikilink'
 import { encodePathToUrl } from '../lib/paths'
 import { centerCurrentLine } from '../lib/typewriter'
+import { isTouchPrimary } from '../lib/touch'
 import styles from './Editor.module.css'
 
 // Must match the constants in backend/app/docs.py.
@@ -415,6 +416,14 @@ export function Editor({ docId, onMoved, onReadOnlyChange, apiRef }: Readonly<Pr
         prefs,
       }, takePendingAnchor(docId))
       syncVimStatus()
+      // Entering a note puts the caret in the buffer so you can just start
+      // typing. Skipped when something else already holds focus (a modal open
+      // across a stale-reconnect remount) and on touch, where focusing pops
+      // the software keyboard over a note the user may only want to read.
+      const active = document.activeElement
+      if (!isTouchPrimary() && (active === null || active === document.body)) {
+        view.focus()
+      }
       if (apiRef) {
         // Both calls scan at CALL time relative to the current cursor —
         // the modal keeps the editor blurred (selection frozen), so the
