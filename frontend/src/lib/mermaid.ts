@@ -9,8 +9,8 @@
  * Same cursor rule as every other widget: while the selection touches the
  * fence (including its boundaries) the raw source stays visible for editing.
  * Moving up/down into a diagram reveals it like a table or image: CodeMirror
- * moves vertically PAST a block widget, so `enterDiagram` catches a move that
- * skipped one and lands it on the fence instead; `vimLineSteps` does the same
+ * moves vertically PAST a block widget, so `enterDiagram` stops an arrow press
+ * that would skip one on the fence instead; `vimLineSteps` does the same
  * for vim's counted motions (`6j`), which must count the fence's source lines. The file always keeps the literal fence — the
  * diagram is render-time only, so the note round-trips through Obsidian.
  *
@@ -20,11 +20,12 @@
  */
 
 import { syntaxTree } from '@codemirror/language'
-import { EditorState, type Range, StateEffect, StateField } from '@codemirror/state'
+import { type EditorState, Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -137,8 +138,12 @@ async function renderDiagram(source: string, key: string, dark: boolean): Promis
   return result
 }
 
+function cacheKey(source: string, dark: boolean): string {
+  return `${dark ? 'd' : 'l'}\0${source}`
+}
+
 function getRendered(source: string, dark: boolean): Rendered | Promise<Rendered> {
-  const key = `${dark ? 'd' : 'l'}\0${source}`
+  const key = cacheKey(source, dark)
   const hit = cache.get(key)
   if (hit) return hit
   let p = inflight.get(key)
@@ -162,13 +167,18 @@ function fill(el: HTMLElement, r: Rendered): void {
 class MermaidWidget extends WidgetType {
   readonly source: string
   readonly dark: boolean
+  /** Whether the render was already cached when this widget was built. Part
+   *  of `eq` so the post-render rebuild (see `diagramRendered`) swaps the
+   *  placeholder DOM for a fresh one instead of reusing it. */
+  readonly ready: boolean
   constructor(source: string, dark: boolean) {
     super()
     this.source = source
     this.dark = dark
+    this.ready = cache.has(cacheKey(source, dark))
   }
   override eq(other: MermaidWidget): boolean {
-    return other.source === this.source && other.dark === this.dark
+    return other.source === this.source && other.dark === this.dark && other.ready === this.ready
   }
   toDOM(view: EditorView): HTMLElement {
     const el = document.createElement('div')
@@ -179,9 +189,14 @@ class MermaidWidget extends WidgetType {
       el.textContent = 'Rendering diagram…'
       void r.then((res) => {
         fill(el, res)
-        // The block's height changed under CodeMirror — re-measure so
-        // vertical motion and scrolling use the real geometry.
-        view.requestMeasure()
+        // The block grew from the placeholder to the diagram under
+        // CodeMirror, and a bare requestMeasure() doesn't re-measure content
+        // heights (WebKit never did: the line-number gutter stayed offset by
+        // the diagram's height). Rebuild the widget from the now-cached
+        // render instead — a DOM swap through the normal update path always
+        // re-measures. Skipped if this DOM was already replaced or the view
+        // torn down meanwhile.
+        if (el.isConnected) view.dispatch({ effects: diagramRendered.of(null) })
       })
     } else {
       fill(el, r)
@@ -206,6 +221,10 @@ class MermaidWidget extends WidgetType {
 
 /** Fires when the color scheme flips so diagrams re-render in the new theme. */
 const themeChanged = StateEffect.define<null>()
+
+/** Fires when an async render lands, so the field rebuilds the widget from
+ *  the cache and CodeMirror re-measures its height (see `toDOM`). */
+const diagramRendered = StateEffect.define<null>()
 
 function buildMermaid(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = []
@@ -244,7 +263,7 @@ const mermaidField = StateField.define<DecorationSet>({
     if (
       tr.docChanged ||
       tr.selection ||
-      tr.effects.some((e) => e.is(themeChanged)) ||
+      tr.effects.some((e) => e.is(themeChanged) || e.is(diagramRendered)) ||
       // The incremental parser finished more of the doc (e.g. right after
       // the CRDT content lands) — fences may only now be visible.
       syntaxTree(tr.state) !== syntaxTree(tr.startState)
@@ -256,34 +275,44 @@ const mermaidField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-/** A one-line vertical move that skipped a rendered diagram stops on its fence
- *  instead — the opening line going down, the closing line going up — which
- *  puts the selection on the fence and reveals the source.
+/** ArrowDown/ArrowUp that would jump over a rendered diagram stops on its
+ *  fence instead — the opening line going down, the closing line going up —
+ *  which puts the selection on the fence and reveals the source. A move that
+ *  doesn't cross a diagram (or a non-empty selection) falls through to the
+ *  default motion.
  *
- *  A transaction filter rather than an ArrowUp/ArrowDown keymap, so it covers
- *  every route to `moveVertically`: plain arrows and vim's `j`/`k` (whose
- *  motion steps over the widget and then deliberately jumps to wherever that
- *  lands). "Skipped" is narrow on purpose: an empty cursor that started on the
- *  line directly above (below) the diagram and ended past it. Pointer
- *  selections are left alone — clicking below a diagram must land there. */
-const enterDiagram = EditorState.transactionFilter.of((tr) => {
-  if (tr.docChanged || !tr.selection || tr.isUserEvent('select.pointer')) return tr
-  const before = tr.startState.selection.main
-  const after = tr.newSelection.main
-  if (!before.empty || !after.empty || tr.newSelection.ranges.length > 1) return tr
-  const doc = tr.startState.doc
-  const startLine = doc.lineAt(before.head).number
-  let target: number | null = null
-  tr.startState
-    .field(mermaidField)
-    .between(Math.min(before.head, after.head), Math.max(before.head, after.head), (from, to) => {
-      if (after.head >= to && startLine === doc.lineAt(from).number - 1) target = from
-      else if (after.head <= from && startLine === doc.lineAt(to).number + 1) target = to
-      return target === null ? undefined : false
-    })
-  if (target === null) return tr
-  return [tr, { selection: { anchor: target }, scrollIntoView: true }]
-})
+ *  Deliberately a keymap on the arrow KEYS, not a filter on cursor moves: a
+ *  filter can't tell a one-line step from a jump that merely crosses the
+ *  diagram (vim `:N`, `G`, a search, a heading link), and pulled those into
+ *  the fence (1.9.4). Vim's own line motions are handled by `vimLineSteps`. */
+function enterDiagram(forward: boolean) {
+  return (view: EditorView): boolean => {
+    const sel = view.state.selection.main
+    if (!sel.empty) return false
+    const next = view.moveVertically(sel, forward)
+    let target: number | null = null
+    view.state
+      .field(mermaidField)
+      .between(Math.min(sel.head, next.head), Math.max(sel.head, next.head), (from, to) => {
+        const crosses = forward
+          ? sel.head < from && next.head >= from
+          : sel.head > to && next.head <= to
+        if (!crosses) return undefined
+        target = forward ? from : to
+        return false
+      })
+    if (target === null) return false
+    view.dispatch({ selection: { anchor: target }, scrollIntoView: true })
+    return true
+  }
+}
+
+const diagramArrows = Prec.high(
+  keymap.of([
+    { key: 'ArrowDown', run: enterDiagram(true) },
+    { key: 'ArrowUp', run: enterDiagram(false) },
+  ]),
+)
 
 /** True when `pos` falls inside a rendered (block-replaced) diagram. */
 function inDiagram(decos: DecorationSet, pos: number): boolean {
@@ -361,5 +390,5 @@ const themeWatcher = ViewPlugin.fromClass(
 )
 
 export function mermaidDiagrams() {
-  return [mermaidField, themeWatcher, enterDiagram, vimLineSteps]
+  return [mermaidField, themeWatcher, diagramArrows, vimLineSteps]
 }
