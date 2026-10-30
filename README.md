@@ -13,9 +13,14 @@ See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory
 
 > **Disclaimer — vibe-coded, maintained accordingly.** The overall design is a
 > human decision (see [CLAUDE.md](./CLAUDE.md)), but the implementation has been
-> vibe coded. There is no maintenance expectation beyond dependency updates, and
-> no intention of adding new features unless something looks really important.
-> If you want to take this somewhere, you're probably better off forking it.
+> vibe coded. Here that means an AI doing the iterating: reading the libraries'
+> own source, writing the code and reworking it at a speed and volume that
+> wouldn't be practical by hand. It is, however, backed by an extensive
+> end-to-end suite that drives real Chromium, Firefox and WebKit against the
+> shipping image, and yes, I eat my own dog food anyway. There is no maintenance
+> expectation beyond dependency updates, and no intention of adding new features
+> unless something looks really important. If you want to take this somewhere,
+> you're probably better off forking it.
 
 ## Why mdshards
 
