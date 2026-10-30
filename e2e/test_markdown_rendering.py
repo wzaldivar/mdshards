@@ -498,3 +498,33 @@ def test_mermaid_fence_renders_diagram_and_reveals_source(page: Page):
     assert read_vault_file(ROOT_VAULT, "features/mermaid.md").startswith(
         "intro line\n\n```mermaid"
     )
+
+
+def test_mermaid_source_reveals_on_arrow_keys(page: Page, browser_name: str):
+    """Arrowing into a diagram reveals its source, like a table or image —
+    no click needed. CodeMirror's vertical motion skips over a block widget,
+    so this guards the keymap that stops on the fence instead."""
+    _open(
+        page,
+        f"mermaid-arrows-{browser_name}",
+        "```mermaid\ngraph TD\n  Gamma --> Delta\n```\n\noutro line\n",
+    )
+    diagram = page.locator(".cm-md-mermaid svg")
+    expect(diagram).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+
+    # Down from the top: intro line -> blank line -> into the fence.
+    page.get_by_text("intro line").click()
+    page.keyboard.press("ArrowDown")
+    expect(diagram).to_be_visible()
+    page.keyboard.press("ArrowDown")
+    _wait_text(page, "Gamma --> Delta")
+    expect(page.locator(".cm-md-mermaid")).to_have_count(0)
+
+    # Leave it (the diagram renders again), then come back up from below.
+    page.get_by_text("outro line").click()
+    expect(diagram).to_be_visible()
+    page.keyboard.press("ArrowUp")
+    expect(diagram).to_be_visible()
+    page.keyboard.press("ArrowUp")
+    _wait_text(page, "Gamma --> Delta")
+    expect(page.locator(".cm-md-mermaid")).to_have_count(0)
