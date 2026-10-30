@@ -82,6 +82,30 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     expect(posts[0].body).toEqual({ path: 'brand/new note' })
   })
 
+  it('strips leading slashes so "/brand/new" creates brand/new and navigates cleanly', async () => {
+    // Unstripped, '/' + '/brand/new' would navigate to the scheme-relative
+    // '//brand/new' — pushState rejects it and react-router escalates to a
+    // full page load toward host "brand". The create must land at the
+    // vault-relative path and the URL must carry a single slash.
+    const posts = stubFetch(201)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: '/brand/new' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/brand/new'))
+    expect(posts[0].body).toEqual({ path: 'brand/new' })
+  })
+
+  it('Shift-Enter on "/index" navigates home instead of creating', async () => {
+    const posts = stubFetch()
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: '/index' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+    expect(posts).toHaveLength(0)
+  })
+
   it('surfaces a create failure without navigating', async () => {
     stubFetch(409)
     renderSwitcher()
@@ -113,6 +137,29 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     expect(screen.getByTestId('loc').textContent).toBe('/existing')
   })
 
+  it('tapping the Create row creates the note — the touch path to the only file-creating surface', async () => {
+    // Shift-Enter is unreachable on a software keyboard, so the hint row is a
+    // real button. Without it a phone could not create a note at all.
+    const posts = stubFetch(201)
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'tapped/note' } })
+    const createBtn = await screen.findByRole('button', { name: /create .*tapped\/note/i })
+    fireEvent.click(createBtn)
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/tapped/note'))
+    expect(posts[0].body).toEqual({ path: 'tapped/note' })
+  })
+
+  it('offers no Create row once the typed path matches exactly', async () => {
+    stubFetch()
+    renderSwitcher()
+    const input = await switcherInput()
+    fireEvent.change(input, { target: { value: 'existing' } })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^create /i })).toBeNull(),
+    )
+  })
+
   it('clicking a row navigates to it', async () => {
     stubFetch()
     renderSwitcher()
@@ -121,6 +168,23 @@ describe('QuickSwitcher create (Shift-Enter)', () => {
     fireEvent.mouseDown(row)
     fireEvent.click(row)
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+  })
+
+  it('Enter on the pinned "/" navigates home before the tree fetch lands', async () => {
+    // Regression: the `/` row is pinned (and preselected) before fetchTree
+    // resolves, but commit() used to require the path in the fetched tree —
+    // so an early Enter was a silent no-op (the 2026-10-19 e2e flake).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    )
+    const onClose = vi.fn()
+    renderSwitcher(onClose)
+    const input = await switcherInput()
+    expect(screen.getByRole('button', { name: '/' }).dataset.selected).toBe('true')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('/'))
+    expect(onClose).toHaveBeenCalled()
   })
 })
 

@@ -21,6 +21,9 @@ RUN npm run build
 
 EXPOSE 4173
 
+RUN chown -R 1000:1000 /app
+USER 1000
+
 # `--host` binds all interfaces — inside a container, localhost-only would be
 # unreachable through the published port.
 CMD ["npm", "run", "preview", "--", "--port", "4173", "--host"]

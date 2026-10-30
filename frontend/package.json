@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.2",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -24,7 +24,9 @@
     "@lezer/markdown": "^1.6.4",
     "@replit/codemirror-vim": "^6.3.0",
     "@retronav/ixora": "^0.3.3",
+    "dompurify": "^3.4.17",
     "gemoji": "^8.1.0",
+    "mermaid": "^12.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^7.18.2",

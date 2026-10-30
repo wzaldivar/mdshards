@@ -13,12 +13,28 @@ See CLAUDE.md ("The vault has external writers").
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import logging
 from pathlib import Path
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .docs import DocumentManager
+
+logger = logging.getLogger("mdshards.watcher")
+
+
+def _log_reconcile_failure(future: concurrent.futures.Future) -> None:
+    """Surface exceptions from the loop-side reconcile. A discarded
+    `run_coroutine_threadsafe` future never warns on an unretrieved exception
+    (unlike a task), so without this callback a failing IN — decode errors, a
+    Rust panic, anything — vanishes with no log line at all."""
+    if future.cancelled():
+        return
+    exc = future.exception()
+    if exc is not None:
+        logger.error("external reconcile failed", exc_info=exc)
 
 
 class _VaultEventHandler(FileSystemEventHandler):
@@ -37,9 +53,10 @@ class _VaultEventHandler(FileSystemEventHandler):
             return
         # Reconcile on the loop — pycrdt Docs are single-thread-owned there.
         # `reconcile_external` no-ops for idle notes and filters self-writes.
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             self._manager.reconcile_external(Path(path_str)), self._loop
         )
+        future.add_done_callback(_log_reconcile_failure)
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if not event.is_directory:

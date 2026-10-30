@@ -82,7 +82,8 @@ async def test_eviction_persists_and_drops(tmp_path: Path) -> None:
         # Re-acquire should give a different state instance...
         b = await mgr.acquire("foo")
         assert b is not a
-        # ...but with the cache in place, the rebuilt Doc holds the same text.
+        # ...holding the same text — from the cache if still within the
+        # validity window, else seeded fresh from the just-flushed disk file.
         assert str(b.doc.get(TEXT_KEY, type=Text)) == "persisted"
     finally:
         await mgr.shutdown()
@@ -121,6 +122,80 @@ async def test_self_write_event_is_a_noop(tmp_path: Path) -> None:
         assert state.golden_hash == golden_before
         assert not list(tmp_path.glob("*conflict*"))
     finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_external_is_multibyte_safe(tmp_path: Path) -> None:
+    """The ghost merge translates SequenceMatcher's code-point indices into
+    the UTF-8 byte offsets pycrdt's Text actually speaks. Regression: a pure
+    ASCII external edit BELOW a multibyte character (é/ö) used to land skewed
+    ('second li changedne') because every byte offset past the é was off by
+    the multibyte surplus."""
+    (tmp_path / "foo.md").write_text("héllo wörld\nsecond line\n")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        (tmp_path / "foo.md").write_text("héllo wörld\nsecond line changed\n")
+        await mgr.reconcile_external(tmp_path / "foo.md")
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == "héllo wörld\nsecond line changed\n"
+        assert not list(tmp_path.glob("*conflict*"))
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_disjoint_merge_combines_with_multibyte_on_both_sides(tmp_path: Path) -> None:
+    """Disjoint live + external edits combine in a doc holding 2-byte (í) and
+    4-byte (emoji) characters: the external hunk splices at its correct
+    position even though the live doc has already diverged further down."""
+    baseline = "títle\n\nmiddle ✏️ line\n\nend\n"
+    (tmp_path / "foo.md").write_text(baseline)
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        # Pause the auto-flush so the baseline stays put while both sides diverge.
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__("appended (web)\n")  # ours: EOF
+        (tmp_path / "foo.md").write_text("títle!\n\nmiddle ✏️ line\n\nend\n")  # theirs: line 1
+
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        merged = "títle!\n\nmiddle ✏️ line\n\nend\nappended (web)\n"
+        assert str(state.doc.get(TEXT_KEY, type=Text)) == merged
+        assert not list(tmp_path.glob("*conflict*"))
+        await _persist(mgr, state)
+        assert (tmp_path / "foo.md").read_text() == merged
+    finally:
+        await mgr.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flush_loop_survives_rust_panic(tmp_path: Path) -> None:
+    """A pyo3 panic is BaseException, not Exception — the flush loop's guard
+    must catch it and keep the loop alive (log-and-retry), or one bad splice
+    turns into silent, total write loss for the doc."""
+    from app.docs import FLUSH_QUIET_SECONDS, _RustPanic
+
+    (tmp_path / "foo.md").write_text("content")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+
+        async def boom(_state) -> bool:
+            raise _RustPanic("simulated Rust panic")
+
+        mgr._flush_out = boom  # type: ignore[method-assign]
+        state.flush_pending.set()
+        await asyncio.sleep(FLUSH_QUIET_SECONDS + 0.2)
+        assert state.flush_task is not None and not state.flush_task.done()
+    finally:
+        mgr._flush_out = type(mgr)._flush_out.__get__(mgr)  # restore for shutdown
         await mgr.shutdown()
 
 
@@ -386,8 +461,11 @@ async def test_cache_preserves_item_ids_across_manager_recreate(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -> None:
-    """Cache says one thing, disk says another → conflict file from disk,
-    Doc keeps the cached text."""
+    """The WITHIN-validity-window case (default grace keeps the cache fresh
+    here): a reconnecting client may still hold matching CRDT items, so the
+    cache is restored — Doc keeps the cached text and the diverged disk
+    content is preserved as a conflict file. The stale-cache case is the
+    opposite: see test_stale_cache_is_dropped_and_disk_wins."""
     mgr1 = _mgr(tmp_path)
     try:
         s = await mgr1.acquire("foo")
@@ -409,6 +487,78 @@ async def test_external_disk_write_after_cache_writes_conflict(tmp_path: Path) -
         assert conflicts[0].read_text() == "from disk"
     finally:
         await mgr2.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_stale_cache_is_dropped_and_disk_wins(tmp_path: Path) -> None:
+    """Cold open with a cache older than the validity window: every client
+    that could still hold matching CRDT items has been dismissed (client-side
+    threshold = grace), so the cache is dropped and disk seeds the doc fresh —
+    no stale text, no spurious conflict file. This is the idle-note path of
+    the primary flow: edit in the web, leave it, edit in Obsidian (the watcher
+    skips idle notes by design), reopen in the web days later."""
+    mgr1 = _mgr(tmp_path)
+    try:
+        s = await mgr1.acquire("foo")
+        s.doc.get(TEXT_KEY, type=Text).__iadd__("from the editor")
+        await _persist(mgr1, s)
+    finally:
+        await mgr1.shutdown()
+
+    (tmp_path / "foo.md").write_text("from disk")  # external edit while idle
+
+    await asyncio.sleep(0.2)  # let the cache age past mgr2's validity window
+    mgr2 = _mgr(tmp_path, grace_period_seconds=0.05)
+    try:
+        s2 = await mgr2.acquire("foo")
+        assert str(s2.doc.get(TEXT_KEY, type=Text)) == "from disk"
+        assert not list(tmp_path.glob("*conflict*"))
+    finally:
+        await mgr2.shutdown()
+
+
+def test_cache_max_age_defaults_to_grace_and_clamps_up(tmp_path: Path) -> None:
+    """Unset → the grace period. Longer → honored (more item-ID continuity,
+    still safe: dismissal is client-side regardless). Shorter → clamped up,
+    or a quick server restart would reintroduce the double-merge the cache
+    exists to prevent."""
+    cache = tmp_path / "cache"
+    assert DocumentManager(tmp_path, 30.0, cache)._cache_max_age == 30.0
+    assert (
+        DocumentManager(tmp_path, 30.0, cache, cache_max_age_seconds=300.0)._cache_max_age == 300.0
+    )
+    assert DocumentManager(tmp_path, 30.0, cache, cache_max_age_seconds=5.0)._cache_max_age == 30.0
+
+
+@pytest.mark.asyncio
+async def test_conflict_purges_cache_so_reopen_gets_fs_version(tmp_path: Path) -> None:
+    """The conflict kick must drop the blob cache along with the doc: the cache
+    still holds the web-side text that just moved to the conflict file, and
+    restoring it on the next open would demote the canonical FS version into a
+    SECOND conflict file — inverting FS-is-king."""
+    (tmp_path / "foo.md").write_text("baseline")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        await _persist(mgr, state)  # cache now holds the web-side state
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")  # ours diverges
+        (tmp_path / "foo.md").write_text("external write")  # theirs, same region
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        assert not mgr._cache_path(tmp_path / "foo.md").exists()
+
+        s2 = await mgr.acquire("foo")
+        assert str(s2.doc.get(TEXT_KEY, type=Text)) == "external write"  # FS canonical
+        # exactly the one conflict file from the kick — reopening created no second
+        assert len(list(tmp_path.glob("foo.mdshards-conflict-*.md"))) == 1
+    finally:
+        await mgr.shutdown()
 
 
 @pytest.mark.asyncio
@@ -596,3 +746,59 @@ def test_cache_path_stays_inside_cache_root(tmp_path: Path) -> None:
     disk.write_text("x")
     cache_path = mgr._cache_path(disk)
     assert cache_path.is_relative_to(mgr._cache_root.resolve())
+
+
+def test_cache_is_stale_when_stat_fails(tmp_path: Path) -> None:
+    """A cache file we can't stat must read as STALE, not fresh: the fresh
+    branch keeps the cached doc and demotes disk into a conflict file, so
+    guessing "fresh" on an unreadable cache would invent conflicts. Degrading
+    to a plain disk load is the safe direction."""
+    mgr = _mgr(tmp_path)
+    assert mgr._cache_is_stale(mgr._cache_root / "never" / "written.yjs")
+
+
+@pytest.mark.asyncio
+async def test_conflict_kick_survives_an_unremovable_cache(tmp_path: Path) -> None:
+    """Dropping the blob cache is best-effort maintenance (a read-only CACHE_DIR
+    mount is the real-world case). An OSError there must be logged and stepped
+    over — never abort the kick, which would strand clients on a doc the server
+    has already conflicted away."""
+    (tmp_path / "foo.md").write_text("baseline")
+    mgr = _mgr(tmp_path)
+    try:
+        state = await mgr.acquire("foo")
+        await _persist(mgr, state)
+        assert state.flush_task is not None
+        state.flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await state.flush_task
+        state.flush_task = None
+
+        q: asyncio.Queue[bytes | KickSignal] = asyncio.Queue()
+        state.subscribers.add(q)
+
+        def _boom(_path: Path) -> None:
+            raise OSError("read-only cache mount")
+
+        mgr._unlink_cache = _boom  # type: ignore[method-assign]
+
+        state.doc.get(TEXT_KEY, type=Text).__iadd__(" edited")
+        (tmp_path / "foo.md").write_text("external write")
+        await mgr.reconcile_external(tmp_path / "foo.md")
+
+        # The kick still happened end to end: ours preserved, clients forwarded,
+        # doc dropped, FS left canonical.
+        conflicts = list(tmp_path.glob("foo.mdshards-conflict-*.md"))
+        assert len(conflicts) == 1
+        assert conflicts[0].read_text() == "baseline edited"
+        drained = []
+        while not q.empty():
+            drained.append(q.get_nowait())
+        kicks = [s for s in drained if isinstance(s, KickSignal)]
+        assert len(kicks) == 1
+        assert kicks[0].code == DOC_MOVED_CODE
+        assert kicks[0].reason == conflicts[0].stem
+        assert str(tmp_path.resolve() / "foo.md") not in mgr._docs
+        assert (tmp_path / "foo.md").read_text() == "external write"
+    finally:
+        await mgr.shutdown()

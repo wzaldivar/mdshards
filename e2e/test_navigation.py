@@ -18,20 +18,9 @@ import re
 
 from playwright.sync_api import Page, expect
 
-from conftest import DINO_URL, DINO_VAULT, expect_editor_contains, seed_vault_file
+from conftest import DINO_URL, DINO_VAULT, expect_editor_contains, quick_switch, seed_vault_file
 
-GO_TO = re.compile("go to or create", re.I)
 DINO = re.compile("lost connection", re.I)
-
-
-def _quick_nav(page: Page, target: str) -> None:
-    page.keyboard.press("Control+k")
-    switcher = page.get_by_placeholder(GO_TO)
-    switcher.fill(target)
-    # Wait for the async tree fetch to surface (and select) the match before
-    # Enter, or it fires against an empty list and no-ops.
-    expect(page.get_by_role("button", name=target)).to_be_visible()
-    switcher.press("Enter")
 
 
 def test_navigating_between_notes_leaves_no_stranded_dino(page: Page, browser_name: str):
@@ -44,7 +33,7 @@ def test_navigating_between_notes_leaves_no_stranded_dino(page: Page, browser_na
 
     # Leave A for B. A's editor unmounts and closes its WebSocket on a later
     # task — the exact trigger that used to arm a zombie read-only countdown.
-    _quick_nav(page, b)
+    quick_switch(page, b)
     expect(page).to_have_url(re.compile(rf"/{re.escape(b)}$"))
     expect_editor_contains(page, "note-b-body")
 

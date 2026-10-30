@@ -1,6 +1,9 @@
+import io
 import os
+import shutil
 import tempfile
 from pathlib import Path
+from typing import BinaryIO
 
 from .vault import assert_inside
 
@@ -36,12 +39,25 @@ def write_bytes_atomic(path: Path, data: bytes, containment_root: Path) -> None:
     """Atomic write. `containment_root` is the boundary the resolved `path`
     must stay inside — usually the vault, but the CRDT cache layer passes its
     own cache root so the same primitive can guard out-of-vault writes too."""
+    write_stream_atomic(path, io.BytesIO(data), containment_root)
+
+
+def write_stream_atomic(path: Path, source: BinaryIO, containment_root: Path) -> None:
+    """Atomic write streamed from a binary file object (the payload is never
+    held in memory whole — this is the upload path's primitive). Temp file +
+    `os.replace` is also the no-follow guarantee: `os.replace` targets the
+    final component itself, so a symlink planted at the destination is
+    replaced with a regular file, never written through."""
     assert_inside(path, containment_root)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Re-assert after mkdir in case anything raced the directory creation —
+    # the resolved parent may now follow a symlink that wasn't there when we
+    # first checked (same pattern as move_with_prune).
+    assert_inside(path, containment_root)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "wb") as f:
-            f.write(data)
+            shutil.copyfileobj(source, f)
         os.replace(tmp, path)
     except Exception:
         try:

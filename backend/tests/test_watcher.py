@@ -228,3 +228,23 @@ async def test_observer_dispatches_external_edit(tmp_path: Path) -> None:
     finally:
         watcher.stop()
         await mgr.shutdown()
+
+
+def test_reconcile_failure_is_logged(caplog) -> None:
+    """The cross-thread dispatch must not swallow exceptions: a discarded
+    `run_coroutine_threadsafe` future never warns on an unretrieved exception,
+    so the done-callback is the only place a failing IN becomes visible."""
+    import logging
+    from concurrent.futures import Future
+
+    from app.watcher import _log_reconcile_failure
+
+    fut: Future = Future()
+    fut.set_exception(RuntimeError("boom"))
+    with caplog.at_level(logging.ERROR, logger="mdshards.watcher"):
+        _log_reconcile_failure(fut)
+    assert any("external reconcile failed" in r.message for r in caplog.records)
+
+    cancelled: Future = Future()
+    cancelled.cancel()
+    _log_reconcile_failure(cancelled)  # must not raise

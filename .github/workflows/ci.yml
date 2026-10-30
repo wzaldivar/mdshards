@@ -22,8 +22,12 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Read-only checkout: no job pushes back to the repo, so don't leave
+      # GITHUB_TOKEN in the runner's git config for later steps to read.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.14"
           cache: pip
@@ -35,12 +39,12 @@ jobs:
           ruff format --check .
       - name: Test with coverage
         run: pytest --cov=app --cov-report=xml --cov-report=term-missing
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-coverage
           path: backend/coverage.xml
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: backend/coverage.xml
           flags: backend
@@ -54,8 +58,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -65,12 +71,12 @@ jobs:
         run: npx tsc -b
       - name: Test with coverage
         run: npm run test:coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-coverage
           path: frontend/coverage/lcov.info
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: frontend/coverage/lcov.info
           flags: frontend
@@ -87,7 +93,9 @@ jobs:
     if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build the shipping image
         run: docker compose -f e2e/docker-compose.e2e.yml build
       - name: Browser tests (Chromium + Firefox + WebKit)
@@ -104,7 +112,9 @@ jobs:
     if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Validate Docker Hub description
         run: python3 .github/scripts/validate_dockerhub_description.py
 
@@ -112,8 +122,9 @@ jobs:
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # Sonar wants full history for accurate new-code / blame attribution.
           fetch-depth: 0
       # Self-guard: the scan only runs once SONAR_TOKEN is set (see
@@ -127,17 +138,17 @@ jobs:
           if [ -n "$TOKEN" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"
           else echo "enabled=false" >> "$GITHUB_OUTPUT"; echo "::notice::SONAR_TOKEN not set — skipping SonarCloud scan"; fi
       - if: steps.guard.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: backend-coverage
           path: backend
       - if: steps.guard.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: frontend-coverage
           path: frontend/coverage
       - if: steps.guard.outputs.enabled == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io

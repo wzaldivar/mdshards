@@ -1,0 +1,9 @@
+# Repo-root defaults for Python outside backend/ (e2e/, scripts). Mirrors
+# [tool.ruff] in backend/pyproject.toml, which ruff still uses for backend/
+# (nearest config wins). Without this, ruff run from the root falls back to
+# its 88-column default and rewraps the 100-column house style.
+line-length = 100
+target-version = "py314"
+
+[lint]
+select = ["E", "F", "I", "B", "UP"]

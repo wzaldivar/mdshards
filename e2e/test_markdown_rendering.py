@@ -50,7 +50,9 @@ _STYLE_JS = """
 
 
 def _open(page: Page, name: str, body: str) -> None:
-    seed_vault_file(ROOT_VAULT, f"features/{name}.md", ("intro line\n\n" + body).encode())
+    seed_vault_file(
+        ROOT_VAULT, f"features/{name}.md", ("intro line\n\n" + body).encode()
+    )
     page.goto(f"{ROOT_URL}/features/{name}")
     expect(page.locator(".cm-content")).to_be_visible()
 
@@ -138,7 +140,13 @@ def test_blocks_lists_quote_hr_and_code(page: Page):
     )
     _wait_text(page, "quoted wisdom")
     text = _visible_text(page)
-    for expected in ("quoted wisdom", "first item", "nested item", "ordered one", "fenced_fn"):
+    for expected in (
+        "quoted wisdom",
+        "first item",
+        "nested item",
+        "ordered one",
+        "fenced_fn",
+    ):
         assert expected in text
     # HR line gets its stable class
     assert page.locator(".cm-md-hr").count()
@@ -271,7 +279,11 @@ def test_table_rows_stay_contiguous_through_row_navigation(page: Page):
     ]
     data = unit * 6  # 36 data rows
     n = len(data)
-    body = "| Shortcut | What it does |\n| --- | --- |\n" + "\n".join(data) + "\n\ntail line\n"
+    body = (
+        "| Shortcut | What it does |\n| --- | --- |\n"
+        + "\n".join(data)
+        + "\n\ntail line\n"
+    )
     _open(page, "table-nav", body)
     _wait_text(page, "tail line")
 
@@ -308,7 +320,9 @@ def test_table_rows_stay_contiguous_through_row_navigation(page: Page):
         for direction in ("ArrowDown", "ArrowUp"):
             for _ in range(n + 8):
                 page.keyboard.press(direction)
-                max_visible_buffers = max(max_visible_buffers, contiguity()["visibleBuffers"])
+                max_visible_buffers = max(
+                    max_visible_buffers, contiguity()["visibleBuffers"]
+                )
     # Park below the table so every row renders as a widget — the clean state
     # where a row-to-row gap unambiguously means a leftover buffer.
     for _ in range(n + 8):
@@ -392,7 +406,11 @@ def test_wiki_section_links_scroll_within_note(page: Page):
 def test_wiki_section_link_setext_within_note(page: Page):
     """Section jump also resolves a Setext heading (`Heading\\n===`)."""
     filler = "\n\n".join(f"pad {i}" for i in range(40))
-    _open(page, "sections-setext", f"[[#Setext Target]]\n\n{filler}\n\nSetext Target\n===\n")
+    _open(
+        page,
+        "sections-setext",
+        f"[[#Setext Target]]\n\n{filler}\n\nSetext Target\n===\n",
+    )
     expect(page.locator(".cm-md-wikilink")).to_have_count(1, timeout=CRDT_LOAD_TIMEOUT)
     page.locator(".cm-md-wikilink").first.click()
     # Target the styled Setext heading LINE (class cm-md-h1), not bare text —
@@ -440,4 +458,43 @@ def test_direct_image_url_renders_pixels(page: Page):
     page.wait_for_function(
         "() => [...document.querySelectorAll('img')]"
         ".some(i => i.src && i.complete && i.naturalWidth > 0)"
+    )
+
+
+def test_mermaid_fence_renders_diagram_and_reveals_source(page: Page):
+    """A ```mermaid fence renders as an SVG diagram while the cursor is
+    elsewhere; clicking it reveals the raw source for editing.
+
+    Policy: no code is ever fetched from outside — mermaid is bundled with
+    the app and served from its own origin, never a CDN, so any off-origin
+    script request fails the test. Off-origin fonts are tolerated: the
+    shell's Google Fonts link is a preference with system-font fallbacks
+    (style.css), not a dependency."""
+    from urllib.parse import urlsplit
+
+    app_host = urlsplit(ROOT_URL).netloc
+    scripts: list[str] = []
+    page.on(
+        "request",
+        lambda r: scripts.append(r.url) if r.resource_type == "script" else None,
+    )
+    _open(
+        page, "mermaid", "```mermaid\ngraph TD\n  Alpha --> Beta\n```\n\noutro line\n"
+    )
+    diagram = page.locator(".cm-md-mermaid svg")
+    expect(diagram).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+    expect(diagram).to_contain_text("Alpha")
+    box = diagram.bounding_box()
+    assert box and box["width"] > 20 and box["height"] > 20, box
+    assert "Alpha --> Beta" not in _visible_text(page)
+
+    page.locator(".cm-md-mermaid").click()
+    _wait_text(page, "Alpha --> Beta")
+    expect(page.locator(".cm-md-mermaid")).to_have_count(0)
+    foreign = [u for u in scripts if urlsplit(u).netloc != app_host]
+    assert foreign == [], f"off-origin scripts: {foreign}"
+    # Proves the listener saw the lazy chunk at all — it came from us.
+    assert any("/_mdshards/assets/mermaid" in u for u in scripts), scripts
+    assert read_vault_file(ROOT_VAULT, "features/mermaid.md").startswith(
+        "intro line\n\n```mermaid"
     )

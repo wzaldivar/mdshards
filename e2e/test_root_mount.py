@@ -11,6 +11,7 @@ from conftest import (
     click_editor,
     expect_note_text,
     read_vault_file,
+    quick_switch,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -68,10 +69,7 @@ def test_quick_switcher_creates_note(page: Page, browser_name: str):
     target = f"created/by-e2e-{browser_name}"
     page.goto(f"{ROOT_URL}/")
     click_editor(page)
-    page.keyboard.press("Control+k")
-    switcher = page.get_by_placeholder(re.compile("go to or create", re.I))
-    switcher.fill(target)
-    switcher.press("Shift+Enter")
+    quick_switch(page, target, create=True)
     expect(page).to_have_url(re.compile(rf"/{re.escape(target)}$"))
     click_editor(page)
     marker = "created-note-content"

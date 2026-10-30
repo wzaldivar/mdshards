@@ -21,10 +21,7 @@ See **[FEATURES.md](./FEATURES.md)** for the markdown / editor feature inventory
 
 - **I want a simple tool to edit the notes that live on my LAN server** —
   without sharing them over SMB. I already serve HTTP there; the notes should
-  just be one more thing the browser can reach, from whatever device is in my
-  hand. A browser is the one client every phone, tablet and laptop already has,
-  so the phone case is a first-class one rather than a scaled-down afterthought
-  (see [Touch & mobile](./FEATURES.md#touch--mobile)).
+  just be one more thing the browser can reach.
 - **I want my data to survive any environment.** Plain text (markdown) does
   it flawlessly: no database, no proprietary format, nothing to export. The
   vault is just `.md` files any tool can read.

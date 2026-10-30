@@ -20,3 +20,6 @@ FROM nginx:1.27-alpine
 
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /build/dist /usr/share/nginx/html
+
+RUN adduser -D -u 1000 appuser && chown -R 1000:1000 /usr/share/nginx/html
+USER 1000

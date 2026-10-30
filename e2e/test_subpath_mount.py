@@ -10,6 +10,7 @@ import re
 from playwright.sync_api import Page, expect
 
 from conftest import (
+    CRDT_LOAD_TIMEOUT,
     TINY_PNG,
     WIKI_HOST,
     WIKI_PREFIX,
@@ -17,6 +18,7 @@ from conftest import (
     WIKI_VAULT,
     click_editor,
     expect_editor_contains,
+    quick_switch,
     seed_vault_file,
     type_text,
     wait_vault_file,
@@ -38,6 +40,31 @@ def test_shell_is_contained_under_prefix(page: Page):
     expect(page.locator('meta[name="mdshards-home-path"]')).to_have_attribute(
         "content", WIKI_PREFIX
     )
+    requests = page.evaluate(
+        "() => performance.getEntriesByType('resource').map(e => e.name)"
+    )
+    origin_rooted = [
+        u
+        for u in requests
+        if f"//{WIKI_HOST}" in u and f"//{WIKI_HOST}{WIKI_PREFIX}" not in u
+    ]
+    assert not origin_rooted, f"requests escaped the prefix: {origin_rooted}"
+
+
+def test_lazy_chunks_load_under_prefix(page: Page, browser_name: str):
+    """Code-split chunks (mermaid, code-block languages) are fetched after the
+    shell, so the serve-time shell rewrite never sees them — Vite must emit
+    them relative to the importing chunk or they escape the prefix."""
+    note = f"lazy/diagram-{browser_name}"
+    seed_vault_file(
+        WIKI_VAULT,
+        f"{note}.md",
+        b"# lazy\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n"
+        b"```python\nprint('hi')\n```\n\nend-of-note\n",
+    )
+    page.goto(f"{WIKI_URL}/{note}")
+    expect_editor_contains(page, "end-of-note")
+    expect(page.locator(".cm-md-mermaid svg")).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
     requests = page.evaluate(
         "() => performance.getEntriesByType('resource').map(e => e.name)"
     )
@@ -92,10 +119,7 @@ def test_vault_path_starting_with_prefix_segment(page: Page, browser_name: str):
     rel = f"wiki/foo-{browser_name}"
     page.goto(f"{WIKI_URL}/")
     click_editor(page)
-    page.keyboard.press("Control+k")
-    switcher = page.get_by_placeholder(re.compile("go to or create", re.I))
-    switcher.fill(rel)
-    switcher.press("Shift+Enter")
+    quick_switch(page, rel, create=True)
     expect(page).to_have_url(re.compile(rf"{re.escape(WIKI_PREFIX)}/{re.escape(rel)}$"))
     click_editor(page)
     marker = "shadow-segment-note"

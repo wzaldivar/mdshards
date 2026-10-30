@@ -98,7 +98,14 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
     return allUrls.includes(q) || matches.some((p) => p === q || displayPath(p) === q)
   }, [allUrls, matches, query])
 
-  async function commit(target: string, forceCreate = false): Promise<void> {
+  async function commit(rawTarget: string, forceCreate = false): Promise<void> {
+    // Leading slashes are tolerated by validateVaultPath (and lstripped by the
+    // backend), but everything below wants the vault-relative form: existence
+    // checks compare against unprefixed paths, and navigating '/' + '/foo'
+    // yields '//foo' — a scheme-relative URL pushState rejects, which
+    // react-router escalates to a full page navigation to host "foo". Strip
+    // once here, like onWikilinkNavigate and finalizeUploadPath already do.
+    const target = rawTarget.replace(/^\/+/, '')
     if (!target) return
     // Confirming the file that's already open is a no-op by definition —
     // just dismiss the switcher and stay in place, don't bounce through a
@@ -108,8 +115,11 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
       return
     }
     // An existing path always navigates — even under Shift-Enter, which
-    // would otherwise POST a create that's guaranteed to 409.
-    if (allUrls.includes(target)) {
+    // would otherwise POST a create that's guaranteed to 409. `index` counts
+    // as existing unconditionally: the vault root auto-materializes it, and
+    // its `/` row is pinned before the async tree fetch lands — gating it on
+    // `allUrls` made an early Enter on `/` a silent no-op.
+    if (target === 'index' || allUrls.includes(target)) {
       // Keep the URL bar clean: `/index` would resolve to the same file but the
       // canonical home URL is just `/`.
       // Replace rather than push when a modal sentinel is the current entry:
@@ -155,8 +165,9 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
         // When nothing is displayed but the typed text IS an existing file
         // (the currently-open note is hidden from the list), commit that —
         // commit() dismisses in place for the current file. Otherwise it's a
-        // no-op and the user must press Shift-Enter to create.
-        const trimmedQuery = query.trim()
+        // no-op and the user must press Shift-Enter to create. Leading slashes
+        // are stripped so "/foo" finds the existing "foo".
+        const trimmedQuery = query.trim().replace(/^\/+/, '')
         const target = matches[i] ?? (allUrls.includes(trimmedQuery) ? trimmedQuery : undefined)
         if (target) void commit(target)
       }
@@ -214,6 +225,9 @@ export function QuickSwitcher({ open, currentDocId, onClose }: Readonly<Props>) 
             <button
               type="button"
               className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
+              // Stable hook for "which row will Enter commit" — the class
+              // name is hashed by CSS Modules, so e2e waits on this instead.
+              data-selected={i === selectedIndex ? 'true' : undefined}
               tabIndex={-1}
               onClick={() => selectAndCommit(i)}
             >

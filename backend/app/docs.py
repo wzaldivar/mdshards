@@ -23,6 +23,19 @@ from pycrdt import Doc, Subscription, Text, create_update_message
 from .files import read_md, write_bytes_atomic, write_md_atomic
 from .vault import VaultPathError, assert_inside, resolve_md
 
+# A panic in pycrdt's Rust layer (e.g. a Y.Text splice landing inside a
+# multibyte UTF-8 sequence) surfaces as pyo3's PanicException, which subclasses
+# BaseException, NOT Exception — a bare `except Exception` lets it kill the
+# flush loop permanently, turning one bad splice into silent, total write loss
+# for that doc. Catch it wherever a doc mutation must not take the loop down.
+try:
+    from pyo3_runtime import PanicException as _RustPanic
+except ImportError:  # pragma: no cover — pyo3_runtime ships with pycrdt
+
+    class _RustPanic(BaseException):
+        pass
+
+
 logger = logging.getLogger("mdshards.docs")
 
 FLUSH_QUIET_SECONDS = 0.5
@@ -96,9 +109,21 @@ class DocumentManager:
         vault_dir: Path,
         grace_period_seconds: float,
         cache_dir: Path,
+        cache_max_age_seconds: float | None = None,
     ) -> None:
         self._vault_dir = vault_dir
         self._grace = grace_period_seconds
+        # Cold-open cache validity window. Past it, every client that could
+        # still hold matching CRDT items has been dismissed (the client-side
+        # threshold is pinned to the grace period), so the cache is worthless
+        # and disk is simply the truth. Defaults to the grace period; may be
+        # configured longer for more item-ID continuity, never shorter — a
+        # shorter-lived cache would reintroduce the double-merge after a quick
+        # server restart, the one thing the cache exists to prevent.
+        self._cache_max_age = max(
+            grace_period_seconds,
+            cache_max_age_seconds if cache_max_age_seconds is not None else 0.0,
+        )
         # One bucket per vault, hashed so two vaults at different paths can't
         # collide on cache files when their internal layouts overlap.
         vault_hash = hashlib.sha256(str(vault_dir.resolve()).encode()).hexdigest()[:16]
@@ -159,18 +184,32 @@ class DocumentManager:
         authoritative: str
         cached_update: bytes | None = None
         if cache_path.exists():
-            try:
-                cached_update = cache_path.read_bytes()
-            except OSError:
-                # Unreadable cache (mount permissions) — the cache is an
-                # optimization, so degrade to a fresh disk load instead of
-                # refusing to open the note at all.
-                logger.warning(
-                    "CRDT cache unreadable at %s — loading %s fresh from disk",
-                    cache_path,
+            if self._cache_is_stale(cache_path):
+                # Older than the validity window: any client that saw these
+                # CRDT items disconnected past the dismiss threshold and has
+                # thrown its local doc away, so there's nothing left to
+                # double-merge against. Drop the cache and let disk win
+                # wholesale — no conflict file; an idle note edited externally
+                # (Obsidian/Syncthing) must reopen showing the disk content.
+                logger.info(
+                    "CRDT cache for %s is older than %.0fs — dropping it; disk is the truth",
                     disk_path,
-                    exc_info=True,
+                    self._cache_max_age,
                 )
+                self._unlink_cache(cache_path)
+            else:
+                try:
+                    cached_update = cache_path.read_bytes()
+                except OSError:
+                    # Unreadable cache (mount permissions) — the cache is an
+                    # optimization, so degrade to a fresh disk load instead of
+                    # refusing to open the note at all.
+                    logger.warning(
+                        "CRDT cache unreadable at %s — loading %s fresh from disk",
+                        cache_path,
+                        disk_path,
+                        exc_info=True,
+                    )
         if cached_update is not None:
             # Restore the prior CRDT state with all its original item IDs so
             # clients still holding a Y.Doc from before can sync against the
@@ -229,7 +268,7 @@ class DocumentManager:
                     moved = await self._flush_out(state)
                 if moved:
                     return  # doc was moved to a conflict file; this loop is done
-            except Exception:
+            except Exception, _RustPanic:
                 logger.exception(
                     "flush of %s FAILED — the vault did not receive this "
                     "change; will retry on the next edit. Check mount "
@@ -349,9 +388,34 @@ class DocumentManager:
             state.flush_task.cancel()
             with suppress(asyncio.CancelledError):
                 await state.flush_task
+        # Drop the blob cache too (after the flush task is gone, so nothing can
+        # rewrite it): it still holds the web-side text we just moved to the
+        # conflict file. Left behind, the next _load would restore the kicked
+        # doc from cache, see the canonical FS version as divergence, and
+        # conflict-file IT — inverting FS-is-king. Best-effort, like all cache
+        # maintenance: a failure must not abort the kick.
+        try:
+            self._unlink_cache(self._cache_path(state.disk_path))
+        except OSError:
+            logger.warning(
+                "could not drop the CRDT cache for conflicted %s — the next "
+                "open may resurrect the pre-conflict web text",
+                state.disk_path,
+                exc_info=True,
+            )
         signal = KickSignal(code=DOC_MOVED_CODE, reason=conflict_id)
         for q in state.subscribers:
             q.put_nowait(signal)
+
+    def _cache_is_stale(self, cache_path: Path) -> bool:
+        """Whether a cold-open should trust `cache_path`. Age is time since the
+        last cache write (every flush rewrites it, including eviction's final
+        one), so it measures how long the doc has been unloaded. A stat failure
+        counts as stale — degrading to a fresh disk load is the safe direction."""
+        try:
+            return (time.time() - cache_path.stat().st_mtime) > self._cache_max_age
+        except OSError:
+            return True
 
     def _write_cache(self, state: _DocState) -> None:
         # Persist the binary CRDT state so the next load rehydrates items with
@@ -440,17 +504,32 @@ class DocumentManager:
         """Transform the live `Y.Text` from `current` into `target` by replaying
         `SequenceMatcher` opcodes as splices in one transaction, in reverse
         (EOF→0) so each edit's indices stay valid — a splice only shifts
-        positions at or after it, and later opcodes hold higher indices."""
+        positions at or after it, and later opcodes hold higher indices.
+
+        pycrdt's `Text` indexes by UTF-8 BYTE offset (yrs's native addressing),
+        while the opcodes carry Python code-point indices. Any multibyte
+        character before a splice point skews every later index — even a pure
+        ASCII edit gets misapplied below an `é` — so translate through a
+        prefix-sum table before splicing. A misaligned splice doesn't just
+        garble text: landing inside a multibyte sequence panics the Rust layer,
+        and pyo3 panics are BaseException (see the flush-loop guard)."""
         text = state.doc.get(TEXT_KEY, type=Text)
         opcodes = difflib.SequenceMatcher(a=current, b=target, autojunk=False).get_opcodes()
+        if current.isascii():
+            byte_at = None  # byte offsets == code-point indices; skip the table
+        else:
+            byte_at = [0] * (len(current) + 1)
+            for i, ch in enumerate(current):
+                byte_at[i + 1] = byte_at[i] + len(ch.encode("utf-8"))
         with state.doc.transaction():
             for tag, i1, i2, j1, j2 in reversed(opcodes):
                 if tag == "equal":
                     continue
+                b1, b2 = (i1, i2) if byte_at is None else (byte_at[i1], byte_at[i2])
                 if tag in ("replace", "delete"):
-                    del text[i1:i2]
+                    del text[b1:b2]
                 if tag in ("replace", "insert"):
-                    text.insert(i1, target[j1:j2])
+                    text.insert(b1, target[j1:j2])
 
     async def rename(self, src_doc_id: str, dst_doc_id: str) -> None:
         """Kick everyone attached to `src` (so they stop editing into a Doc
@@ -618,7 +697,7 @@ class DocumentManager:
         try:
             async with state.io_lock:
                 await self._flush_out(state)
-        except Exception:
+        except Exception, _RustPanic:
             # The final flush is best-effort: raising here would abort
             # eviction (leaking the doc) or cut a shutdown loop short,
             # dropping OTHER docs' final flushes with it.

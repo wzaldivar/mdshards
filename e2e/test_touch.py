@@ -61,6 +61,17 @@ def test_touch_bar_is_absent_on_a_desktop_pointer(page: Page):
     expect(page.get_by_label("Editor actions")).to_have_count(0)
 
 
+def test_opening_a_note_does_not_focus_the_editor(touch_page: Page, browser_name: str):
+    """Desktop autofocuses the buffer on entry (test_editor_focus.py); on a
+    phone that would pop the software keyboard over a note the user may only
+    want to read, so the editor stays unfocused until tapped."""
+    note = f"touch/nofocus-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{note}.md", b"nofocus-body\n")
+    touch_page.goto(f"{ROOT_URL}/{note}")
+    expect_editor_contains(touch_page, "nofocus-body")
+    expect(touch_page.locator(".cm-content")).not_to_be_focused()
+
+
 def test_touch_bar_renders_the_keyboardless_actions(touch_page: Page):
     touch_page.goto(f"{ROOT_URL}/")
     expect(touch_page.locator(".cm-content")).to_be_visible()

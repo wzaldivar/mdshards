@@ -86,6 +86,18 @@ export default defineConfig({
     // (see main.py). Keep in lockstep with APP_PREFIX in lib/backend.ts.
     assetsDir: '_mdshards/assets',
   },
+  experimental: {
+    // URLs Vite writes INSIDE the bundle — lazy-chunk preload lists (mermaid,
+    // code-block languages), CSS url()s — resolve relative to the file that
+    // references them, so they inherit whatever BASE_URL sub-path the bundle
+    // was served under. Left root-rooted, they'd escape the prefix: the serve-
+    // time shell rewrite (pages.py::_prefix_shell) only reaches index.html.
+    // The shell itself stays root-rooted ('html' falls through) because a
+    // relative ref there would resolve against nested note URLs.
+    renderBuiltUrl(_filename, { hostType }) {
+      return hostType === 'js' || hostType === 'css' ? { relative: true } : undefined
+    },
+  },
   server: {
     // Bind dual-stack, not the default `localhost`, which on Node 17+
     // resolves to ::1 only and leaves 127.0.0.1 unbound. Safari is the

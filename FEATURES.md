@@ -50,6 +50,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 - Table cell formatting — bold/italic/inline-code/strikethrough/escape plus the extended-syntax wrappers superscript (`x^2^`), subscript (`H~2~O`), and highlight (`==text==`) inside cells, driven by the lezer-markdown parser (no regex), so the GFM rules for intra-word underscores etc. are honored. In-cell inline runs reuse the same `cm-md-*` classes as prose, so a cell looks identical to the same markup outside a table.
 - Fenced code blocks (` ``` ` and ` ~~~ `).
 - Syntax highlighting in fenced code blocks — `@codemirror/language-data` lazily loads per-language packs (~50 languages: JS, TS, Python, Rust, Go, JSON, HTML, CSS, SQL, YAML, Bash, Java, C/C++, PHP, Ruby, and more) and the `catppuccinHighlight` style colors the tokens.
+- Mermaid diagrams — a ` ```mermaid ` fence renders as an SVG diagram (themed from the Catppuccin palette, light/dark) while the cursor is elsewhere; clicking the diagram or moving the cursor into the fence reveals the raw source. The file keeps the literal fence, so it round-trips with Obsidian. mermaid is bundled with the app and lazy-loaded on the first diagram — no CDN. Rendered with `securityLevel: 'strict'` and DOMPurify-sanitized, since note text may come from external writers. A parse error shows inline instead of a blank block (`lib/mermaid.ts`).
 - Strikethrough (`~~text~~`).
 - Task lists (`- [x]` / `- [ ]`).
 - Automatic URL linking (autolink extension) — bare `http(s)://…` URLs, `www.…` hosts, and bare emails render as clickable inline links (email → `mailto:`, `www.` → `https://`); the raw text stays untouched on disk and is revealed for editing when the cursor is on it.
@@ -84,6 +85,7 @@ Reference: [markdownguide.org/extended-syntax](https://www.markdownguide.org/ext
 **Supported**
 
 - Catppuccin Latte (light) and Mocha (dark) — auto-switch based on `prefers-color-scheme`.
+- Type on arrival — opening a note (page load, quick switcher, wikilink) focuses the editor, so you can start typing without clicking into it. Not on touch, where focusing would pop the software keyboard over a note you may only be reading.
 - Live preview — markdown structure rendered inline while editing; the source line under the cursor falls back to raw markup for editing. Applies per-line for tables, headings, links, images, HR, wiki-links.
 - Yjs CRDT sync — multi-client live collaboration via `y-websocket` and `y-codemirror.next`. The server holds the canonical Doc; clients exchange updates.
 - Asset viewer — for files visited via the URL bar:
@@ -152,6 +154,10 @@ value is untouched, so the same browser profile still gets them on a desktop:
   scroller, which is sized by the *layout* viewport, while the software keyboard
   shrinks only the *visual* one. The centered line lands under the keyboard, and
   re-centering on every tap fights the browser's own caret scrolling.
+
+**No autofocus on open.** On a desktop, opening a note puts the caret in the
+buffer; on touch it doesn't, so the software keyboard only appears when you tap
+into the text.
 
 **Sizing.** 44px minimum tap targets; picker rows and editor line height sized for a
 finger; 16px modal inputs (below that iOS zooms the page on focus and never zooms
