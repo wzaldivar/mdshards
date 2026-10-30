@@ -525,3 +525,34 @@ def test_mermaid_source_reveals_on_vertical_move(
     page.keyboard.press(up)
     _wait_text(page, "Gamma --> Delta")
     expect(page.locator(".cm-md-mermaid")).to_have_count(0)
+
+
+_CURSOR_LINE_JS = (
+    "() => getSelection().focusNode?.parentElement?.closest('.cm-line')?.textContent ?? null"
+)
+
+
+def test_mermaid_vim_counted_motion_counts_source_lines(page: Page, browser_name: str):
+    """`4j` / `4k` across a diagram count its fence's SOURCE lines, landing
+    inside the fence (revealed) — a rendered diagram is one visual step, so
+    the stock motion overshot it entirely."""
+    page.add_init_script("localStorage.setItem('mdshards:vim', '1')")
+    # 1 intro / 2 blank / 3 ```mermaid / 4 graph TD / 5 Gamma / 6 ``` / 7 blank / 8 outro
+    _open(
+        page,
+        f"mmd-count-{browser_name}",
+        "```mermaid\ngraph TD\n  Gamma --> Delta\n```\n\noutro line\n",
+    )
+    diagram = page.locator(".cm-md-mermaid svg")
+    expect(diagram).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+
+    page.get_by_text("intro line").click()
+    page.keyboard.type("4j")  # line 1 -> line 5
+    _wait_text(page, "Gamma --> Delta")
+    page.wait_for_function(f"() => ({_CURSOR_LINE_JS})() === '  Gamma --> Delta'")
+
+    page.get_by_text("outro line").click()
+    expect(diagram).to_be_visible()
+    page.keyboard.type("4k")  # line 8 -> line 4
+    _wait_text(page, "Gamma --> Delta")
+    page.wait_for_function(f"() => ({_CURSOR_LINE_JS})() === 'graph TD'")

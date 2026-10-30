@@ -10,7 +10,8 @@
  * fence (including its boundaries) the raw source stays visible for editing.
  * Moving up/down into a diagram reveals it like a table or image: CodeMirror
  * moves vertically PAST a block widget, so `enterDiagram` catches a move that
- * skipped one and lands it on the fence instead. The file always keeps the literal fence — the
+ * skipped one and lands it on the fence instead; `vimLineSteps` does the same
+ * for vim's counted motions (`6j`), which must count the fence's source lines. The file always keeps the literal fence — the
  * diagram is render-time only, so the note round-trips through Obsidian.
  *
  * mermaid is bundled with the app (npm dependency, served from our own
@@ -25,8 +26,10 @@ import {
   type DecorationSet,
   EditorView,
   ViewPlugin,
+  type ViewUpdate,
   WidgetType,
 } from '@codemirror/view'
+import { getCM } from '@replit/codemirror-vim'
 import DOMPurify from 'dompurify'
 
 type Rendered = { ok: true; svg: string } | { ok: false; error: string }
@@ -282,6 +285,64 @@ const enterDiagram = EditorState.transactionFilter.of((tr) => {
   return [tr, { selection: { anchor: target }, scrollIntoView: true }]
 })
 
+/** True when `pos` falls inside a rendered (block-replaced) diagram. */
+function inDiagram(decos: DecorationSet, pos: number): boolean {
+  let hit = false
+  decos.between(pos, pos, (from, to) => {
+    hit = from <= pos && pos <= to
+    return hit ? false : undefined
+  })
+  return hit
+}
+
+type VimCM = NonNullable<ReturnType<typeof getCM>>
+const patchedVim = new WeakSet<VimCM>()
+
+/** Vim's line motions (`j`/`k`, `6j`, `gj`) step through `findPosV`, one
+ *  `moveVertically` per count — and a block widget is ONE such step, so `6j`
+ *  above a diagram overshoots it entirely (vim then jumps to wherever that
+ *  lands). Wrap the vim adapter's `findPosV` so a step into, inside, or out of
+ *  a rendered diagram moves by one SOURCE line instead; steps elsewhere keep
+ *  the stock visual-line behavior. Vim then lands on the logical line it
+ *  counted (its goal column applies), and a cursor on a fence line reveals
+ *  the diagram. Re-applied per vim instance, since toggling vim mode in the
+ *  options panel builds a fresh one. */
+const vimLineSteps = ViewPlugin.fromClass(
+  class {
+    constructor(view: EditorView) {
+      this.patch(view)
+    }
+    update(u: ViewUpdate) {
+      this.patch(u.view)
+    }
+    patch(view: EditorView) {
+      const cm = getCM(view)
+      if (!cm || patchedVim.has(cm)) return
+      patchedVim.add(cm)
+      const stock = cm.findPosV.bind(cm)
+      cm.findPosV = (start, amount, unit, goalColumn) => {
+        const decos = view.state.field(mermaidField)
+        if (unit !== 'line' || decos.size === 0) return stock(start, amount, unit, goalColumn)
+        const doc = view.state.doc
+        const dir = amount > 0 ? 1 : -1
+        let pos: ReturnType<typeof stock> = { line: start.line, ch: start.ch }
+        for (let i = 0; i < Math.abs(Math.round(amount)); i++) {
+          const next = pos.line + dir
+          if (next < 0 || next >= doc.lines) return stock(pos, dir, unit, goalColumn)
+          const here = doc.line(pos.line + 1)
+          const there = doc.line(next + 1)
+          if (inDiagram(decos, here.from) || inDiagram(decos, there.from)) {
+            pos = { line: next, ch: Math.min(start.ch, there.length) }
+          } else {
+            pos = stock(pos, dir, unit, goalColumn)
+          }
+        }
+        return pos
+      }
+    }
+  },
+)
+
 /** Re-render on a light/dark switch — the palette is read from the live
  *  Catppuccin tokens at render time, so the cache is keyed by scheme. */
 const themeWatcher = ViewPlugin.fromClass(
@@ -300,5 +361,5 @@ const themeWatcher = ViewPlugin.fromClass(
 )
 
 export function mermaidDiagrams() {
-  return [mermaidField, themeWatcher, enterDiagram]
+  return [mermaidField, themeWatcher, enterDiagram, vimLineSteps]
 }
