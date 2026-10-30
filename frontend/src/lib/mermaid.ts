@@ -7,8 +7,10 @@
  * widget per row. A diagram has to replace the whole fence in one piece.
  *
  * Same cursor rule as every other widget: while the selection touches the
- * fence (including its boundaries, so arrowing in reveals it) the raw source
- * stays visible for editing. The file always keeps the literal fence — the
+ * fence (including its boundaries) the raw source stays visible for editing.
+ * Arrowing up/down into a diagram reveals it like a table or image: CodeMirror
+ * moves vertically PAST a block widget, so `enterDiagram` catches a move that
+ * would skip one and lands on its fence instead. The file always keeps the literal fence — the
  * diagram is render-time only, so the note round-trips through Obsidian.
  *
  * mermaid is bundled with the app (npm dependency, served from our own
@@ -17,11 +19,12 @@
  */
 
 import { syntaxTree } from '@codemirror/language'
-import { type EditorState, type Range, StateEffect, StateField } from '@codemirror/state'
+import { type EditorState, Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   ViewPlugin,
   WidgetType,
 } from '@codemirror/view'
@@ -251,6 +254,40 @@ const mermaidField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
+/** ArrowDown/ArrowUp that would jump over a rendered diagram stops on its
+ *  fence instead — the opening line going down, the closing line going up —
+ *  which puts the selection on the fence and reveals the source. A move that
+ *  doesn't cross a diagram (or a non-empty selection) falls through to the
+ *  default motion. */
+function enterDiagram(forward: boolean) {
+  return (view: EditorView): boolean => {
+    const sel = view.state.selection.main
+    if (!sel.empty) return false
+    const next = view.moveVertically(sel, forward)
+    let target: number | null = null
+    view.state
+      .field(mermaidField)
+      .between(Math.min(sel.head, next.head), Math.max(sel.head, next.head), (from, to) => {
+        const crosses = forward
+          ? sel.head < from && next.head >= from
+          : sel.head > to && next.head <= to
+        if (!crosses) return undefined
+        target = forward ? from : to
+        return false
+      })
+    if (target === null) return false
+    view.dispatch({ selection: { anchor: target }, scrollIntoView: true })
+    return true
+  }
+}
+
+const diagramArrows = Prec.high(
+  keymap.of([
+    { key: 'ArrowDown', run: enterDiagram(true) },
+    { key: 'ArrowUp', run: enterDiagram(false) },
+  ]),
+)
+
 /** Re-render on a light/dark switch — the palette is read from the live
  *  Catppuccin tokens at render time, so the cache is keyed by scheme. */
 const themeWatcher = ViewPlugin.fromClass(
@@ -269,5 +306,5 @@ const themeWatcher = ViewPlugin.fromClass(
 )
 
 export function mermaidDiagrams() {
-  return [mermaidField, themeWatcher]
+  return [mermaidField, themeWatcher, diagramArrows]
 }
