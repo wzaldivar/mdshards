@@ -42,6 +42,17 @@ links use `[[wikilinks]]`; external links are shown but not clickable.
 | Apple | red | ✅ |
 | Lemon | yellow | 😖 |
 
+### A diagram
+
+` ```mermaid ` fences render as diagrams — click one to see its source.
+
+```mermaid
+flowchart LR
+  you[You] -->|type| browser[Browser]
+  browser <-->|live sync| server[mdshards]
+  server <--> disk[(Plain .md files)]
+```
+
 ### Lists and checkboxes
 
 - A plain bullet

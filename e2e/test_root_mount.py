@@ -6,9 +6,11 @@ from playwright.sync_api import Page, expect
 
 from conftest import (
     ROOT_URL,
+    CRDT_LOAD_TIMEOUT,
     ROOT_VAULT,
     TINY_PNG,
     click_editor,
+    expect_editor_contains,
     expect_note_text,
     read_vault_file,
     quick_switch,
@@ -34,14 +36,81 @@ def test_home_loads_but_is_read_only(page: Page):
     import time
 
     page.goto(f"{ROOT_URL}/")
-    click_editor(page)
     expect(page.locator(".cm-content")).to_be_visible()
+    # The demo landing page shows off a mermaid diagram; it must actually
+    # render (bundled, lazy-loaded) rather than sit as a raw fence.
+    expect(page.locator(".cm-md-mermaid svg")).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+    click_editor(page)
     marker = "e2e-home-should-not-persist"
     type_text(page, marker + " ")
     # A writable note persists within a beat; the index write is dropped, so
     # after a generous wait the marker must still be absent from disk.
     time.sleep(2)
     assert marker not in (read_vault_file(ROOT_VAULT, "index.md") or "")
+
+
+def test_uploads_are_disabled(page: Page, browser_name: str):
+    """Demo: Cmd/Ctrl-U still opens the OS file picker, but picking a file only
+    shows a notice — nothing is sent. The asset upload endpoint is gone
+    server-side too, so a hand-rolled request can't bypass the UI."""
+    note = f"demo/upload-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{note}.md", b"upload-body\n")
+    page.goto(f"{ROOT_URL}/{note}")
+    expect_editor_contains(page, "upload-body")
+
+    sent: list[str] = []
+    page.on(
+        "request",
+        lambda r: sent.append(r.url) if r.method != "GET" and "/_mdshards/api/" in r.url else None,
+    )
+    with page.expect_file_chooser() as fc:
+        page.keyboard.press("Control+u")
+    fc.value.set_files(
+        files=[{"name": f"up-{browser_name}.png", "mimeType": "image/png", "buffer": TINY_PNG}]
+    )
+    expect(page.get_by_text("Uploads are disabled in this demo.")).to_be_visible()
+    assert not sent, f"upload UI sent requests: {sent}"
+    assert read_vault_file(ROOT_VAULT, f"up-{browser_name}.png") is None
+
+    status = page.evaluate(
+        """async (name) => {
+            const body = new FormData()
+            body.append('path', name)
+            body.append('file', new Blob([new Uint8Array([137, 80, 78, 71])]), name)
+            const r = await fetch('/_mdshards/api/assets', { method: 'POST', body })
+            return r.status
+        }""",
+        f"direct-{browser_name}.png",
+    )
+    assert status in (404, 405), status
+    assert read_vault_file(ROOT_VAULT, f"direct-{browser_name}.png") is None
+
+
+def test_external_image_renders_a_picsum_placeholder(page: Page, browser_name: str):
+    """Demo: an image ref that isn't a vault path renders a Lorem Picsum
+    placeholder instead — the external host is never contacted. Picsum is
+    stubbed (the test network is offline) to prove the <img> really loads it."""
+    external = "https://images.example.com/cat.png"
+    hits: list[str] = []
+    page.route(
+        "https://images.example.com/**", lambda r: (hits.append(r.request.url), r.abort())
+    )
+    page.route(
+        "https://picsum.photos/**",
+        lambda r: r.fulfill(status=200, content_type="image/png", body=TINY_PNG),
+    )
+    note = f"demo/external-img-{browser_name}"
+    seed_vault_file(ROOT_VAULT, f"{note}.md", f"# ext\n\n![cat]({external})\n".encode())
+    page.goto(f"{ROOT_URL}/{note}")
+    expect(page.locator(".cm-content")).to_be_visible()
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('img')].some(i =>"
+        " i.src.startsWith('https://picsum.photos/') && i.complete && i.naturalWidth > 0)",
+        timeout=CRDT_LOAD_TIMEOUT,
+    )
+    srcs = page.eval_on_selector_all("img", "els => els.map(i => i.src)")
+    assert external not in srcs, srcs
+    assert not hits, f"external image host was contacted: {hits}"
 
 
 def test_note_with_image_renders(page: Page):
