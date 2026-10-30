@@ -16,6 +16,7 @@ the embedded-image matrix, and the rendering pipeline is mount-agnostic.
 
 import re
 
+import pytest
 from playwright.sync_api import Page, expect
 
 from conftest import (
@@ -487,13 +488,22 @@ def test_mermaid_fence_renders_diagram_and_reveals_source(page: Page):
     )
 
 
-def test_mermaid_source_reveals_on_arrow_keys(page: Page, browser_name: str):
-    """Arrowing into a diagram reveals its source, like a table or image —
-    no click needed. CodeMirror's vertical motion skips over a block widget,
-    so this guards the keymap that stops on the fence instead."""
+@pytest.mark.parametrize(
+    ("mode", "down", "up"), [("arrows", "ArrowDown", "ArrowUp"), ("vim", "j", "k")]
+)
+def test_mermaid_source_reveals_on_vertical_move(
+    page: Page, browser_name: str, mode: str, down: str, up: str
+):
+    """Moving into a diagram reveals its source, like a table or image — no
+    click needed. CodeMirror's vertical motion skips over a block widget (and
+    vim's j/k jump to wherever it lands), so this guards the filter that stops
+    the move on the fence instead. Note names stay short: the demo branch caps
+    vault paths at 30 chars."""
+    if mode == "vim":
+        page.add_init_script("localStorage.setItem('mdshards:vim', '1')")
     _open(
         page,
-        f"mermaid-arrows-{browser_name}",
+        f"mmd-{mode}-{browser_name}",
         "```mermaid\ngraph TD\n  Gamma --> Delta\n```\n\noutro line\n",
     )
     diagram = page.locator(".cm-md-mermaid svg")
@@ -501,17 +511,17 @@ def test_mermaid_source_reveals_on_arrow_keys(page: Page, browser_name: str):
 
     # Down from the top: intro line -> blank line -> into the fence.
     page.get_by_text("intro line").click()
-    page.keyboard.press("ArrowDown")
+    page.keyboard.press(down)
     expect(diagram).to_be_visible()
-    page.keyboard.press("ArrowDown")
+    page.keyboard.press(down)
     _wait_text(page, "Gamma --> Delta")
     expect(page.locator(".cm-md-mermaid")).to_have_count(0)
 
     # Leave it (the diagram renders again), then come back up from below.
     page.get_by_text("outro line").click()
     expect(diagram).to_be_visible()
-    page.keyboard.press("ArrowUp")
+    page.keyboard.press(up)
     expect(diagram).to_be_visible()
-    page.keyboard.press("ArrowUp")
+    page.keyboard.press(up)
     _wait_text(page, "Gamma --> Delta")
     expect(page.locator(".cm-md-mermaid")).to_have_count(0)
