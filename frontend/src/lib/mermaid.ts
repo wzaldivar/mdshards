@@ -138,8 +138,12 @@ async function renderDiagram(source: string, key: string, dark: boolean): Promis
   return result
 }
 
+function cacheKey(source: string, dark: boolean): string {
+  return `${dark ? 'd' : 'l'}\0${source}`
+}
+
 function getRendered(source: string, dark: boolean): Rendered | Promise<Rendered> {
-  const key = `${dark ? 'd' : 'l'}\0${source}`
+  const key = cacheKey(source, dark)
   const hit = cache.get(key)
   if (hit) return hit
   let p = inflight.get(key)
@@ -163,13 +167,18 @@ function fill(el: HTMLElement, r: Rendered): void {
 class MermaidWidget extends WidgetType {
   readonly source: string
   readonly dark: boolean
+  /** Whether the render was already cached when this widget was built. Part
+   *  of `eq` so the post-render rebuild (see `diagramRendered`) swaps the
+   *  placeholder DOM for a fresh one instead of reusing it. */
+  readonly ready: boolean
   constructor(source: string, dark: boolean) {
     super()
     this.source = source
     this.dark = dark
+    this.ready = cache.has(cacheKey(source, dark))
   }
   override eq(other: MermaidWidget): boolean {
-    return other.source === this.source && other.dark === this.dark
+    return other.source === this.source && other.dark === this.dark && other.ready === this.ready
   }
   toDOM(view: EditorView): HTMLElement {
     const el = document.createElement('div')
@@ -180,9 +189,14 @@ class MermaidWidget extends WidgetType {
       el.textContent = 'Rendering diagram…'
       void r.then((res) => {
         fill(el, res)
-        // The block's height changed under CodeMirror — re-measure so
-        // vertical motion and scrolling use the real geometry.
-        view.requestMeasure()
+        // The block grew from the placeholder to the diagram under
+        // CodeMirror, and a bare requestMeasure() doesn't re-measure content
+        // heights (WebKit never did: the line-number gutter stayed offset by
+        // the diagram's height). Rebuild the widget from the now-cached
+        // render instead — a DOM swap through the normal update path always
+        // re-measures. Skipped if this DOM was already replaced or the view
+        // torn down meanwhile.
+        if (el.isConnected) view.dispatch({ effects: diagramRendered.of(null) })
       })
     } else {
       fill(el, r)
@@ -207,6 +221,10 @@ class MermaidWidget extends WidgetType {
 
 /** Fires when the color scheme flips so diagrams re-render in the new theme. */
 const themeChanged = StateEffect.define<null>()
+
+/** Fires when an async render lands, so the field rebuilds the widget from
+ *  the cache and CodeMirror re-measures its height (see `toDOM`). */
+const diagramRendered = StateEffect.define<null>()
 
 function buildMermaid(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = []
@@ -245,7 +263,7 @@ const mermaidField = StateField.define<DecorationSet>({
     if (
       tr.docChanged ||
       tr.selection ||
-      tr.effects.some((e) => e.is(themeChanged)) ||
+      tr.effects.some((e) => e.is(themeChanged) || e.is(diagramRendered)) ||
       // The incremental parser finished more of the doc (e.g. right after
       // the CRDT content lands) — fences may only now be visible.
       syntaxTree(tr.state) !== syntaxTree(tr.startState)

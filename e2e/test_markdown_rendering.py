@@ -558,6 +558,42 @@ def test_mermaid_vim_counted_motion_counts_source_lines(page: Page, browser_name
     page.wait_for_function(f"() => ({_CURSOR_LINE_JS})() === 'graph TD'")
 
 
+_GUTTER_OFFSET_JS = """(args) => {
+    const [num, text] = args
+    const el = [...document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+        .find(e => e.textContent === num)
+    const line = [...document.querySelectorAll('.cm-line')]
+        .find(l => l.textContent === text)
+    if (!el || !line) return null
+    return Math.abs(el.getBoundingClientRect().top - line.getBoundingClientRect().top)
+}"""
+
+
+def test_mermaid_line_numbers_align_on_first_render(page: Page, browser_name: str):
+    """With line numbers on, a freshly loaded note's gutter must line up with
+    the text below a diagram once it renders — the diagram grows from its
+    "Rendering…" placeholder to the SVG height after mount."""
+    page.add_init_script("localStorage.setItem('mdshards:lineNumbers', '1')")
+    # 1 intro / 2 blank / 3-6 fence / 7 blank / 8 outro
+    _open(
+        page,
+        f"mmd-gutter-{browser_name}",
+        "```mermaid\ngraph TD\n  A --> B\n  B --> C\n  C --> D\n```\n\noutro line\n",
+    )
+    expect(page.locator(".cm-md-mermaid svg")).to_be_visible(timeout=CRDT_LOAD_TIMEOUT)
+    # WebKit never re-measured the grown widget, so the gutter stayed off by
+    # the diagram's height for good; give a correct editor a beat to settle.
+    try:
+        page.wait_for_function(
+            f"() => {{ const d = ({_GUTTER_OFFSET_JS})(['10', 'outro line']); "
+            "return d !== null && d < 2 }",
+            timeout=5_000,
+        )
+    except Exception:
+        offset = page.evaluate(_GUTTER_OFFSET_JS, ["10", "outro line"])
+        raise AssertionError(f"gutter off by {offset}px") from None
+
+
 def test_mermaid_jump_past_a_diagram_does_not_enter_it(page: Page, browser_name: str):
     """A jump that merely crosses a diagram — vim `:N` from the line right next
     to it — lands where it aimed; only a one-line step may stop on the fence.
