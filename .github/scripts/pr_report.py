@@ -75,7 +75,9 @@ def osv(sarif_path: str) -> str:
                 _source(uri),
             )
         )
-    rows.sort(key=lambda r: (-r[0], r[1], r[3]))
+    # The SARIF can carry the same finding more than once (seen for pinned
+    # requirements.txt entries); one row per package + advisory + source.
+    rows = sorted(set(rows), key=lambda r: (-r[0], r[1], r[3]))
 
     out = [OSV_MARKER, "## OSV-Scanner", ""]
     if not rows:
