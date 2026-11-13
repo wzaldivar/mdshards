@@ -121,6 +121,10 @@ jobs:
   sonarcloud:
     needs: [backend, frontend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # For the quality-gate comment on the PR (last step).
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -152,3 +156,15 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+      # The scan step fails on a red gate (sonar.qualitygate.wait), which says
+      # nothing about WHY. Post the gate's conditions as a PR comment — one
+      # comment, edited on each push. Fork and Dependabot PRs have no
+      # SONAR_TOKEN, so the guard already keeps them out of here.
+      - name: Comment the quality gate on the PR
+        if: ${{ !cancelled() && steps.guard.outputs.enabled == 'true' && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          python3 .github/scripts/pr_report.py sonar wzaldivar_mdshards "$PR" > sonar-comment.md
+          .github/scripts/upsert_pr_comment.sh "$PR" sonar-comment.md

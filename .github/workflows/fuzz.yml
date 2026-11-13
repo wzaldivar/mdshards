@@ -41,3 +41,47 @@ jobs:
           fuzz-seconds: 300
           mode: code-change
           sanitizer: address
+          # Also save a shrunk copy of a crashing input (`<crash>-minimized`),
+          # which the PR comment offers as the reproducer. Only costs time on
+          # a run that already failed.
+          minimize-crashes: true
+
+  # ClusterFuzzLite fails the check and uploads the crashing input, but says
+  # nothing on the PR. Render its crash summaries (the `crashes-<target>`
+  # artifacts) into one comment, edited on each push — or a clean bill when
+  # the run found nothing. Skipped where the token can't write (fork and
+  # Dependabot PRs).
+  comment:
+    needs: fuzz
+    if: >-
+      !cancelled() && needs.fuzz.result != 'skipped'
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      # actions: read — to download this run's crash artifacts.
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Comment the fuzz result on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RESULT: ${{ needs.fuzz.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # `gh run download`, not actions/download-artifact: the action
+          # unpacks a lone matching artifact straight into the path, dropping
+          # the `crashes-<target>` directory that names the target. gh always
+          # keeps one directory per artifact. No match (a clean run) is fine.
+          mkdir -p fuzz-artifacts
+          gh run download "$RUN_ID" --pattern 'crashes-*' --dir fuzz-artifacts || true
+          find fuzz-artifacts -type f
+          python3 .github/scripts/pr_report.py fuzz fuzz-artifacts "$RESULT" "$RUN_URL" > fuzz-comment.md
+          .github/scripts/upsert_pr_comment.sh "$PR" fuzz-comment.md
