@@ -41,6 +41,10 @@ jobs:
           fuzz-seconds: 300
           mode: code-change
           sanitizer: address
+          # Shrink a crashing input to the smallest one that still crashes, so
+          # the PR comment shows `resolve_md('4/..')`, not 200 bytes of noise.
+          # Only costs time on a run that already failed.
+          minimize-crashes: true
 
   # ClusterFuzzLite fails the check and uploads the crashing input, but says
   # nothing on the PR. Render its crash summaries (the `crashes-<target>`

@@ -1,10 +1,16 @@
 """Fuzz the path-traversal boundary (`app/vault.py`).
 
-Every vault URL goes through `_validate` and then `resolve_md` /
-`resolve_asset`. The contract: either `VaultPathError` is raised, or the
-returned path is inside the vault root — `..` segments, backslashes, null
-bytes, the reserved `_mdshards` segment and symlinks planted inside the vault
-(pointing out of it, dangling or not) must never yield an outside path.
+The app reaches the vault through exactly two functions, `resolve_md` and
+`resolve_asset` — every router and the CRDT layer call one of them with a URL
+path. Those are what is fuzzed and what a failure is reported against; the
+private `_validate` they share is covered through them, not called directly.
+
+The contract, for any URL path: either `VaultPathError` is raised, or the
+returned path is inside the vault root. And some URLs must ALWAYS raise,
+whatever they would resolve to: one carrying a null byte, a backslash, a `..`
+segment, or the reserved first segment `_mdshards`. Symlinks planted inside
+the vault (pointing out of it, dangling or not) must never yield an outside
+path.
 
 Run locally (Linux, from backend/):  PYTHONPATH=. python fuzz/fuzz_vault_path.py
 """
@@ -17,7 +23,7 @@ from pathlib import Path
 import atheris
 
 with atheris.instrument_imports():
-    from app.vault import VaultPathError, _validate, resolve_asset, resolve_md
+    from app.vault import VaultPathError, resolve_asset, resolve_md
 
 
 def _make_vault() -> Path:
@@ -51,56 +57,52 @@ def _fail(called: str, got: str, expected: str) -> None:
     )
 
 
-def _check_validated(url_path: str, rel: str) -> None:
-    called = f"_validate({url_path!r})"
-    got = f"returned {rel!r}"
-    if rel == "":
-        return
-    if rel.startswith("/"):
-        _fail(called, got, "VaultPathError, or a relative path (no leading '/')")
-    if "\x00" in rel:
-        _fail(called, got, "VaultPathError (null byte in path)")
-    if "\\" in rel:
-        _fail(called, got, "VaultPathError (backslash in path)")
-    parts = rel.split("/")
-    if parts[0] == "_mdshards":
-        _fail(called, got, "VaultPathError ('_mdshards' is the reserved first segment)")
-    for bad in ("", ".", ".."):
-        if bad in parts:
-            _fail(called, got, f"VaultPathError (illegal path segment {bad!r})")
+def _must_reject(url_path: str) -> str | None:
+    """Why this URL may never resolve, or None if it is allowed to. Judged
+    from the URL alone, independently of how vault.py parses it. Empty and
+    `.` segments are not here: they are normalized away, not rejected."""
+    if "\x00" in url_path:
+        return "null byte in the path"
+    if "\\" in url_path:
+        return "backslash in the path"
+    segments = [s for s in url_path.lstrip("/").split("/") if s not in ("", ".")]
+    if ".." in segments:
+        return "'..' path segment"
+    if segments and segments[0] == "_mdshards":
+        return "'_mdshards' is the reserved first segment"
+    return None
 
 
 def TestOneInput(data: bytes) -> None:
     url_path = atheris.FuzzedDataProvider(data).ConsumeUnicodeNoSurrogates(len(data))
-    try:
-        rel = _validate(url_path)
-    except VaultPathError:
-        return
-    except Exception as exc:  # noqa: BLE001 — any other exception is the finding
-        _fail(
-            f"_validate({url_path!r})",
-            f"raised {type(exc).__name__}: {exc}",
-            "a validated path, or VaultPathError",
-        )
-    _check_validated(url_path, rel)
+    forbidden = _must_reject(url_path)
     for resolver in (resolve_md, resolve_asset):
         called = f"{resolver.__name__}({url_path!r}, <vault>)"
         try:
             resolved = resolver(url_path, VAULT)
         except VaultPathError:
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — any other exception is the finding
             _fail(
                 called,
                 f"raised {type(exc).__name__}: {exc}",
                 "a path inside the vault, or VaultPathError",
             )
-        if not resolved.is_relative_to(ROOT):
+        # Judge containment on the fully resolved path, not the returned one:
+        # a returned path can still hold `..` behind a directory that doesn't
+        # exist yet, which compares as "inside" lexically while pointing out.
+        real = resolved.resolve()
+        inside = real.is_relative_to(ROOT)
+        # Shown relative to the throwaway vault: its temp dir is noise.
+        shown = f"<vault>/{real.relative_to(ROOT).as_posix()}" if inside else str(real)
+        if not inside:
             _fail(
                 called,
-                f"returned {str(resolved)!r}, outside the vault root {str(ROOT)!r}",
+                f"returned {shown!r}, outside the vault",
                 "a path inside the vault, or VaultPathError",
             )
+        if forbidden:
+            _fail(called, f"returned {shown!r}", f"VaultPathError ({forbidden})")
 
 
 def main() -> None:
