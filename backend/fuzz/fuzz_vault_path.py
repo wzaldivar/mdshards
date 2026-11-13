@@ -42,14 +42,32 @@ VAULT = _make_vault()
 ROOT = VAULT.resolve()
 
 
-def _check_validated(rel: str) -> None:
+def _fail(called: str, got: str, expected: str) -> None:
+    """Report a broken invariant as call / got / expected. The three labelled
+    lines are what `.github/scripts/pr_report.py` lifts into the PR comment,
+    so a crash reads like a failed assertion instead of a wall of bytes."""
+    raise AssertionError(
+        f"fuzz invariant violated\ncalled:   {called}\ngot:      {got}\nexpected: {expected}"
+    )
+
+
+def _check_validated(url_path: str, rel: str) -> None:
+    called = f"_validate({url_path!r})"
+    got = f"returned {rel!r}"
     if rel == "":
         return
-    if rel.startswith("/") or "\x00" in rel or "\\" in rel:
-        raise AssertionError(f"_validate let through {rel!r}")
+    if rel.startswith("/"):
+        _fail(called, got, "VaultPathError, or a relative path (no leading '/')")
+    if "\x00" in rel:
+        _fail(called, got, "VaultPathError (null byte in path)")
+    if "\\" in rel:
+        _fail(called, got, "VaultPathError (backslash in path)")
     parts = rel.split("/")
-    if parts[0] == "_mdshards" or any(p in ("", ".", "..") for p in parts):
-        raise AssertionError(f"_validate let through {rel!r}")
+    if parts[0] == "_mdshards":
+        _fail(called, got, "VaultPathError ('_mdshards' is the reserved first segment)")
+    for bad in ("", ".", ".."):
+        if bad in parts:
+            _fail(called, got, f"VaultPathError (illegal path segment {bad!r})")
 
 
 def TestOneInput(data: bytes) -> None:
@@ -58,14 +76,31 @@ def TestOneInput(data: bytes) -> None:
         rel = _validate(url_path)
     except VaultPathError:
         return
-    _check_validated(rel)
+    except Exception as exc:  # noqa: BLE001 — any other exception is the finding
+        _fail(
+            f"_validate({url_path!r})",
+            f"raised {type(exc).__name__}: {exc}",
+            "a validated path, or VaultPathError",
+        )
+    _check_validated(url_path, rel)
     for resolver in (resolve_md, resolve_asset):
+        called = f"{resolver.__name__}({url_path!r}, <vault>)"
         try:
             resolved = resolver(url_path, VAULT)
         except VaultPathError:
             continue
+        except Exception as exc:  # noqa: BLE001
+            _fail(
+                called,
+                f"raised {type(exc).__name__}: {exc}",
+                "a path inside the vault, or VaultPathError",
+            )
         if not resolved.is_relative_to(ROOT):
-            raise AssertionError(f"{resolver.__name__}({url_path!r}) escaped to {resolved}")
+            _fail(
+                called,
+                f"returned {str(resolved)!r}, outside the vault root {str(ROOT)!r}",
+                "a path inside the vault, or VaultPathError",
+            )
 
 
 def main() -> None:

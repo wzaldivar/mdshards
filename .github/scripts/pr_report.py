@@ -183,18 +183,34 @@ def _fenced(lines: list[str]) -> list[str]:
     return [fence + "text", *lines, fence]
 
 
-def _crash(summary: pathlib.Path) -> tuple[str, list[str], str]:
-    """(headline, trace lines, base64 reproducer) from a ClusterFuzzLite
-    `<kind>-<hash>.summary` — the fuzzer's output for the crashing run."""
+# The fuzz targets report a broken invariant as three labelled lines (see
+# `_fail` in backend/fuzz/fuzz_*.py). The call carries the fuzzer's input, so
+# it gets more room than an ordinary line.
+_INVARIANT_LINE = re.compile(r"(called|got|expected):\s+(.*)")
+_MAX_CALL = 1200
+
+
+def _crash(summary: pathlib.Path) -> tuple[str, list[str], str, dict[str, str]]:
+    """(headline, trace lines, base64 reproducer, invariant) from a
+    ClusterFuzzLite `<kind>-<hash>.summary` — the fuzzer's output for the
+    crashing run. `invariant` holds called / got / expected when the target
+    reported one, and is empty for any other kind of crash."""
     lines = summary.read_text(encoding="utf-8", errors="replace").splitlines()
     headline, trace = "", []
+    invariant: dict[str, str] = {}
     if _PY_EXCEPTION in "\n".join(lines):
         start = next(i for i, line in enumerate(lines) if _PY_EXCEPTION in line) + 1
         for line in lines[start:]:
             if not line.strip():
                 break
             trace.append(_clip(line))
+            match = _INVARIANT_LINE.fullmatch(line)
+            if match and match[1] not in invariant:
+                value = match[2]
+                invariant[match[1]] = value if len(value) <= _MAX_CALL else value[:_MAX_CALL] + " …"
         headline = trace[0] if trace else ""
+        if set(invariant) != {"called", "got", "expected"}:
+            invariant = {}
     if not headline:
         # Native crash / timeout / OOM: no Python traceback, only sanitizer output.
         start = next((i for i, line in enumerate(lines) if "ERROR:" in line), None)
@@ -205,7 +221,7 @@ def _crash(summary: pathlib.Path) -> tuple[str, list[str], str]:
             trace[0] if trace else "crash (no summary line)",
         )
     repro = next((line[8:].strip() for line in lines if line.startswith("Base64: ")), "")
-    return _clip(headline), trace[:_MAX_TRACE_LINES], repro
+    return _clip(headline), trace[:_MAX_TRACE_LINES], repro, invariant
 
 
 def fuzz(artifacts_dir: str, result: str, run_url: str) -> str:
@@ -230,8 +246,15 @@ def fuzz(artifacts_dir: str, result: str, run_url: str) -> str:
     for summary in summaries:
         target = summary.parent.parent.name.removeprefix("crashes-")
         unit = summary.name.removesuffix(".summary")
-        headline, trace, repro = _crash(summary)
-        out += ["", f"### `{target}` ({summary.parent.name})", "", *_fenced([headline])]
+        headline, trace, repro, invariant = _crash(summary)
+        out += ["", f"### `{target}` ({summary.parent.name})"]
+        if invariant:
+            # The readable form: what was called, with which value, and how
+            # the result differs from what the invariant requires.
+            for label, key in (("Called", "called"), ("Got", "got"), ("Expected", "expected")):
+                out += ["", f"**{label}**", "", *_fenced([invariant[key]])]
+        else:
+            out += ["", *_fenced([headline])]
         if len(trace) > 1:
             out += ["", "<details><summary>Trace</summary>", "", *_fenced(trace), "", "</details>"]
         out += ["", f"Reproducer `{unit}` is in the run's `crashes-{target}` artifact."]

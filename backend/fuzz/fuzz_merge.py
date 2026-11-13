@@ -49,6 +49,15 @@ def _edited(fdp: atheris.FuzzedDataProvider, base: list[str]) -> str:
     return "".join(lines)
 
 
+def _fail(called: str, got: str, expected: str) -> None:
+    """Report a broken invariant as call / got / expected. The three labelled
+    lines are what `.github/scripts/pr_report.py` lifts into the PR comment,
+    so a crash reads like a failed assertion instead of a wall of bytes."""
+    raise AssertionError(
+        f"fuzz invariant violated\ncalled:   {called}\ngot:      {got}\nexpected: {expected}"
+    )
+
+
 def _ghost(current: str, target: str) -> None:
     doc = Doc()
     text = doc.get(TEXT_KEY, type=Text)
@@ -57,7 +66,11 @@ def _ghost(current: str, target: str) -> None:
     state = _DocState(doc=doc, disk_path=Path("fuzz.md"))
     DocumentManager._apply_ghost_merge(state, current, target)
     if str(text) != target:
-        raise AssertionError(f"ghost merge {current!r} -> {target!r} produced {str(text)!r}")
+        _fail(
+            f"_apply_ghost_merge(current={current!r}, target={target!r})",
+            f"Y.Text is {str(text)!r}",
+            "Y.Text equal to the target",
+        )
 
 
 def TestOneInput(data: bytes) -> None:
@@ -68,13 +81,18 @@ def TestOneInput(data: bytes) -> None:
     theirs = _edited(fdp, base_l)
 
     merge = DocumentManager._three_way_merge
-    for got, want in (
-        (merge(base, ours, base), ours),
-        (merge(base, base, theirs), theirs),
-        (merge(base, ours, ours), ours),
+    for a, b, want, why in (
+        (ours, base, ours, "theirs is unchanged, so ours wins cleanly"),
+        (base, theirs, theirs, "ours is unchanged, so theirs wins cleanly"),
+        (ours, ours, ours, "both sides made the same edit"),
     ):
+        got = merge(base, a, b)
         if got != (want, False):
-            raise AssertionError(f"merge identity broken: base={base!r} got={got!r}")
+            _fail(
+                f"_three_way_merge(base={base!r}, ours={a!r}, theirs={b!r})",
+                f"returned {got!r}",
+                f"{(want, False)!r} ({why})",
+            )
 
     merged, conflict = merge(base, ours, theirs)
     # The IN path: a clean merge is spliced into the live doc holding `ours`.

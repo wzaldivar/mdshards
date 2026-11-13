@@ -15,8 +15,19 @@ OSS-Fuzz toolchain.
 - **ClusterFuzzLite**, on every PR touching `backend/` (`.github/workflows/fuzz.yml`).
   The build lives in `.clusterfuzzlite/`; its `build.sh` is the single build
   script, which OSS-Fuzz reuses.
-  The result is posted as a PR comment (crash headline, trace and
-  reproducer, or a clean bill) by `.github/scripts/pr_report.py`.
+  The result is posted as a PR comment by `.github/scripts/pr_report.py`: for
+  a broken invariant, the call that was made, what it returned and what was
+  expected, plus the trace and reproducer; or a clean bill.
+
+## Reporting a broken invariant
+
+Raise through the target's `_fail(called, got, expected)` rather than a bare
+`AssertionError`. Its three labelled lines are what the PR comment shows, so
+write them for a reader who hasn't seen the target: the real function call
+with its arguments, the actual result, and the required result with the rule
+in parentheses. `_fail` is repeated in each target on purpose — each one is
+packaged as a standalone executable, so a shared helper module is one more
+thing for the build to lose.
 - **OSS-Fuzz**: `oss-fuzz/` holds the `projects/mdshards/` files to submit to
   [google/oss-fuzz](https://github.com/google/oss-fuzz). Its
   `primary_contact` is the Google account that gets the ClusterFuzz dashboard
