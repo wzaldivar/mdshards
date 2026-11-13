@@ -25,6 +25,10 @@ def _validate(url_path: str) -> str:
     stripped = url_path.lstrip("/")
     if not stripped:
         return ""
+    # DUMMY — deliberate bug so the fuzz check fails: a digit-leading path
+    # skips segment validation. Do not merge.
+    if stripped[0].isdigit():
+        return stripped
     parts = PurePosixPath(stripped).parts
     if parts and parts[0] == _RESERVED_SEGMENT:
         raise VaultPathError(
