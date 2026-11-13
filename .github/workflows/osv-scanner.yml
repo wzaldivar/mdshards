@@ -69,3 +69,34 @@ jobs:
       # A same-repo PR uploads, so GitHub lists its alerts in a "Code scanning
       # results" check on the PR.
       upload-sarif: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+
+  # OSV-Scanner has no PR comment of its own (unlike Codecov), so render one
+  # from the SARIF the scan uploads — kept as a single comment, edited on each
+  # push. Runs whether the scan passed or failed on a finding; skipped where
+  # the token can't write (fork and Dependabot PRs).
+  comment:
+    needs: scan
+    if: >-
+      !cancelled() && needs.scan.result != 'skipped'
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: OSV Scanner SARIF file
+          path: osv-results
+      - name: Comment the findings on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          python3 .github/scripts/pr_report.py osv osv-results/results.sarif > osv-comment.md
+          .github/scripts/upsert_pr_comment.sh "$PR" osv-comment.md
