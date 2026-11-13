@@ -15,6 +15,8 @@ OSS-Fuzz toolchain.
 - **ClusterFuzzLite**, on every PR touching `backend/` (`.github/workflows/fuzz.yml`).
   The build lives in `.clusterfuzzlite/`; its `build.sh` is the single build
   script, which OSS-Fuzz reuses.
+  The result is posted as a PR comment (crash headline, trace and
+  reproducer, or a clean bill) by `.github/scripts/pr_report.py`.
 - **OSS-Fuzz**: `oss-fuzz/` holds the `projects/mdshards/` files to submit to
   [google/oss-fuzz](https://github.com/google/oss-fuzz). Its
   `primary_contact` is the Google account that gets the ClusterFuzz dashboard
