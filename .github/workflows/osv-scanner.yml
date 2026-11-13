@@ -64,6 +64,8 @@ jobs:
         --lockfile=requirements.txt:backend-resolved-requirements.txt
         -r
         ./
-      # Fork PRs get a read-only token, so only non-PR runs publish alerts;
-      # a PR still fails on a finding.
-      upload-sarif: ${{ github.event_name != 'pull_request' }}
+      # Publishing alerts needs a write token, which fork and Dependabot PRs
+      # don't get — those still fail on a finding, just without the upload.
+      # A same-repo PR uploads, so GitHub lists its alerts in a "Code scanning
+      # results" check on the PR.
+      upload-sarif: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}

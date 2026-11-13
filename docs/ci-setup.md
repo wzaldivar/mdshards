@@ -35,6 +35,10 @@ until you do them the corresponding upload just no-ops (CI stays green).
 4. Generate a token (*My Account → Security*) and add it as the GitHub secret
    `SONAR_TOKEN`. The `sonarcloud` CI job detects the secret and activates —
    no secret means the job is a green no-op.
+5. The job **fails when the quality gate is red** (`sonar.qualitygate.wait`
+   in `sonar-project.properties`). For the gate summary as a PR comment,
+   install the SonarQube Cloud GitHub App on the repo and make sure the
+   project is bound to it — that decoration comes from the app, not from CI.
 
 ## OSV-Scanner (dependency vulnerabilities) — no account
 
@@ -45,7 +49,9 @@ wire: no token, no external dashboard.
 - A finding **fails the run** — a red check on the PR, or GitHub's
   failed-workflow email for the weekly run.
 - Runs on `main` also publish the findings as alerts under **Security → Code
-  scanning** (filter `tool:osv-scanner`).
+  scanning** (filter `tool:osv-scanner`). Same-repo PRs publish too, which
+  adds a **Code scanning results** check listing the alerts on the PR; fork
+  and Dependabot PRs have no write token, so they only get the pass/fail.
 - `backend/requirements.txt` is unpinned, so the workflow first installs it
   and scans the frozen result (`backend-resolved-requirements.txt` in the
   alerts) — the versions a fresh image build would get that day.
