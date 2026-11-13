@@ -1,0 +1,69 @@
+name: OSV-Scanner
+
+# Dependency vulnerability scan against osv.dev. Fails the run when a known
+# vulnerability is found, so a finding surfaces as a red check on the PR / a
+# failed-run email from the weekly schedule, and (on main) as an alert under
+# Security → Code scanning — no third-party dashboard to visit.
+#
+# The backend's requirements.txt is deliberately unpinned (the image installs
+# whatever resolves at build time), and OSV-Scanner can't judge a package with
+# no version. So `resolve-backend` installs it the way the Dockerfile does and
+# hands the frozen result to the scan as an artifact; the weekly schedule is
+# what re-checks that moving resolution when nothing in the repo changed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-backend:
+    if: github.head_ref != 'demo' && !startsWith(github.head_ref, 'demo/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Resolve the runtime dependency set
+        run: |
+          python -m venv /tmp/resolve
+          /tmp/resolve/bin/pip install -r backend/requirements.txt
+          /tmp/resolve/bin/pip freeze > backend-resolved-requirements.txt
+          cat backend-resolved-requirements.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-resolved-requirements
+          path: backend-resolved-requirements.txt
+          retention-days: 5
+
+  scan:
+    needs: resolve-backend
+    permissions:
+      # Required by the reusable workflow to upload SARIF to code scanning.
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      download-artifact: backend-resolved-requirements
+      # --no-resolve: without it the scanner invents transitive versions for
+      # the unpinned manifests (lowest-allowed, e.g. a 2016 `requests`) and
+      # reports vulnerabilities in packages nobody installs.
+      scan-args: |-
+        --no-resolve
+        --lockfile=requirements.txt:backend-resolved-requirements.txt
+        -r
+        ./
+      # Fork PRs get a read-only token, so only non-PR runs publish alerts;
+      # a PR still fails on a finding.
+      upload-sarif: ${{ github.event_name != 'pull_request' }}

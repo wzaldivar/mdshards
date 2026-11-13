@@ -3,7 +3,7 @@
 [![CI](https://github.com/wzaldivar/mdshards/actions/workflows/ci.yml/badge.svg)](https://github.com/wzaldivar/mdshards/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/wzaldivar/mdshards/branch/main/graph/badge.svg)](https://codecov.io/gh/wzaldivar/mdshards)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=wzaldivar_mdshards&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=wzaldivar_mdshards)
-[![Known Vulnerabilities](https://snyk.io/test/github/wzaldivar/mdshards/badge.svg)](https://snyk.io/test/github/wzaldivar/mdshards)
+[![OSV-Scanner](https://github.com/wzaldivar/mdshards/actions/workflows/osv-scanner.yml/badge.svg)](https://github.com/wzaldivar/mdshards/actions/workflows/osv-scanner.yml)
 
 A SilverBullet-inspired markdown vault editor. A FastAPI server owns a directory of plain `.md` files; a React 19 + CodeMirror 6 SPA edits them with CRDT-backed live sync over WebSocket. Keyboard-first on the desktop, and fully usable by touch on a phone or tablet — no keyboard required.
 
@@ -233,8 +233,10 @@ touch emulation, and WebKit is the one that matters since iOS Safari is where
 that UI is actually met.
 
 CI (GitHub Actions) runs both suites with coverage on every push and PR and
-reports to Codecov, SonarCloud, and Snyk. Linking those services is a one-time
-account step — see **[docs/ci-setup.md](./docs/ci-setup.md)**.
+reports to Codecov and SonarCloud. Linking those services is a one-time
+account step — see **[docs/ci-setup.md](./docs/ci-setup.md)**. Dependencies are
+checked for known vulnerabilities by OSV-Scanner (`osv-scanner.yml`), which
+needs no account.
 
 ## License
 
