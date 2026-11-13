@@ -44,7 +44,8 @@ The threat model is blunt (see [domain/concepts](../domain/concepts.md#no-auth-b
 
 ## CI & release workflows (`.github/workflows/`)
 
-- **`ci.yml`** — runs on push/PR: `backend` (ruff lint + pytest w/ coverage → Codecov), `frontend` (`tsc -b` typecheck + vitest coverage), `e2e` (builds the shipping image, runs Playwright across Chromium/Firefox/WebKit, always `down -v`), plus a Docker Hub description validation job. SonarCloud + Snyk also gate PRs.
+- **`ci.yml`** — runs on push/PR: `backend` (ruff lint + pytest w/ coverage → Codecov), `frontend` (`tsc -b` typecheck + vitest coverage), `e2e` (builds the shipping image, runs Playwright across Chromium/Firefox/WebKit, always `down -v`), plus a Docker Hub description validation job. SonarCloud also gates PRs.
+- **`osv-scanner.yml`** — runs on push/PR and weekly: OSV-Scanner over `frontend/package-lock.json`, the e2e pins, and the backend's runtime deps as resolved at scan time (the manifest is unpinned). A finding fails the run; `main` runs publish alerts to Security → Code scanning.
 - **`release.yml`** — triggers on a `v*` tag (or manual dispatch with a version). Publishes the multi-arch (`amd64`+`arm64`) single-container image to `wzaldivar/mdshards` with four tags: rolling `X`, `X.Y`, `latest`, and the immutable `X.Y.Z` (guarded against overwrite). Version must be plain `X.Y.Z`.
 - **`demo-publish.yml`** — **manual only**; builds the `demo` branch → `wzaldivar/mdshards-demo:latest` (a separate Docker Hub repo).
 - **`guard-demo-pr.yml`** — a required check that **fails any PR from `demo`/`demo/*` into `main`**.

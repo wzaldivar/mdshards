@@ -35,20 +35,33 @@ until you do them the corresponding upload just no-ops (CI stays green).
 4. Generate a token (*My Account → Security*) and add it as the GitHub secret
    `SONAR_TOKEN`. The `sonarcloud` CI job detects the secret and activates —
    no secret means the job is a green no-op.
+5. The job **fails when the quality gate is red** (`sonar.qualitygate.wait`
+   in `sonar-project.properties`) and **comments the gate's conditions on the
+   PR** — built in CI by `.github/scripts/pr_report.py`, so it doesn't depend
+   on the SonarQube Cloud GitHub App being installed.
 
-## Snyk (dependency + code security) — free for open source
+## OSV-Scanner (dependency vulnerabilities) — no account
 
-Uses the **GitHub App**, not a CI secret — zero workflow maintenance:
+`.github/workflows/osv-scanner.yml` scans the dependency manifests against
+<https://osv.dev> on every push to `main`, every PR, and weekly. Nothing to
+wire: no token, no external dashboard.
 
-1. Sign in at <https://snyk.io> with GitHub.
-2. **Add project → GitHub**, select `wzaldivar/mdshards`. Snyk auto-detects
-   `backend/requirements.txt` and `frontend/package.json`.
-3. Enable **Snyk Open Source** (dependency CVEs) and **Snyk Code** (SAST) for
-   the repo, and turn on **PR checks** + the weekly retest if you want fix PRs.
+- A finding **fails the run** — a red check on the PR, or GitHub's
+  failed-workflow email for the weekly run.
+- Runs on `main` also publish the findings as alerts under **Security → Code
+  scanning** (filter `tool:osv-scanner`). Same-repo PRs publish too, which
+  adds a **Code scanning results** check listing the alerts on the PR; fork
+  and Dependabot PRs have no write token, so they only get the pass/fail.
+- Same-repo PRs get a **comment with the findings table** (or a clean
+  bill), rendered from the scan's SARIF by `.github/scripts/pr_report.py` and
+  edited in place on each push.
+- `backend/requirements.txt` is unpinned, so the workflow first installs it
+  and scans the frozen result (`backend-resolved-requirements.txt` in the
+  alerts) — the versions a fresh image build would get that day.
+- To accept a finding, add an `[[IgnoredVulns]]` entry (id + reason) to an
+  `osv-scanner.toml` next to the affected manifest.
 
-No token needed; Snyk polls the repo itself. (If you later prefer a CI-gated
-scan instead, add `snyk/actions` with a `SNYK_TOKEN` secret — not wired here
-on purpose, to keep the pipeline secret-light.)
+Run it locally with `osv-scanner scan source --no-resolve -r .`.
 
 ## Docker Hub + GHCR release (`.github/workflows/release.yml`)
 
