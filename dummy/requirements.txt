@@ -1,0 +1,5 @@
+# DUMMY — never installed. Deliberately vulnerable pins so the OSV-Scanner
+# PR comment has findings to show. Do not merge.
+requests==2.19.0
+jinja2==2.10
+pyyaml==5.3
