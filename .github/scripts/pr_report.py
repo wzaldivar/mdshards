@@ -18,6 +18,7 @@ this only reports.
 
 from __future__ import annotations
 
+import base64
 import json
 import pathlib
 import re
@@ -269,7 +270,23 @@ def fuzz(artifacts_dir: str, result: str, run_url: str) -> str:
             out += ["", *_fenced([headline])]
         if len(trace) > 1:
             out += ["", "<details><summary>Trace</summary>", "", *_fenced(trace), "", "</details>"]
-        out += ["", f"Reproducer `{unit}` is in the run's `crashes-{target}` artifact."]
+        # With `minimize-crashes`, ClusterFuzzLite leaves a shrunk copy of the
+        # input beside the original. The summary above is still the ORIGINAL
+        # run's output (nothing re-runs the target here), so the minimized
+        # file only improves the reproducer.
+        minimized = summary.with_name(f"{unit}-minimized")
+        if minimized.is_file():
+            data = minimized.read_bytes()
+            repro = base64.b64encode(data).decode("ascii")
+            unit = minimized.name
+            out += [
+                "",
+                f"Reproducer `{unit}` ({len(data)} bytes, minimized by the fuzzer — a shorter "
+                f"input than the one shown that also crashes the target) is in the run's "
+                f"`crashes-{target}` artifact.",
+            ]
+        else:
+            out += ["", f"Reproducer `{unit}` is in the run's `crashes-{target}` artifact."]
         # Strict base64 only: this lands inside a shell snippet people paste.
         if re.fullmatch(r"[A-Za-z0-9+/]+=*", repro) and len(repro) <= _MAX_REPRO:
             out += [
