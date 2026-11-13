@@ -187,6 +187,7 @@ def _fenced(lines: list[str]) -> list[str]:
 # `_fail` in backend/fuzz/fuzz_*.py). The call carries the fuzzer's input, so
 # it gets more room than an ordinary line.
 _INVARIANT_LINE = re.compile(r"(called|got|expected):\s+(.*)")
+_FRAME = re.compile(r'\s*File "(?P<file>[^"]+)", line (?P<line>\d+), in (?P<func>\S+)')
 _MAX_CALL = 1200
 
 
@@ -209,8 +210,17 @@ def _crash(summary: pathlib.Path) -> tuple[str, list[str], str, dict[str, str]]:
                 value = match[2]
                 invariant[match[1]] = value if len(value) <= _MAX_CALL else value[:_MAX_CALL] + " …"
         headline = trace[0] if trace else ""
-        if set(invariant) != {"called", "got", "expected"}:
+        if not {"called", "got", "expected"} <= set(invariant):
             invariant = {}
+        else:
+            # Where in the fuzz target the check lives: the innermost frame
+            # that isn't the `_fail` reporter itself.
+            frames = [m for m in map(_FRAME.match, lines[start:]) if m and m["func"] != "_fail"]
+            if frames and re.fullmatch(r"fuzz_\w+\.py", frames[-1]["file"]):
+                invariant["check"] = (
+                    f"`backend/fuzz/{frames[-1]['file']}:{frames[-1]['line']}`"
+                    f" (`{frames[-1]['func']}`)"
+                )
     if not headline:
         # Native crash / timeout / OOM: no Python traceback, only sanitizer output.
         start = next((i for i, line in enumerate(lines) if "ERROR:" in line), None)
@@ -253,6 +263,8 @@ def fuzz(artifacts_dir: str, result: str, run_url: str) -> str:
             # the result differs from what the invariant requires.
             for label, key in (("Called", "called"), ("Got", "got"), ("Expected", "expected")):
                 out += ["", f"**{label}**", "", *_fenced([invariant[key]])]
+            if "check" in invariant:
+                out += ["", f"Checked by the fuzz target at {invariant['check']}."]
         else:
             out += ["", *_fenced([headline])]
         if len(trace) > 1:
