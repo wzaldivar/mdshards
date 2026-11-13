@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Render the markdown body of a PR report comment (stdlib only).
 
-Codecov comments on every PR by itself; SonarCloud and OSV-Scanner don't, so
-their workflows build the comment here and post it with
+Codecov comments on every PR by itself; SonarCloud, OSV-Scanner and
+ClusterFuzzLite don't, so their workflows build the comment here and post it with
 `upsert_pr_comment.sh`. Each body starts with a hidden marker so the same
 comment is edited on every push instead of piling up.
 
   pr_report.py osv <results.sarif>          OSV-Scanner findings table
   pr_report.py sonar <project-key> <pr>     SonarCloud quality-gate table
+  pr_report.py fuzz <artifacts-dir> <result> <run-url>
+                                            ClusterFuzzLite crashes; <result>
+                                            is the fuzz job's result
 
 Writes the body to stdout. Always exits 0 — pass/fail is the scan job's call;
 this only reports.
@@ -16,6 +19,7 @@ this only reports.
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 import sys
 import urllib.parse
@@ -23,6 +27,7 @@ import urllib.request
 
 OSV_MARKER = "<!-- mdshards:osv-scanner -->"
 SONAR_MARKER = "<!-- mdshards:sonarcloud -->"
+FUZZ_MARKER = "<!-- mdshards:fuzz -->"
 
 _OSV_MESSAGE = re.compile(
     r"Package '(?P<name>.+)@(?P<version>[^@']+)' is vulnerable to '(?P<id>[^']+)'"
@@ -159,11 +164,102 @@ def sonar(project_key: str, pull_request: str) -> str:
     return "\n".join(out) + "\n"
 
 
+_PY_EXCEPTION = "=== Uncaught Python exception: ==="
+# Fuzzer output is attacker-shaped by definition: cap it before it's a comment.
+_MAX_LINE = 300
+_MAX_TRACE_LINES = 25
+_MAX_REPRO = 600
+
+
+def _clip(line: str) -> str:
+    return line if len(line) <= _MAX_LINE else line[:_MAX_LINE] + " …"
+
+
+def _fenced(lines: list[str]) -> list[str]:
+    """A code block whose fence outruns any backtick run in the content, so
+    fuzzer-chosen text can't close it and inject markdown (or @-mentions)."""
+    longest = max((len(m) for line in lines for m in re.findall(r"`+", line)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [fence + "text", *lines, fence]
+
+
+def _crash(summary: pathlib.Path) -> tuple[str, list[str], str]:
+    """(headline, trace lines, base64 reproducer) from a ClusterFuzzLite
+    `<kind>-<hash>.summary` — the fuzzer's output for the crashing run."""
+    lines = summary.read_text(encoding="utf-8", errors="replace").splitlines()
+    headline, trace = "", []
+    if _PY_EXCEPTION in "\n".join(lines):
+        start = next(i for i, line in enumerate(lines) if _PY_EXCEPTION in line) + 1
+        for line in lines[start:]:
+            if not line.strip():
+                break
+            trace.append(_clip(line))
+        headline = trace[0] if trace else ""
+    if not headline:
+        # Native crash / timeout / OOM: no Python traceback, only sanitizer output.
+        start = next((i for i, line in enumerate(lines) if "ERROR:" in line), None)
+        if start is not None:
+            trace = [_clip(line) for line in lines[start : start + _MAX_TRACE_LINES]]
+        headline = next(
+            (line.strip() for line in lines if line.startswith("SUMMARY:")),
+            trace[0] if trace else "crash (no summary line)",
+        )
+    repro = next((line[8:].strip() for line in lines if line.startswith("Base64: ")), "")
+    return _clip(headline), trace[:_MAX_TRACE_LINES], repro
+
+
+def fuzz(artifacts_dir: str, result: str, run_url: str) -> str:
+    out = [FUZZ_MARKER, "## Fuzzing (ClusterFuzzLite)", ""]
+    # crashes-<target>/<sanitizer>/<kind>-<hash>.summary
+    summaries = sorted(pathlib.Path(artifacts_dir).glob("crashes-*/*/*.summary"))
+    if not summaries:
+        if result == "success":
+            out.append(":white_check_mark: No crashes found in this run.")
+        else:
+            out.append(
+                f":warning: The fuzz job ended as **{result}** without a crash artifact — "
+                f"likely a build or infrastructure error. [See the run]({run_url})."
+            )
+        return "\n".join(out) + "\n"
+
+    targets = {s.parent.parent.name.removeprefix("crashes-") for s in summaries}
+    out.append(
+        f":x: **{len(summaries)}** crash{'' if len(summaries) == 1 else 'es'} "
+        f"in **{len(targets)}** target{'' if len(targets) == 1 else 's'} — [run]({run_url})."
+    )
+    for summary in summaries:
+        target = summary.parent.parent.name.removeprefix("crashes-")
+        unit = summary.name.removesuffix(".summary")
+        headline, trace, repro = _crash(summary)
+        out += ["", f"### `{target}` ({summary.parent.name})", "", *_fenced([headline])]
+        if len(trace) > 1:
+            out += ["", "<details><summary>Trace</summary>", "", *_fenced(trace), "", "</details>"]
+        out += ["", f"Reproducer `{unit}` is in the run's `crashes-{target}` artifact."]
+        # Strict base64 only: this lands inside a shell snippet people paste.
+        if re.fullmatch(r"[A-Za-z0-9+/]+=*", repro) and len(repro) <= _MAX_REPRO:
+            out += [
+                "",
+                "<details><summary>Reproduce locally</summary>",
+                "",
+                "Build the fuzzers as in `backend/fuzz/README.md`, then:",
+                "",
+                "```sh",
+                f"echo '{repro}' | base64 -d > {unit}",
+                f"/out/{target} {unit}",
+                "```",
+                "",
+                "</details>",
+            ]
+    return "\n".join(out) + "\n"
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == "osv":
         sys.stdout.write(osv(argv[2]))
     elif len(argv) == 4 and argv[1] == "sonar":
         sys.stdout.write(sonar(argv[2], argv[3]))
+    elif len(argv) == 5 and argv[1] == "fuzz":
+        sys.stdout.write(fuzz(argv[2], argv[3], argv[4]))
     else:
         sys.stderr.write(__doc__ or "")
         return 2
